@@ -50,15 +50,36 @@ export async function POST(request: NextRequest) {
         break;
 
       case 'payment_intent.succeeded':
+        // First try the standard tuition-invoice path; then try the
+        // product-purchase path (idempotent, both no-op if the PI
+        // isn't theirs).
         await handlePaymentSucceeded(event.data.object as Stripe.PaymentIntent);
+        await handleProductPurchaseSucceeded(event.data.object as Stripe.PaymentIntent);
         break;
 
       case 'payment_intent.payment_failed':
         await handlePaymentFailed(event.data.object as Stripe.PaymentIntent);
+        await handleProductPurchaseFailed(event.data.object as Stripe.PaymentIntent);
         break;
 
       case 'charge.refunded':
         await handleChargeRefunded(event.data.object as Stripe.Charge);
+        await handleProductPurchaseRefunded(event.data.object as Stripe.Charge);
+        break;
+
+      // Product catalog: a Checkout Session completed. Pulls out the
+      // PI / subscription IDs and stamps them on product_purchases so
+      // subsequent payment_intent.* events can match by ID.
+      case 'checkout.session.completed':
+        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
+        break;
+
+      // Recurring product subscriptions
+      case 'invoice.paid':
+        await handleSubscriptionInvoicePaid(event.data.object as Stripe.Invoice);
+        break;
+      case 'customer.subscription.deleted':
+        await handleSubscriptionCanceled(event.data.object as Stripe.Subscription);
         break;
 
       case 'payment_method.attached':
@@ -330,5 +351,121 @@ async function handlePaymentMethodDetached(pm: Stripe.PaymentMethod): Promise<vo
         SET active = false, is_default = false, updated_at = now()
       WHERE stripe_payment_method_id = $1`,
     [pm.id],
+  );
+}
+
+// ─── Product purchases (school_products / product_purchases) ──────────
+// These handlers correlate Stripe events back to our product_purchases
+// rows using the gs_purchase_id metadata we attached at checkout time.
+// All operations are idempotent — a missing metadata tag means it's
+// not a product purchase, so we silently no-op.
+
+async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
+  const purchaseId = session.metadata?.gs_purchase_id;
+  if (!purchaseId) return;  // not a product-purchase session
+
+  const piId  = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id ?? null;
+  const subId = typeof session.subscription   === 'string' ? session.subscription   : session.subscription?.id   ?? null;
+
+  // Stamp PI / subscription IDs onto the purchase row so subsequent
+  // PI events can match. For one-time/donation: the PI will succeed
+  // shortly and that fires handleProductPurchaseSucceeded. For
+  // subscriptions: invoice.paid fires for each billing cycle.
+  await query(
+    `UPDATE product_purchases
+        SET stripe_payment_intent_id = COALESCE($1, stripe_payment_intent_id),
+            stripe_subscription_id   = COALESCE($2, stripe_subscription_id),
+            updated_at = now()
+      WHERE id = $3`,
+    [piId, subId, purchaseId],
+  );
+}
+
+async function handleProductPurchaseSucceeded(pi: Stripe.PaymentIntent): Promise<void> {
+  const purchaseId = pi.metadata?.gs_purchase_id;
+  if (!purchaseId) return;
+
+  const charge = pi.latest_charge && typeof pi.latest_charge !== 'string' ? pi.latest_charge : null;
+
+  await query(
+    `UPDATE product_purchases
+        SET status = 'succeeded',
+            stripe_payment_intent_id = $1,
+            stripe_charge_id = $2,
+            updated_at = now()
+      WHERE id = $3 AND status != 'succeeded'`,
+    [pi.id, charge?.id ?? null, purchaseId],
+  );
+
+  // TODO (next pass): write back to GHL contact custom field if the
+  // product has ghl_writeback_field configured. Look up contact by
+  // email, set the field to today's date, optionally trigger workflow.
+}
+
+async function handleProductPurchaseFailed(pi: Stripe.PaymentIntent): Promise<void> {
+  const purchaseId = pi.metadata?.gs_purchase_id;
+  if (!purchaseId) return;
+  await query(
+    `UPDATE product_purchases
+        SET status = 'failed', updated_at = now()
+      WHERE id = $1 AND status = 'pending'`,
+    [purchaseId],
+  );
+}
+
+async function handleProductPurchaseRefunded(charge: Stripe.Charge): Promise<void> {
+  const purchaseId = charge.metadata?.gs_purchase_id
+    || (typeof charge.payment_intent === 'object' && charge.payment_intent?.metadata?.gs_purchase_id);
+  if (!purchaseId) return;
+  await query(
+    `UPDATE product_purchases
+        SET status = 'refunded',
+            refunded_at = now(),
+            refunded_amount_cents = $1,
+            refund_reason = $2,
+            updated_at = now()
+      WHERE id = $3`,
+    [charge.amount_refunded ?? 0, charge.refunds?.data?.[0]?.reason ?? null, purchaseId],
+  );
+}
+
+async function handleSubscriptionInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
+  // Stripe API moved the subscription pointer to `parent.subscription_details.subscription`
+  // in the 2025 API revision; older invoices still set `subscription` at the top level.
+  // We probe both for resilience across API versions.
+  const inv = invoice as unknown as {
+    subscription?: string | { id: string } | null;
+    parent?: { subscription_details?: { subscription?: string | { id: string } | null } | null } | null;
+  };
+  const rawSub = inv.subscription ?? inv.parent?.subscription_details?.subscription ?? null;
+  const subId  = typeof rawSub === 'string' ? rawSub : rawSub?.id ?? null;
+  if (!subId) return;
+
+  // Find the purchase tied to this subscription
+  const { rows } = await query<{ id: string }>(
+    `SELECT id FROM product_purchases WHERE stripe_subscription_id = $1 LIMIT 1`,
+    [subId],
+  );
+  if (rows.length === 0) return;
+
+  // For recurring products we mark the row 'succeeded' on the first
+  // paid invoice. Each subsequent invoice is logged but doesn't change
+  // the purchase row's status — the row represents the subscription
+  // overall. Per-billing-cycle granularity will come in a separate
+  // table (product_subscription_invoices) when we need reporting.
+  await query(
+    `UPDATE product_purchases
+        SET status = 'succeeded', updated_at = now()
+      WHERE id = $1 AND status = 'pending'`,
+    [rows[0].id],
+  );
+}
+
+async function handleSubscriptionCanceled(sub: Stripe.Subscription): Promise<void> {
+  await query(
+    `UPDATE product_purchases
+        SET status = 'canceled', updated_at = now()
+      WHERE stripe_subscription_id = $1`,
+    [sub.id],
   );
 }

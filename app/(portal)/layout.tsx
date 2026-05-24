@@ -3,7 +3,7 @@
 // CSS custom properties so every page picks it up automatically.
 
 import Link from 'next/link';
-import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut } from 'lucide-react';
+import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/messages', label: 'Messages', icon: MessageSquare },
   { href: '/tuition', label: 'Tuition', icon: CreditCard },
   { href: '/financial-aid', label: 'Financial Aid', icon: HandCoins },
+  { href: '/products', label: 'School Store', icon: ShoppingBag },
 ];
 
 // Per-school nav-item hide list. Keyed by school_id. Values are the
@@ -26,9 +27,11 @@ const NAV_ITEMS = [
 // still in migration: we only want them seeing Family + Forms +
 // Documents until the rest of the modules are ready for them.
 const HIDDEN_NAV_BY_SCHOOL: Record<string, Set<string>> = {
-  // Montessori School of Wooster
+  // Montessori School of Wooster — keep them on Family + Forms + Documents
+  // until other modules are migration-ready for them. Adding /products
+  // explicitly so it doesn't appear until Wooster opts in.
   '2c944223-b2ad-45e1-8ba4-a4b616e4c29a': new Set([
-    '/attendance', '/messages', '/tuition', '/financial-aid',
+    '/attendance', '/messages', '/tuition', '/financial-aid', '/products',
   ]),
 };
 

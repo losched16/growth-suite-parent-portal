@@ -18,6 +18,7 @@ import type { NextRequest } from 'next/server';
 import { stripe } from '@/lib/stripe/client';
 import { query } from '@/lib/db';
 import { sendPaymentReceiptEmail, sendPaymentFailureEmail } from '@/lib/billing/send-payment-email';
+import { writebackProductPurchaseToGhl } from '@/lib/ghl/product-writeback';
 import type Stripe from 'stripe';
 
 export const runtime = 'nodejs';
@@ -387,6 +388,15 @@ async function handleProductPurchaseSucceeded(pi: Stripe.PaymentIntent): Promise
 
   const charge = pi.latest_charge && typeof pi.latest_charge !== 'string' ? pi.latest_charge : null;
 
+  // Check if this purchase has already been processed (we get one
+  // payment_intent.succeeded per actual charge — for one-time this is
+  // exactly once, for subscriptions this fires on every billing cycle).
+  // We only want to fire the GHL writeback on the FIRST success.
+  const wasAlreadySucceeded = await query<{ status: string }>(
+    `SELECT status FROM product_purchases WHERE id = $1`,
+    [purchaseId],
+  ).then((r) => r.rows[0]?.status === 'succeeded');
+
   await query(
     `UPDATE product_purchases
         SET status = 'succeeded',
@@ -397,9 +407,19 @@ async function handleProductPurchaseSucceeded(pi: Stripe.PaymentIntent): Promise
     [pi.id, charge?.id ?? null, purchaseId],
   );
 
-  // TODO (next pass): write back to GHL contact custom field if the
-  // product has ghl_writeback_field configured. Look up contact by
-  // email, set the field to today's date, optionally trigger workflow.
+  // Fire GHL writeback on first success only (subsequent subscription
+  // cycles don't need to re-stamp). Best-effort — log but don't throw.
+  if (!wasAlreadySucceeded) {
+    try {
+      const result = await writebackProductPurchaseToGhl(purchaseId);
+      if (!result.ok) {
+        console.warn('[product-purchase] GHL writeback skipped:', result.reason);
+      }
+    } catch (e) {
+      console.error('[product-purchase] GHL writeback error:', e instanceof Error ? e.message : String(e));
+      // Don't re-throw — purchase already succeeded, GHL is best-effort
+    }
+  }
 }
 
 async function handleProductPurchaseFailed(pi: Stripe.PaymentIntent): Promise<void> {

@@ -49,6 +49,11 @@ interface DefRow {
   resubmission_allowed: boolean;
   payment_config: FormPaymentConfig | null;
   allow_addendum: boolean;
+  // Migrations 040 + 042 — post-submit behavior
+  confirmation_message: string | null;
+  confirmation_redirect_url: string | null;
+  notify_emails: string[] | null;
+  webhook_urls: string[] | null;
 }
 
 interface GhlWritebackEntry {
@@ -102,7 +107,8 @@ export async function POST(request: NextRequest) {
   const defs = (await query<DefRow>(
     `SELECT id, slug, display_name, category, per_student, field_schema,
             ghl_writeback, fee_amount, one_submission_per_year, resubmission_allowed,
-            payment_config, allow_addendum
+            payment_config, allow_addendum,
+            confirmation_message, confirmation_redirect_url, notify_emails, webhook_urls
      FROM portal_form_definitions
      WHERE id = $1 AND school_id = $2 AND is_active = true`,
     [formDefId, session.school_id],
@@ -666,10 +672,33 @@ export async function POST(request: NextRequest) {
     ).catch((e) => console.error('[portal-forms/submit] admin notify failed:', e));
   }
 
+  // 13. Configurable post-submit effects (migrations 040 + 042):
+  //     - Office notification email → notify_emails
+  //     - Webhook fan-out → webhook_urls
+  // Both are fire-and-forget; they NEVER block the parent's redirect.
+  import('@/lib/forms/post-submit-effects').then((m) =>
+    m.firePostSubmitEffects({
+      submissionId,
+      schoolId: session.school_id,
+      formId: def.id,
+      formSlug: def.slug,
+      formDisplayName: def.display_name,
+      formCategory: def.category,
+      familyId: session.family_id,
+      parentId: session.parent_id,
+      studentId,
+      responses,
+      notifyEmails: def.notify_emails ?? null,
+      webhookUrls: def.webhook_urls ?? null,
+    })
+  ).catch((e) => console.error('[portal-forms/submit] post-submit effects scheduling failed:', e));
+
   return NextResponse.json({
     id: submissionId,
     slug: def.slug,
     redirect_to_invoice_id: redirectInvoiceId,
+    confirmation_message: def.confirmation_message,
+    confirmation_redirect_url: def.confirmation_redirect_url,
   });
 }
 

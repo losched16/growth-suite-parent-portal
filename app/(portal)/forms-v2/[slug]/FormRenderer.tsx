@@ -258,14 +258,23 @@ export function FormRenderer({
         throw new Error(friendly);
       }
       // For payment-required forms, the server returns JSON with the
-      // invoice id to redirect to. For all other forms we land on
-      // history with a success toast.
+      // invoice id to redirect to. For all other forms we land on the
+      // thanks page (which renders the school's custom confirmation
+      // message + optional auto-redirect URL, falling back to a default
+      // "Submitted" message when neither is configured).
       const ct = r.headers.get('content-type') ?? '';
       if (ct.includes('application/json')) {
         const body = await r.json().catch(() => ({} as Record<string, unknown>));
         if (typeof body.redirect_to_invoice_id === 'string') {
-          const returnTo = `/forms-v2/history?submitted=${encodeURIComponent(definition.slug)}`;
+          const returnTo = `/forms-v2/thanks/${encodeURIComponent(String(body.id ?? ''))}`;
           router.push(`/billing/pay/${body.redirect_to_invoice_id}?return_to=${encodeURIComponent(returnTo)}`);
+          return;
+        }
+        // Successful non-payment submission. The submit endpoint
+        // returns the new submission id; the thanks page resolves the
+        // school's confirmation_message + redirect_url from it.
+        if (typeof body.id === 'string' && body.id.length > 0) {
+          router.push(`/forms-v2/thanks/${encodeURIComponent(body.id)}`);
           return;
         }
       }

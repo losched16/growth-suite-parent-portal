@@ -1,12 +1,18 @@
 // /attendance/check-out?student_id=... — pick-up flow.
-// Three things: who is picking up, is it curbside, and sign.
+// Two things: who is picking up + sign.
 // "Who is picking up" pre-selects Myself; other options are the
 // other parent(s) in the family and the family's authorized pickup
 // persons (active only).
+//
+// Curbside is intentionally NOT settable here — DGM (and most schools)
+// need to KNOW about curbside in the morning so they can prep the
+// dismissal line. The morning check-in form is where it gets set;
+// here we just SHOW the parent what they picked at drop-off so they
+// know the office already has the heads-up.
 
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Car } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { SignatureCanvasField } from '../_signature-canvas';
@@ -75,6 +81,23 @@ export default async function CheckOutPage({ searchParams }: { searchParams: Sea
     [id.parent.school_id, id.parent.id],
   );
 
+  // Today's morning check-in event for this student — used to show
+  // a read-only "curbside today" indicator on the check-out page.
+  // Looks at the most recent check_in within the school's local-day
+  // boundary so cross-timezone parents see the right one.
+  const { rows: morningRows } = await query<{ curbside: boolean; curbside_slot: string | null }>(
+    `SELECT curbside, curbside_slot
+       FROM attendance_events
+      WHERE student_id = $1
+        AND event_type = 'check_in'
+        AND (performed_at AT TIME ZONE 'America/Phoenix')::date
+              = (now() AT TIME ZONE 'America/Phoenix')::date
+      ORDER BY performed_at DESC LIMIT 1`,
+    [s.id],
+  );
+  const morningCurbside = morningRows[0]?.curbside === true;
+  const morningSlot = morningRows[0]?.curbside_slot ?? null;
+
   return (
     <div className="space-y-4">
       <Link href="/attendance" className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700">
@@ -84,7 +107,7 @@ export default async function CheckOutPage({ searchParams }: { searchParams: Sea
       <header>
         <h1 className="text-2xl font-semibold text-gray-900">Check out {displayName}</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Who is picking up today? Pick one, mark curbside if applicable, and sign.
+          Who is picking up today? Pick one and sign.
         </p>
       </header>
 
@@ -131,11 +154,27 @@ export default async function CheckOutPage({ searchParams }: { searchParams: Sea
           ) : null}
         </fieldset>
 
-        {/* Curbside */}
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" name="curbside" value="1" className="h-4 w-4 rounded border-gray-300" />
-          <span>Curbside pickup</span>
-        </label>
+        {/* Curbside (read-only — set at morning check-in so the school
+            can prep the dismissal line). We show the parent what they
+            already picked at drop-off so they know the front desk
+            already has it. The checkbox below is purely cosmetic — the
+            actual curbside flag on this check-out event stays false;
+            the morning check_in row is the source of truth in queries. */}
+        {morningCurbside ? (
+          <div className="rounded-md border border-violet-200 bg-violet-50/60 px-3 py-2 text-sm text-violet-900 flex items-start gap-2">
+            <Car className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              <strong>Curbside today{morningSlot ? ` — slot ${morningSlot}` : ''}</strong>
+              <div className="text-[11px] mt-0.5 text-violet-800">
+                You picked this at drop-off this morning, so the school is already prepping for curbside dismissal. To change, talk to the front desk.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Need curbside dismissal? Curbside is set at <strong>morning check-in</strong> so the school can prep the dismissal line ahead of time. Call the front desk if today&rsquo;s plan changed.
+          </div>
+        )}
 
         {/* Notes — optional. Use for "running late", "needs to go home with
             sibling today", med-given timing, mood, etc. Saved on the

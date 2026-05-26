@@ -5,8 +5,11 @@
 //   student_id           uuid (required)
 //   event_type           'check_in' | 'check_out' (required)
 //   signature_png        data: URL of the captured signature (required)
-//   curbside             '1' if curbside (optional; valid on either event type)
-//   curbside_slot        text — parking-spot number (optional, sanitized to ≤16 chars)
+//   curbside             '1' if curbside (parent UI only exposes this on
+//                          check_in — see check-out/page.tsx for why.
+//                          The kiosk still posts it on check_out for
+//                          walk-up pickup persons who didn't pre-flag).
+//   curbside_slot        text — parking-spot number (optional, ≤16 chars)
 //   picked_up_by         'me' | 'parent:<uuid>' | 'pickup:<uuid>'  (check_out only)
 //
 // Scope checks:

@@ -1153,7 +1153,9 @@ const inputCls =
 type LegacyProp = { legacyResponses: Record<string, unknown> | null };
 
 function TextInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'text' | 'email' | 'tel' | 'url' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx);
+  const defaultValue = (legacyVal(legacyResponses, block.key)
+    ?? resolvePrefill(block.prefill, prefillCtx))
+    || (typeof block.default === 'string' ? block.default : '');
   const typeMap: Record<string, string> = { text: 'text', email: 'email', tel: 'tel', url: 'url' };
   return (
     <input
@@ -1169,7 +1171,9 @@ function TextInput({ block, prefillCtx, legacyResponses }: { block: Extract<Form
 }
 
 function Textarea({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'textarea' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx);
+  const defaultValue = (legacyVal(legacyResponses, block.key)
+    ?? resolvePrefill(block.prefill, prefillCtx))
+    || (typeof block.default === 'string' ? block.default : '');
   return (
     <textarea
       name={block.key}
@@ -1183,7 +1187,9 @@ function Textarea({ block, prefillCtx, legacyResponses }: { block: Extract<FormF
 }
 
 function NumberInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'number' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx);
+  const defaultValue = (legacyVal(legacyResponses, block.key)
+    ?? resolvePrefill(block.prefill, prefillCtx))
+    || (typeof block.default === 'string' ? block.default : '');
   return (
     <input
       type="number"
@@ -1200,7 +1206,9 @@ function NumberInput({ block, prefillCtx, legacyResponses }: { block: Extract<Fo
 }
 
 function DateInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'date' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx);
+  const defaultValue = (legacyVal(legacyResponses, block.key)
+    ?? resolvePrefill(block.prefill, prefillCtx))
+    || (typeof block.default === 'string' ? block.default : '');
   return (
     <input
       type="date"
@@ -1215,7 +1223,9 @@ function DateInput({ block, prefillCtx, legacyResponses }: { block: Extract<Form
 }
 
 function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'select' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx);
+  const defaultValue = (legacyVal(legacyResponses, block.key)
+    ?? resolvePrefill(block.prefill, prefillCtx))
+    || (typeof block.default === 'string' ? block.default : '');
   return (
     <select name={block.key} required={block.required} defaultValue={defaultValue || ''} className={inputCls}>
       <option value="">— select —</option>
@@ -1227,7 +1237,9 @@ function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<Fo
 }
 
 function RadioGroup({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'radio' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx);
+  const defaultValue = (legacyVal(legacyResponses, block.key)
+    ?? resolvePrefill(block.prefill, prefillCtx))
+    || (typeof block.default === 'string' ? block.default : '');
   return (
     <div className="mt-1 space-y-1">
       {block.options.map((o) => (
@@ -2006,7 +2018,9 @@ function TuitionCalculator({
 }
 
 function SignatureTyped({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'signature_typed' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx);
+  const defaultValue = (legacyVal(legacyResponses, block.key)
+    ?? resolvePrefill(block.prefill, prefillCtx))
+    || (typeof block.default === 'string' ? block.default : '');
   return (
     <div className="space-y-2">
       {block.acknowledgment ? (

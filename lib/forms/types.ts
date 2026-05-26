@@ -32,6 +32,13 @@ interface BaseField {
   help?: string;                     // shown under the input
   prefill?: PrefillSource;            // see below
   width?: 'full' | 'half' | 'third';  // grid hint for the layout
+  // Static literal default — used when no `prefill` resolved value
+  // exists AND no legacy response is on file. Useful for fields
+  // that are required by an external compliance form but not
+  // applicable to this particular school (e.g. PA Code requires a
+  // "Swimming consent" field but MCH doesn't offer swimming — set
+  // default: 'N/A').
+  default?: string;
 }
 
 export type PrefillSource =

@@ -188,6 +188,27 @@ function PrintBlock({
           {block.description ? <p className="text-[11px] text-gray-500">{block.description}</p> : null}
         </div>
       );
+    case 'signature_stamp': {
+      // Pre-signed operator signature — render in the same script style
+      // as the live form so the printed copy matches what the parent saw.
+      const date = new Date(block.signed_date + 'T12:00:00');
+      const dateLabel = Number.isNaN(date.getTime())
+        ? block.signed_date
+        : date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+      return (
+        <div className="mt-3 border-t border-gray-200 pt-2">
+          <div
+            className="text-3xl text-gray-900 leading-none"
+            style={{ fontFamily: 'var(--font-signature), "Dancing Script", "Brush Script MT", cursive' }}
+          >
+            {block.signer_name}
+          </div>
+          <div className="mt-1 text-[10px] text-gray-600">
+            {block.signer_name}{block.signer_title ? ` — ${block.signer_title}` : ''} · Signed {dateLabel}
+          </div>
+        </div>
+      );
+    }
   }
 
   // All other blocks have a key + label.

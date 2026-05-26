@@ -141,6 +141,19 @@ export interface SignatureTypedField extends BaseField {
   acknowledgment?: string;
 }
 
+// Display-only operator signature pre-stamped onto the form. Renders
+// the name in a script font with the title and the (fixed) date
+// underneath. NOT a parent input — there's no `name` key and nothing
+// gets submitted from this block. Used when the school's
+// administrator has pre-signed the form (PA DHS Agreement, etc.) and
+// every parent sees the same signature.
+export interface SignatureStampBlock {
+  type: 'signature_stamp';
+  signer_name: string;
+  signer_title?: string;
+  signed_date: string;       // ISO YYYY-MM-DD
+}
+
 // ─── Phase 3: pricing / payment blocks ──────────────────────────────
 //
 // PricingSelectField — single-choice picker where each option has a
@@ -197,7 +210,7 @@ export type FormFieldBlock =
   | SelectField | RadioField | CheckboxField | MultiCheckboxField
   | StudentApplicabilityField
   | FileUploadField
-  | SignatureDrawnField | SignatureTypedField
+  | SignatureDrawnField | SignatureTypedField | SignatureStampBlock
   | PricingSelectField | MultiPricingField | QuantityPricingField | TuitionCalculatorField;
 
 // ─── Form-level payment configuration ────────────────────────────────

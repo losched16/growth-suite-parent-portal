@@ -1102,6 +1102,8 @@ function BlockRenderer({
       return <FieldShell block={block}><SignatureDrawn block={block} /></FieldShell>;
     case 'signature_typed':
       return <FieldShell block={block}><SignatureTyped block={block} prefillCtx={prefillCtx} legacyResponses={legacyResponses} /></FieldShell>;
+    case 'signature_stamp':
+      return <SignatureStamp block={block} />;
     case 'pricing_select':
       return <FieldShell block={block}><PricingSelect block={block} legacyResponses={legacyResponses} formResponses={formResponses} /></FieldShell>;
     case 'multi_pricing':
@@ -2038,6 +2040,33 @@ function SignatureTyped({ block, prefillCtx, legacyResponses }: { block: Extract
       />
       {/* Track when the signature was applied — server reads from form data */}
       <input type="hidden" name={`${block.key}_signed_at`} value={new Date().toISOString()} />
+    </div>
+  );
+}
+
+// Pre-signed operator signature — display-only, no submission data.
+// Renders the signer's name in a script font with their title + the
+// (fixed) date below. Used for school-side signatures that don't vary
+// per parent (e.g. Head of School pre-signing a DHS Agreement that
+// every family must sign).
+function SignatureStamp({ block }: { block: Extract<FormFieldBlock, { type: 'signature_stamp' }> }) {
+  const date = new Date(block.signed_date + 'T12:00:00');
+  const dateLabel = Number.isNaN(date.getTime())
+    ? block.signed_date
+    : date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+  return (
+    <div className="mt-6 border-t border-gray-200 pt-5">
+      <div
+        className="text-4xl text-gray-900 leading-none"
+        style={{ fontFamily: 'var(--font-signature), "Dancing Script", "Brush Script MT", "Lucida Handwriting", cursive' }}
+      >
+        {block.signer_name}
+      </div>
+      <div className="mt-1.5 text-xs text-gray-600 border-t border-gray-200 pt-1 inline-block min-w-[16rem]">
+        <span className="font-semibold">{block.signer_name}</span>
+        {block.signer_title ? <span className="text-gray-500"> — {block.signer_title}</span> : null}
+        <span className="text-gray-500"> · Signed {dateLabel}</span>
+      </div>
     </div>
   );
 }

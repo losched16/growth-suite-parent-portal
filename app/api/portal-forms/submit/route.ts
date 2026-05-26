@@ -28,6 +28,7 @@ import { readSession } from '@/lib/identity';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { createInvoiceForFormSubmission } from '@/lib/billing/create-form-invoice';
+import { diffResponses, capDiff } from '@/lib/forms/response-diff';
 import { createEnrollmentInvoices } from '@/lib/billing/create-enrollment-invoices';
 
 export const runtime = 'nodejs';
@@ -411,7 +412,54 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 5. Insert submission row.
+  // 5. Periodic-review diff. For forms like Emergency Contact that the
+  // parent re-submits every 6 months, compute exactly which fields
+  // changed against the most recent prior submission and stash the diff
+  // alongside the responses. The office notification email uses this to
+  // surface "Updated fields: p1_cell, ec2_phone" without staff having to
+  // manually compare submissions.
+  //
+  // Skipped when this is an addendum (addendums are their own animal —
+  // they already track which fields are part of the addendum via
+  // addendum_fields).
+  const reviewMode = String((responses as Record<string, unknown>).review_mode ?? '').trim();
+  if (!isAddendum && reviewMode && reviewMode !== 'first_submission') {
+    const { rows: priorRows } = await query<{ id: string; responses: Record<string, unknown> }>(
+      `SELECT id, responses
+         FROM portal_form_submissions
+        WHERE school_id = $1
+          AND form_definition_id = $2
+          AND family_id = $3
+          AND ${studentId ? 'student_id = $4' : 'student_id IS NULL'}
+          AND status IN ('submitted', 'paid')
+          AND voided_at IS NULL
+          AND (is_addendum IS NULL OR is_addendum = false)
+        ORDER BY submitted_at DESC
+        LIMIT 1`,
+      studentId
+        ? [session.school_id, def.id, session.family_id, studentId]
+        : [session.school_id, def.id, session.family_id],
+    );
+    const prior = priorRows[0];
+    if (prior) {
+      const diff = diffResponses(prior.responses, responses);
+      // Mark this as a periodic re-review and persist the prior link +
+      // diff inside the responses jsonb. Underscore prefix keeps them out
+      // of the office-notification body table iteration which filters
+      // `__`-prefixed keys.
+      (responses as Record<string, unknown>)._is_periodic_review = true;
+      (responses as Record<string, unknown>)._prior_submission_id = prior.id;
+      if (diff && Object.keys(diff).length > 0) {
+        (responses as Record<string, unknown>)._review_diff = capDiff(diff);
+      } else {
+        // 'no_changes' or schema drift — record an empty diff so the email
+        // template can confidently say "Periodic confirmation — no changes."
+        (responses as Record<string, unknown>)._review_diff = {};
+      }
+    }
+  }
+
+  // 6. Insert submission row.
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
   const userAgent = request.headers.get('user-agent') ?? null;
   // pending_payment when either the legacy fee_amount applies OR the

@@ -1436,39 +1436,105 @@ function FileInput({ block, legacyResponses }: { block: Extract<FormFieldBlock, 
 }
 
 function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'signature_drawn' }> }) {
-  // Two correctness gotchas to remember about this widget:
+  // Correctness gotchas earned the hard way:
   //
   // 1. Use a ref — NOT useState — for the canvas handle. Using useState
   //    here would cause the ref-setter callback to call setState on
   //    every render, which re-renders the component, which gives
-  //    SignatureCanvas a brand-new canvas element and wipes the
-  //    drawing. Refs are the right primitive for "I just need a handle
-  //    to a child component; don't trigger renders when it changes."
+  //    SignatureCanvas a brand-new canvas element and wipes the drawing.
   //
-  // 2. react-signature-canvas defaults `clearOnResize: true`. With our
-  //    responsive canvas (DOM width: 100%, internal width: 600), ANY
-  //    layout shift on the page — a sibling input expanding to show a
-  //    validation message, the live payment summary updating, the page
-  //    relayouting on first paint — triggers a ResizeObserver fire
-  //    inside the library, which clears the canvas. That's what Rachel
-  //    was seeing: she'd draw, page would settle, her ink would vanish.
-  //    Took her 5 tries because eventually she'd draw AFTER the layout
-  //    had stopped shifting. Setting clearOnResize={false} keeps the
-  //    drawing surface stable.
+  // 2. react-signature-canvas defaults `clearOnResize: true`. ANY
+  //    layout shift on the page — a sibling validation message
+  //    appearing, the live payment summary recalculating, the page
+  //    settling on first paint — triggered the library's internal
+  //    ResizeObserver, which cleared the canvas mid-stroke. That's
+  //    why Rachel needed 5 tries: she'd draw, page would settle, her
+  //    ink would vanish. `clearOnResize={false}` keeps the drawing
+  //    surface stable.
   //
-  // Plus a "draw the signature back if we re-render" effect: when the
-  // hidden input's dataUrl is set (lock pressed) and we later re-render
-  // for some other reason, the canvas object remains stable, so the
-  // drawing is preserved without needing fromDataURL().
+  // 3. (NEW — fixes the "not rendering properly" reports from Wooster
+  //    parents in May 2026.) The OLD impl set canvasProps.width=600
+  //    + style.width:'100%'. On screens narrower than 600px (every
+  //    phone) the CSS scaled the canvas down without scaling the
+  //    backing buffer — meaning a 1:1 mapping between CSS pixels and
+  //    backing pixels NO LONGER held, and the library's touch-to-ink
+  //    math drifted: tap at the bottom-right of the canvas, ink
+  //    appeared elsewhere. On retina screens, lines also looked
+  //    blurry because the backing buffer was 600×160 displayed at
+  //    600×160 CSS pixels = 1× pixel ratio when displays expect 2×+.
+  //
+  //    Fix: imperatively size the canvas backing buffer to
+  //    (containerCSSwidth × devicePixelRatio) on mount and on every
+  //    resize, with the CSS size set to (containerCSSwidth × 1).
+  //    That keeps touch math correct AND lines crisp. ResizeObserver
+  //    fires when the container resizes; we snapshot the current
+  //    drawing, resize, and restore so ink survives a layout shift.
   const canvasRef = useRef<SignatureCanvas | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [hasInk, setHasInk] = useState(false);
   const [dataUrl, setDataUrl] = useState<string>('');
-  // Container ref — we use it to set the canvas backing buffer to the
-  // actual CSS pixel size on mount + resize, so strokes line up under
-  // the cursor at any width. We resize the CANVAS directly via the
-  // library handle so the ResizeObserver inside the library never
-  // sees an "I changed" event.
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  // Imperative canvas sizing — runs once after mount and on every
+  // wrapper resize. We keep this OUTSIDE React's render cycle so we
+  // never trigger the SignatureCanvas re-mount that would wipe ink.
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const CSS_HEIGHT = 180;
+    let raf = 0;
+
+    function resize() {
+      const sig = canvasRef.current;
+      const canvas = sig?.getCanvas();
+      if (!sig || !canvas || !wrapper) return;
+      const cssWidth = Math.floor(wrapper.clientWidth);
+      if (cssWidth < 10) return; // wrapper not laid out yet — wait for next observer fire
+
+      // Snapshot current drawing so we can restore after the resize
+      // (changing canvas.width clears the backing buffer).
+      const snap = sig.isEmpty() ? null : canvas.toDataURL('image/png');
+
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      // Backing buffer = CSS pixels × DPR for crisp strokes on retina.
+      canvas.width  = cssWidth  * dpr;
+      canvas.height = CSS_HEIGHT * dpr;
+      // CSS box = logical pixel size; the browser handles the scaling
+      // from buffer → CSS. With buffer = CSS × DPR, that scale ratio
+      // is the DPR — perfect 1:1 logical mapping for touch handlers.
+      canvas.style.width  = cssWidth + 'px';
+      canvas.style.height = CSS_HEIGHT + 'px';
+      // Scale the 2d context so the underlying signature-pad library
+      // draws strokes in logical (CSS) coordinates instead of buffer
+      // coordinates. Without this, the line would render at 1/dpr
+      // scale relative to where the finger is.
+      const ctx = canvas.getContext('2d');
+      ctx?.setTransform(1, 0, 0, 1, 0, 0); // reset any prior transform
+      ctx?.scale(dpr, dpr);
+
+      if (snap) {
+        // fromDataURL accepts a {ratio, width, height} options bag —
+        // pass the new CSS dims so the library re-draws to fit.
+        try {
+          sig.fromDataURL(snap, { width: cssWidth, height: CSS_HEIGHT, ratio: dpr });
+        } catch {
+          // Old snapshot incompatible with new dims — accept the loss
+          // rather than crash. The user can re-draw.
+        }
+      }
+    }
+
+    // First sizing pass — wait one frame so the wrapper is in the DOM.
+    raf = requestAnimationFrame(resize);
+    const ro = new ResizeObserver(() => {
+      // Coalesce bursts of resize events (orientation change, devtools
+      // toggle, sibling validation message appearing) into ONE re-size.
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(resize);
+    });
+    ro.observe(wrapper);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, []);
 
   function clear() {
     canvasRef.current?.clear();
@@ -1486,20 +1552,20 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
       <div
         ref={wrapperRef}
         className={`rounded-md border-2 ${dataUrl ? 'border-emerald-400' : 'border-dashed border-gray-300'} bg-white`}
-        style={{ touchAction: 'none' }}
+        style={{ touchAction: 'none', overflow: 'hidden' }}
       >
         <SignatureCanvas
           ref={(r) => { canvasRef.current = r; }}
           penColor="#047857"
-          // clearOnResize defaults to TRUE in the library — must
-          // explicitly disable or any unrelated layout shift on the
-          // page wipes the user's signature mid-stroke.
+          // Disable the library's own ResizeObserver — we handle sizing
+          // imperatively above so layout shifts don't wipe the signature.
           clearOnResize={false}
           canvasProps={{
-            width: 600,
-            height: 160,
+            // Don't set width/height here — useEffect sizes the backing
+            // buffer imperatively. Skipping them keeps React from
+            // recreating the canvas when we'd rather mutate it.
             className: 'rounded-md',
-            style: { width: '100%', height: 160, display: 'block', touchAction: 'none' },
+            style: { display: 'block', touchAction: 'none' },
           }}
           onBegin={() => setHasInk(true)}
         />

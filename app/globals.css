@@ -25,3 +25,12 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+
+/* Restore the pre-Tailwind-v4 default: buttons and role=button elements
+   show a pointer cursor on hover. v4 dropped this in their reset, which
+   makes every button feel like it isn't clickable. Apply globally so
+   we don't have to remember `cursor-pointer` on every <button>. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}

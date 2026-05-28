@@ -62,6 +62,18 @@ export type PrefillSource =
   | 'health.allergies'
   | 'health.current_medications'
   | 'health.medical_conditions'
+  // Native enrollment data — populates when the student has an active
+  // family_tuition_enrollments row for the current academic year. Used
+  // by the Tuition Agreement form so each family sees THEIR contracted
+  // amounts pre-filled (no Calculate-Your-Own math in the contract).
+  | 'enrollment.program_label'           // "Primary — 5 Days, Full Day"
+  | 'enrollment.plan_label'              // "Monthly Payment (10 installments)"
+  | 'enrollment.annual_tuition_dollars'  // "12800.00"  (before plan discount)
+  | 'enrollment.total_annual_dollars'    // "12416.00"  (after plan discount)
+  | 'enrollment.installment_count'       // "10"
+  | 'enrollment.installment_dollars'     // "1241.60"   (total_annual / installment_count, 2dp)
+  | 'enrollment.first_due_date'          // "2026-07-15"
+  | 'enrollment.last_due_date'           // "2027-04-15"
   | 'today';
 
 export interface TextField extends BaseField {

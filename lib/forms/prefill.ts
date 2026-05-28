@@ -30,6 +30,19 @@ export interface PrefillContext {
     current_medications: string | null;
     medical_conditions: string | null;
   };
+  // Active enrollment for the (student, academic year). Loaded by the
+  // form page when the student has a row in family_tuition_enrollments.
+  // The Tuition Agreement form reads from these so each family sees
+  // THEIR contracted amounts pre-filled.
+  enrollment?: {
+    program_label: string | null;          // tuition_grids.display_name
+    plan_label: string | null;             // payment_plans.display_name
+    annual_tuition_cents: number | null;
+    total_annual_cents: number | null;
+    installment_count: number | null;
+    first_due_date: string | null;         // ISO YYYY-MM-DD
+    last_due_date: string | null;
+  };
 }
 
 const TZ = 'America/Phoenix';
@@ -69,6 +82,32 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
     case 'health.allergies': return ctx.health?.allergies ?? '';
     case 'health.current_medications': return ctx.health?.current_medications ?? '';
     case 'health.medical_conditions': return ctx.health?.medical_conditions ?? '';
+    case 'enrollment.program_label':
+      return ctx.enrollment?.program_label ?? '';
+    case 'enrollment.plan_label':
+      return ctx.enrollment?.plan_label ?? '';
+    case 'enrollment.annual_tuition_dollars':
+      return ctx.enrollment?.annual_tuition_cents != null
+        ? (ctx.enrollment.annual_tuition_cents / 100).toFixed(2)
+        : '';
+    case 'enrollment.total_annual_dollars':
+      return ctx.enrollment?.total_annual_cents != null
+        ? (ctx.enrollment.total_annual_cents / 100).toFixed(2)
+        : '';
+    case 'enrollment.installment_count':
+      return ctx.enrollment?.installment_count != null
+        ? String(ctx.enrollment.installment_count)
+        : '';
+    case 'enrollment.installment_dollars': {
+      const total = ctx.enrollment?.total_annual_cents;
+      const count = ctx.enrollment?.installment_count;
+      if (total == null || count == null || count === 0) return '';
+      return (total / count / 100).toFixed(2);
+    }
+    case 'enrollment.first_due_date':
+      return ctx.enrollment?.first_due_date ?? '';
+    case 'enrollment.last_due_date':
+      return ctx.enrollment?.last_due_date ?? '';
     case 'today': return new Intl.DateTimeFormat('en-CA', {
       timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(new Date());

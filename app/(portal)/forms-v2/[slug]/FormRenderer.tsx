@@ -65,6 +65,11 @@ interface Props {
   // family submitted this last" → show a co-parent-overwrite warning.
   currentParentId: string;
   healthByStudentId: Record<string, PrefillContext['health']>;
+  // Per-student active enrollment data. Populates enrollment.* prefill
+  // sources (program, plan, amounts, due dates) on the Tuition Agreement
+  // form (and any other form that opts into them). Empty record when
+  // the family has no active enrollments on file.
+  enrollmentByStudentId?: Record<string, PrefillContext['enrollment']>;
   existingByStudentId: Record<string, ExistingSubmission[]>;
   familyExisting: ExistingSubmission[];               // family-level forms
   flagsByStudentId: Record<string, MigrationFlag[]>;
@@ -86,6 +91,7 @@ interface Props {
 
 export function FormRenderer({
   definition, students, parent, currentParentId, healthByStudentId,
+  enrollmentByStudentId,
   existingByStudentId, familyExisting,
   flagsByStudentId, familyFlags,
   familyEmergencyContact,
@@ -177,7 +183,8 @@ export function FormRenderer({
         }
       : undefined,
     health: selectedStudent ? healthByStudentId[selectedStudent.id] : undefined,
-  }), [parent, selectedStudent, healthByStudentId]);
+    enrollment: selectedStudent ? enrollmentByStudentId?.[selectedStudent.id] : undefined,
+  }), [parent, selectedStudent, healthByStudentId, enrollmentByStudentId]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

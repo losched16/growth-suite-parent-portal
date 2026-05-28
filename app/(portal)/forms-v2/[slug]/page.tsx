@@ -126,6 +126,84 @@ export default async function FormPage({
     }
   }
 
+  // 2b) Load each student's active tuition enrollment so the Tuition
+  // Agreement form (and any future form using enrollment.* prefills)
+  // can pre-fill the contracted amount, plan name, installment count,
+  // and schedule dates without the parent doing math. Per-student
+  // because each kid can be on a different program/plan.
+  const enrollmentByStudentId: Record<string, PrefillContext['enrollment']> = {};
+  if (def.per_student && students.length > 0) {
+    const sIds = students.map((s) => s.id);
+    const eRows = (await query<{
+      student_id: string;
+      program_label: string | null;
+      plan_label: string | null;
+      annual_tuition_cents: number;
+      total_annual_cents: number;
+      installment_count: number;
+      first_due_month_day: string | null;
+      schedule: { kind?: string; months?: string[] } | null;
+      academic_year: string;
+    }>(
+      `SELECT fte.student_id,
+              g.display_name AS program_label,
+              pp.display_name AS plan_label,
+              fte.annual_tuition_cents,
+              fte.total_annual_cents,
+              fte.installment_count,
+              pp.first_due_month_day,
+              fte.schedule,
+              fte.academic_year
+         FROM family_tuition_enrollments fte
+         JOIN tuition_grids g    ON g.id  = fte.tuition_grid_id
+         JOIN payment_plans pp   ON pp.id = fte.payment_plan_id
+        WHERE fte.school_id = $1
+          AND fte.student_id = ANY($2::uuid[])
+          AND fte.status = 'active'`,
+      [id.parent.school_id, sIds],
+    )).rows;
+
+    // Derive first/last due dates from the plan's schedule template +
+    // academic year. Matches the same logic the tuition-plan-generator
+    // uses when materializing invoices, so prefills line up with what
+    // the parent actually sees on /billing/plan.
+    const derivedueDates = (yr: string, monthDay: string | null, monthsTpl: string[] | undefined) => {
+      const [startYearStr] = yr.split('-');
+      const startYear = parseInt(startYearStr, 10);
+      if (!Number.isFinite(startYear)) return { first: null, last: null };
+      const yearOf = (m: number) => m >= 8 ? startYear : startYear + 1;
+      const day = monthDay ? parseInt(monthDay.split('-')[1] ?? '15', 10) : 15;
+      const months = (monthsTpl && monthsTpl.length > 0)
+        ? monthsTpl
+        : (monthDay ? [monthDay.split('-')[0]] : ['07']);
+      const dates = months.map((mm) => {
+        const m = parseInt(mm, 10);
+        if (!Number.isFinite(m) || m < 1 || m > 12) return null;
+        const last = new Date(Date.UTC(yearOf(m), m, 0)).getUTCDate();
+        return new Date(Date.UTC(yearOf(m), m - 1, Math.min(day, last)));
+      }).filter((d): d is Date => d != null);
+      if (dates.length === 0) return { first: null, last: null };
+      dates.sort((a, b) => a.getTime() - b.getTime());
+      return {
+        first: dates[0].toISOString().slice(0, 10),
+        last: dates[dates.length - 1].toISOString().slice(0, 10),
+      };
+    };
+
+    for (const e of eRows) {
+      const { first, last } = derivedueDates(e.academic_year, e.first_due_month_day, e.schedule?.months);
+      enrollmentByStudentId[e.student_id] = {
+        program_label: e.program_label,
+        plan_label: e.plan_label,
+        annual_tuition_cents: e.annual_tuition_cents,
+        total_annual_cents: e.total_annual_cents,
+        installment_count: e.installment_count,
+        first_due_date: first,
+        last_due_date: last,
+      };
+    }
+  }
+
   // 3) Existing submissions across native + legacy status.
   //    Year is intentionally not filtered here — legacy submissions came
   //    in with their own year stamp and we still want to count them as
@@ -378,6 +456,7 @@ export default async function FormPage({
               }))}
               parent={parentCtx}
               currentParentId={id.parent.id}
+              enrollmentByStudentId={enrollmentByStudentId}
               healthByStudentId={healthByStudentId}
               existingByStudentId={existingByStudentId}
               familyExisting={familyExisting}

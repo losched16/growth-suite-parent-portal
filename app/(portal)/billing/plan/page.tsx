@@ -82,6 +82,10 @@ export default async function PlanPage() {
   // (responsible_parent_id = me). Co-parent's invoices stay hidden.
   const enrollmentIds = enrollments.map((e) => e.id);
   const { rows: installments } = await query<InstallmentRow & { enrollment_id: string }>(
+    // Dry-run gate: never show 'draft' invoices to parents. Drafts only
+    // exist when the school is in pre-billing dry-run mode (migration 046
+    // billing_active=false) — parents should see nothing at all until the
+    // operator clicks "Go live" and drafts get promoted to open.
     `SELECT (i.source_ref->>'enrollment_id') AS enrollment_id,
             i.id AS invoice_id, i.invoice_number,
             (i.source_ref->>'installment_number')::int AS installment_number,
@@ -91,6 +95,7 @@ export default async function PlanPage() {
       WHERE i.school_id = $1
         AND i.family_id = $2
         AND i.source = 'tuition_plan'
+        AND i.status <> 'draft'
         AND (i.source_ref->>'enrollment_id') = ANY($3::text[])
         AND (i.responsible_parent_id IS NULL OR i.responsible_parent_id = $4)
       ORDER BY i.due_at ASC`,

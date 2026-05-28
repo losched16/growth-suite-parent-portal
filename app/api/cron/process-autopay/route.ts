@@ -46,18 +46,25 @@ export async function GET(request: NextRequest) {
   const today = new Date().toISOString().slice(0, 10);
 
   // Find all autopay invoices that should be processed now.
+  // Dry-run gate (migration 046): skip schools where billing_active=false.
+  // Their invoices live in 'draft' status anyway, but this filter also
+  // protects against any operator who manually flipped one to 'open' —
+  // dry-run means dry-run; no card actually gets charged until the
+  // school clicks "Go live" on their Payments hub.
   const { rows: due } = await query<DueInvoiceRow>(
-    `SELECT id, school_id, invoice_number, retry_attempt_count
-       FROM invoices
-      WHERE autopay_enabled = true
-        AND autopay_payment_method_id IS NOT NULL
-        AND status IN ('open', 'partially_paid')
+    `SELECT i.id, i.school_id, i.invoice_number, i.retry_attempt_count
+       FROM invoices i
+       JOIN school_payment_config spc ON spc.school_id = i.school_id
+      WHERE i.autopay_enabled = true
+        AND i.autopay_payment_method_id IS NOT NULL
+        AND i.status IN ('open', 'partially_paid')
+        AND COALESCE(spc.billing_active, false) = true
         AND (
-              (autopay_charge_on IS NULL AND due_at::date <= $1::date)
-           OR (autopay_charge_on IS NOT NULL AND autopay_charge_on <= $1::date)
-           OR (next_retry_at IS NOT NULL AND next_retry_at <= now())
+              (i.autopay_charge_on IS NULL AND i.due_at::date <= $1::date)
+           OR (i.autopay_charge_on IS NOT NULL AND i.autopay_charge_on <= $1::date)
+           OR (i.next_retry_at IS NOT NULL AND i.next_retry_at <= now())
         )
-      ORDER BY due_at ASC
+      ORDER BY i.due_at ASC
       LIMIT 500`,
     [today],
   );

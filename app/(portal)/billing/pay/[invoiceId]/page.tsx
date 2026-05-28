@@ -38,6 +38,7 @@ interface InvoiceRow {
   invoice_number: string;
   school_id: string;
   family_id: string;
+  responsible_parent_id: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -85,7 +86,8 @@ export default async function PayInvoicePage({
       `SELECT id, invoice_number, school_id, family_id, title, description, status,
               subtotal_cents, platform_fee_cents, discount_total_cents,
               total_cents, amount_paid_cents,
-              due_at, includes_platform_setup_fee
+              due_at, includes_platform_setup_fee,
+              responsible_parent_id
          FROM invoices WHERE id = $1`,
       [invoiceId],
     ).then((r) => r.rows),
@@ -101,6 +103,12 @@ export default async function PayInvoicePage({
   const inv = invRows[0];
   if (!inv) notFound();
   if (inv.family_id !== me.parent.family_id) notFound();
+  // Split-billing access check: when an invoice is addressed to a
+  // specific co-parent (responsible_parent_id IS NOT NULL), only that
+  // parent can open the pay page. Joint invoices (NULL) stay visible
+  // to either co-parent. Prevents direct-URL access to a co-parent's
+  // bill.
+  if (inv.responsible_parent_id && inv.responsible_parent_id !== me.parent.id) notFound();
 
   const [lineRows, configRows] = await Promise.all([
     query<LineRow>(

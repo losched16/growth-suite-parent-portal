@@ -77,6 +77,9 @@ export default async function PlanPage() {
   }
 
   // Fetch installments for all active enrollments in one batch.
+  // Split-billing filter: same rule as /billing — show joint invoices
+  // (responsible_parent_id IS NULL) AND my own split invoices
+  // (responsible_parent_id = me). Co-parent's invoices stay hidden.
   const enrollmentIds = enrollments.map((e) => e.id);
   const { rows: installments } = await query<InstallmentRow & { enrollment_id: string }>(
     `SELECT (i.source_ref->>'enrollment_id') AS enrollment_id,
@@ -89,8 +92,9 @@ export default async function PlanPage() {
         AND i.family_id = $2
         AND i.source = 'tuition_plan'
         AND (i.source_ref->>'enrollment_id') = ANY($3::text[])
+        AND (i.responsible_parent_id IS NULL OR i.responsible_parent_id = $4)
       ORDER BY i.due_at ASC`,
-    [me.parent.school_id, me.parent.family_id, enrollmentIds],
+    [me.parent.school_id, me.parent.family_id, enrollmentIds, me.parent.id],
   );
 
   const byEnrollment = new Map<string, InstallmentRow[]>();

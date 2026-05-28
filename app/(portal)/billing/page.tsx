@@ -26,11 +26,19 @@ interface InvoiceRow {
 export default async function BillingPage() {
   const id = await requireParent();
 
+  // Split-billing filter: for divorced/separated families, each parent
+  // is the responsible party for their own invoices. We show invoices
+  // where either:
+  //   - responsible_parent_id IS NULL (joint invoice — both parents see it), OR
+  //   - responsible_parent_id = me     (my own share invoice)
+  // This means a co-parent's split invoices NEVER leak into my portal
+  // view, while pre-existing joint invoices keep working.
   const { rows: invoices } = await query<InvoiceRow>(
     `SELECT id, invoice_number, title, status, total_cents, amount_paid_cents,
             due_at, issued_at, paid_at
        FROM invoices
       WHERE school_id = $1 AND family_id = $2 AND status <> 'draft'
+        AND (responsible_parent_id IS NULL OR responsible_parent_id = $3)
       ORDER BY
         CASE status
           WHEN 'open' THEN 1
@@ -39,7 +47,7 @@ export default async function BillingPage() {
           ELSE 3
         END,
         due_at`,
-    [id.parent.school_id, id.parent.family_id],
+    [id.parent.school_id, id.parent.family_id, id.parent.id],
   );
 
   const outstanding = invoices.filter((i) => i.status === 'open' || i.status === 'partially_paid');

@@ -44,10 +44,69 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'invalid_signature' }, { status: 400 });
   }
 
+  // Pre-insert the log row in 'received' state so even if processing
+  // throws, we have a record of receipt. Resolves school_id by joining
+  // event.account to payment_accounts.stripe_account_id (NULL if no
+  // match — typically only on the FIRST account.updated for a fresh
+  // OAuth connect, before payment_accounts has been touched).
+  const stripeAccountId = event.account ?? null;
+  let resolvedSchoolId: string | null = null;
+  if (stripeAccountId) {
+    const r = await query<{ id: string }>(
+      `SELECT school_id AS id FROM payment_accounts WHERE stripe_account_id = $1`,
+      [stripeAccountId],
+    ).catch(() => null);
+    resolvedSchoolId = r?.rows[0]?.id ?? null;
+  }
+  await query(
+    `INSERT INTO stripe_webhook_log
+       (event_id, event_type, payload, school_id, stripe_account_id,
+        livemode, status, stripe_created_at, received_at)
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6, 'received', to_timestamp($7), now())
+     ON CONFLICT (event_id) DO NOTHING`,
+    [
+      event.id, event.type, JSON.stringify(event.data.object),
+      resolvedSchoolId, stripeAccountId,
+      event.livemode, event.created,
+    ],
+  ).catch((e) => console.error('[stripe/webhook] log insert failed:', e));
+
   try {
     switch (event.type) {
       case 'account.updated':
         await handleAccountUpdated(event.data.object as Stripe.Account);
+        break;
+
+      // Scale gap #4 — disconnect handler. Fires when a school
+      // revokes our platform's access from their Stripe dashboard.
+      // We mark the payment_accounts row as disconnected so the
+      // autopay cron skips it and the Stripe pill on the Payments
+      // hub goes back to "not connected." Future invoices will
+      // generate but charges will fail until the school re-connects.
+      case 'account.application.deauthorized':
+        if (stripeAccountId) {
+          await query(
+            `UPDATE payment_accounts
+                SET charges_enabled = false,
+                    payouts_enabled = false,
+                    requirements_currently_due = '["disconnected_by_school"]'::jsonb,
+                    last_synced_at = now(),
+                    updated_at = now()
+              WHERE stripe_account_id = $1`,
+            [stripeAccountId],
+          );
+          // Also pause billing for that school so we don't generate
+          // invoices we can't charge. Operator can flip back to live
+          // after reconnecting Stripe.
+          if (resolvedSchoolId) {
+            await query(
+              `UPDATE school_payment_config
+                  SET billing_active = false, updated_at = now()
+                WHERE school_id = $1`,
+              [resolvedSchoolId],
+            );
+          }
+        }
         break;
 
       case 'payment_intent.succeeded':
@@ -97,18 +156,27 @@ export async function POST(request: NextRequest) {
         console.log('[stripe/webhook] unhandled event type:', event.type);
     }
 
-    // Audit log every event we process for debugging.
+    // Mark as processed (status flips from 'received' → 'processed').
     await query(
-      `INSERT INTO stripe_webhook_log (event_id, event_type, payload, processed_at)
-       VALUES ($1, $2, $3::jsonb, now())
-       ON CONFLICT (event_id) DO NOTHING`,
-      [event.id, event.type, JSON.stringify(event.data.object)],
+      `UPDATE stripe_webhook_log
+          SET status = 'processed', processed_at = now()
+        WHERE event_id = $1`,
+      [event.id],
     ).catch(() => undefined);
 
     return NextResponse.json({ received: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[stripe/webhook] handler error:', msg);
+    // Mark as failed in the log so the admin viewer can surface it.
+    await query(
+      `UPDATE stripe_webhook_log
+          SET status = 'failed',
+              processed_at = now(),
+              error_message = $2
+        WHERE event_id = $1`,
+      [event.id, msg.slice(0, 2000)],
+    ).catch(() => undefined);
     // Return 500 so Stripe retries. We've logged the issue.
     return NextResponse.json({ error: msg }, { status: 500 });
   }
@@ -250,8 +318,87 @@ async function handlePaymentFailed(pi: Stripe.PaymentIntent): Promise<void> {
       WHERE stripe_payment_intent_id = $3`,
     [lastError?.code ?? null, lastError?.message ?? null, pi.id],
   );
-  // Failure email — best-effort.
+  // Failure email to the parent — best-effort.
   await sendPaymentFailureEmail(pi.id, lastError?.message ?? null).catch(() => undefined);
+
+  // Scale gap #3 — also notify the school's admin. When autopay fails
+  // for a parent, the office finds out today only via the parent calling.
+  // Push an email to the school's support address with the invoice +
+  // family + failure reason so they can pre-empt the call.
+  await notifySchoolOfFailedPayment(pi, lastError?.message ?? null)
+    .catch((e) => console.error('[stripe/webhook] school failure notify failed:', e));
+}
+
+// Find the invoice this PI was charging, look up the school's notify
+// address, send a short alert. Best-effort — never throws.
+async function notifySchoolOfFailedPayment(
+  pi: Stripe.PaymentIntent,
+  errorMessage: string | null,
+): Promise<void> {
+  const { rows } = await query<{
+    invoice_number: string;
+    invoice_id: string;
+    family_label: string;
+    parent_email: string | null;
+    school_name: string;
+    school_id: string;
+    notify_email: string | null;
+    amount_cents: number;
+  }>(
+    `SELECT i.invoice_number, i.id AS invoice_id, i.total_cents AS amount_cents,
+            COALESCE(NULLIF(f.display_name, ''),
+                     CONCAT_WS(' ', p.first_name, p.last_name),
+                     '(unnamed family)') AS family_label,
+            p.email AS parent_email,
+            s.name AS school_name, s.id AS school_id,
+            COALESCE(b.support_email, 'mchadmin@mediachildrenshouse.com') AS notify_email
+       FROM invoices i
+       JOIN schools s ON s.id = i.school_id
+       LEFT JOIN families f ON f.id = i.family_id
+       LEFT JOIN parents p ON p.id = i.autopay_payment_method_id::text::uuid OR p.family_id = i.family_id
+       LEFT JOIN school_branding b ON b.school_id = s.id
+      WHERE i.stripe_payment_intent_id = $1 OR i.id::text = $1
+      LIMIT 1`,
+    [pi.id],
+  ).catch(() => ({ rows: [] }));
+  const meta = rows[0];
+  if (!meta || !meta.notify_email) return;
+
+  const { sendBrandedEmail } = await import('@/lib/email');
+  const dollars = `$${(meta.amount_cents / 100).toFixed(2)}`;
+  const subject = `Autopay failed — ${meta.family_label} — ${meta.invoice_number}`;
+  const text = `Autopay failed for ${meta.family_label} at ${meta.school_name}.
+
+Invoice: ${meta.invoice_number}
+Amount: ${dollars}
+Failure reason: ${errorMessage ?? 'unknown'}
+Parent email: ${meta.parent_email ?? '(none on file)'}
+
+The parent has been notified separately. You may want to:
+- Verify their card on file is still valid
+- Reach out if the failure suggests insufficient funds
+- Manually charge a different payment method if needed
+`;
+  const html = `<p>Autopay failed for <strong>${escapeHtml(meta.family_label)}</strong> at <strong>${escapeHtml(meta.school_name)}</strong>.</p>
+<ul>
+  <li>Invoice: <code>${escapeHtml(meta.invoice_number)}</code></li>
+  <li>Amount: <strong>${dollars}</strong></li>
+  <li>Failure reason: ${escapeHtml(errorMessage ?? 'unknown')}</li>
+  <li>Parent email: ${meta.parent_email ? `<a href="mailto:${escapeHtml(meta.parent_email)}">${escapeHtml(meta.parent_email)}</a>` : '<em>none on file</em>'}</li>
+</ul>
+<p>The parent has been notified separately. You may want to verify their payment method or reach out about the failure.</p>`;
+
+  await sendBrandedEmail({
+    to: meta.notify_email,
+    schoolId: meta.school_id,
+    subject,
+    html,
+    text,
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 async function handleChargeRefunded(ch: Stripe.Charge): Promise<void> {

@@ -26,6 +26,7 @@ import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
+import { resolvePrefill, type PrefillContext } from '@/lib/forms/prefill';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { createInvoiceForFormSubmission } from '@/lib/billing/create-form-invoice';
 import { diffResponses, capDiff } from '@/lib/forms/response-diff';
@@ -376,6 +377,27 @@ export async function POST(request: NextRequest) {
 
   if (validationErrors.length > 0) {
     return NextResponse.json({ error: 'validation_failed', detail: validationErrors }, { status: 400 });
+  }
+
+  // 4a. Server-side override for readOnly fields. Any block flagged
+  //     `readOnly: true` MUST have its response value come from the
+  //     server-resolved prefill — never trust the client, because a
+  //     parent could remove `readOnly` in DevTools and submit a
+  //     different tuition amount. We re-resolve the prefill from fresh
+  //     DB rows and overwrite `responses[key]` for those blocks.
+  const readOnlyKeys = def.field_schema
+    .filter((b): b is FormFieldBlock & { key: string; readOnly?: boolean; prefill?: string } =>
+      'key' in b && 'readOnly' in b && b.readOnly === true)
+    .map((b) => b.key);
+  if (readOnlyKeys.length > 0) {
+    const ctx = await buildPrefillContextForSubmit(session.parent_id, studentId, session.school_id);
+    for (const block of def.field_schema) {
+      if (!('key' in block)) continue;
+      if (!('readOnly' in block) || block.readOnly !== true) continue;
+      if (!block.prefill) continue; // readOnly with no prefill = nothing to lock to
+      const truth = resolvePrefill(block.prefill, ctx);
+      responses[block.key] = truth;
+    }
   }
 
   // 4b. If the form declares a payment_config, evaluate the lines now
@@ -1100,4 +1122,126 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
       [msg.slice(0, 500), submissionId],
     ).catch(() => undefined);
   }
+}
+
+// Build the same PrefillContext the form page constructs, but
+// server-side from the current session. Used by the submit handler to
+// re-derive the "truth" value for any readOnly field, so a tampered
+// client can't write a different tuition amount / payment plan / etc.
+async function buildPrefillContextForSubmit(
+  parentId: string,
+  studentId: string | null,
+  schoolId: string,
+): Promise<PrefillContext> {
+  // Parent
+  const { rows: pRows } = await query<{
+    first_name: string; last_name: string; email: string | null; phone: string | null;
+  }>(
+    `SELECT first_name, last_name, email, phone FROM parents WHERE id = $1 LIMIT 1`,
+    [parentId],
+  );
+  const p = pRows[0] ?? { first_name: '', last_name: '', email: null, phone: null };
+
+  const ctx: PrefillContext = {
+    parent: {
+      first_name: p.first_name ?? '',
+      last_name: p.last_name ?? '',
+      email: p.email,
+      phone: p.phone,
+    },
+  };
+
+  if (!studentId) return ctx;
+
+  // Student
+  const { rows: sRows } = await query<{
+    first_name: string; last_name: string;
+    preferred_name: string | null; date_of_birth: string | Date | null;
+    date_of_admission: string | Date | null;
+  }>(
+    `SELECT first_name, last_name,
+            metadata->>'preferred_name' AS preferred_name,
+            (metadata->>'birth_date')::date AS date_of_birth,
+            (metadata->>'date_of_admission')::date AS date_of_admission
+       FROM students WHERE id = $1 LIMIT 1`,
+    [studentId],
+  );
+  const s = sRows[0];
+  if (s) {
+    ctx.student = {
+      first_name: s.first_name ?? '',
+      last_name: s.last_name ?? '',
+      preferred_name: s.preferred_name,
+      date_of_birth: s.date_of_birth instanceof Date ? s.date_of_birth.toISOString().slice(0, 10) : s.date_of_birth,
+      date_of_admission: s.date_of_admission instanceof Date ? s.date_of_admission.toISOString().slice(0, 10) : s.date_of_admission,
+    };
+  }
+
+  // Health profile
+  const { rows: hRows } = await query<{
+    emergency_contact_name: string | null; emergency_contact_phone: string | null;
+    emergency_contact_relationship: string | null; primary_doctor_name: string | null;
+    primary_doctor_phone: string | null; preferred_hospital: string | null;
+    health_insurance_provider: string | null; health_insurance_policy_number: string | null;
+    allergies: string | null; current_medications: string | null; medical_conditions: string | null;
+  }>(
+    `SELECT emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+            primary_doctor_name, primary_doctor_phone, preferred_hospital,
+            health_insurance_provider, health_insurance_policy_number,
+            allergies, current_medications, medical_conditions
+       FROM student_health_profiles WHERE student_id = $1 AND school_id = $2 LIMIT 1`,
+    [studentId, schoolId],
+  );
+  if (hRows[0]) ctx.health = hRows[0];
+
+  // Enrollment + plan dates. Mirrors the math in page.tsx so server-side
+  // resolution matches what the parent saw in the renderer (including
+  // the anchor-month fix for July-start schools).
+  const { rows: eRows } = await query<{
+    program_label: string | null; plan_label: string | null;
+    annual_tuition_cents: number; total_annual_cents: number; installment_count: number;
+    first_due_month_day: string | null;
+    schedule: { kind?: string; months?: string[] } | null;
+    academic_year: string;
+  }>(
+    `SELECT g.display_name AS program_label,
+            pp.display_name AS plan_label,
+            fte.annual_tuition_cents, fte.total_annual_cents, fte.installment_count,
+            pp.first_due_month_day, fte.schedule, fte.academic_year
+       FROM family_tuition_enrollments fte
+       JOIN tuition_grids g ON g.id = fte.tuition_grid_id
+       JOIN payment_plans pp ON pp.id = fte.payment_plan_id
+      WHERE fte.school_id = $1 AND fte.student_id = $2 AND fte.status = 'active'
+      ORDER BY fte.updated_at DESC LIMIT 1`,
+    [schoolId, studentId],
+  );
+  if (eRows[0]) {
+    const e = eRows[0];
+    const [startYearStr] = e.academic_year.split('-');
+    const startYear = parseInt(startYearStr, 10);
+    const anchorMonth = e.first_due_month_day ? parseInt(e.first_due_month_day.split('-')[0], 10) : NaN;
+    const startMonth = Number.isFinite(anchorMonth) ? anchorMonth : 8;
+    const day = e.first_due_month_day ? parseInt(e.first_due_month_day.split('-')[1] ?? '15', 10) : 15;
+    const months = (e.schedule?.months && e.schedule.months.length > 0)
+      ? e.schedule.months
+      : (e.first_due_month_day ? [e.first_due_month_day.split('-')[0]] : ['07']);
+    const yearOf = (m: number) => m >= startMonth ? startYear : startYear + 1;
+    const dates = months.map((mm) => {
+      const m = parseInt(mm, 10);
+      if (!Number.isFinite(m) || m < 1 || m > 12) return null;
+      const last = new Date(Date.UTC(yearOf(m), m, 0)).getUTCDate();
+      return new Date(Date.UTC(yearOf(m), m - 1, Math.min(day, last)));
+    }).filter((d): d is Date => d != null).sort((a, b) => a.getTime() - b.getTime());
+    ctx.enrollment = {
+      program_label: e.program_label,
+      plan_label: e.plan_label,
+      annual_tuition_cents: e.annual_tuition_cents,
+      total_annual_cents: e.total_annual_cents,
+      installment_count: e.installment_count,
+      first_due_date: dates[0]?.toISOString().slice(0, 10) ?? null,
+      last_due_date: dates[dates.length - 1]?.toISOString().slice(0, 10) ?? null,
+    };
+  }
+
+  return ctx;
 }

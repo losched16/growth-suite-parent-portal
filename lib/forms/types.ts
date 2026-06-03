@@ -39,6 +39,14 @@ interface BaseField {
   // "Swimming consent" field but MCH doesn't offer swimming — set
   // default: 'N/A').
   default?: string;
+  // When true, the input renders LOCKED — value is visible but parents
+  // can't change it. Used on contract fields like tuition amount /
+  // payment plan / due dates where any change must be initiated by the
+  // school (not the parent). The renderer uses the HTML `readOnly`
+  // attribute so the value still submits with the form — parents simply
+  // can't edit it. Schools using readOnly should also set `prefill` so
+  // there's something to display (an empty readOnly input is useless).
+  readOnly?: boolean;
 }
 
 export type PrefillSource =

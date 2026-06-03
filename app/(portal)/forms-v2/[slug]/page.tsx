@@ -171,7 +171,13 @@ export default async function FormPage({
       const [startYearStr] = yr.split('-');
       const startYear = parseInt(startYearStr, 10);
       if (!Number.isFinite(startYear)) return { first: null, last: null };
-      const yearOf = (m: number) => m >= 8 ? startYear : startYear + 1;
+      // Honor the plan's anchor month as the academic-year boundary
+      // (matches tuition-plan-generator.computeDueDates). Without this
+      // a July-starting school like MCH would push the first month
+      // forward a year.
+      const anchorMonth = monthDay ? parseInt(monthDay.split('-')[0], 10) : NaN;
+      const startMonth = Number.isFinite(anchorMonth) ? anchorMonth : 8;
+      const yearOf = (m: number) => m >= startMonth ? startYear : startYear + 1;
       const day = monthDay ? parseInt(monthDay.split('-')[1] ?? '15', 10) : 15;
       const months = (monthsTpl && monthsTpl.length > 0)
         ? monthsTpl

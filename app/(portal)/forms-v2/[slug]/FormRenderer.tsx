@@ -1150,10 +1150,19 @@ function FieldShell({
   block: KeyedBlock;
   children: React.ReactNode;
 }) {
+  const locked = 'readOnly' in block && block.readOnly === true;
   return (
     <label className="block">
-      <span className="text-sm font-medium text-gray-800">
+      <span className="text-sm font-medium text-gray-800 inline-flex items-center gap-1.5">
         {block.label} {block.required ? <span className="text-rose-600">*</span> : null}
+        {locked ? (
+          <span
+            title="This value is set by the school. To change it, please contact the office."
+            className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 border border-amber-200"
+          >
+            🔒 set by school
+          </span>
+        ) : null}
       </span>
       {block.help ? <span className="block text-[11px] text-gray-500 mt-0.5">{block.help}</span> : null}
       {children}
@@ -1164,6 +1173,14 @@ function FieldShell({
 const inputCls =
   'mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-200 disabled:bg-gray-50';
 
+// Visual lock for `readOnly: true` fields — value still submits (HTML
+// readOnly preserves form-encoded value, unlike disabled) but the input
+// looks visibly locked so parents know it's not editable. A tiny lock
+// icon + "set by school" hint is shown next to the label via
+// FieldShell's readOnly branch.
+const inputClsReadOnly =
+  'mt-1 block w-full rounded-md border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-700 cursor-not-allowed focus:outline-none';
+
 type LegacyProp = { legacyResponses: Record<string, unknown> | null };
 
 function TextInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'text' | 'email' | 'tel' | 'url' }>; prefillCtx: PrefillContext } & LegacyProp) {
@@ -1171,15 +1188,17 @@ function TextInput({ block, prefillCtx, legacyResponses }: { block: Extract<Form
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
   const typeMap: Record<string, string> = { text: 'text', email: 'email', tel: 'tel', url: 'url' };
+  const locked = block.readOnly === true;
   return (
     <input
       type={typeMap[block.type]}
       name={block.key}
       required={block.required}
       defaultValue={defaultValue}
+      readOnly={locked}
       maxLength={'max_length' in block ? block.max_length : undefined}
       placeholder={'placeholder' in block ? block.placeholder : ''}
-      className={inputCls}
+      className={locked ? inputClsReadOnly : inputCls}
     />
   );
 }
@@ -1188,14 +1207,16 @@ function Textarea({ block, prefillCtx, legacyResponses }: { block: Extract<FormF
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
+  const locked = block.readOnly === true;
   return (
     <textarea
       name={block.key}
       required={block.required}
       defaultValue={defaultValue}
+      readOnly={locked}
       rows={block.rows ?? 3}
       placeholder={block.placeholder ?? ''}
-      className={inputCls}
+      className={locked ? inputClsReadOnly : inputCls}
     />
   );
 }
@@ -1204,17 +1225,19 @@ function NumberInput({ block, prefillCtx, legacyResponses }: { block: Extract<Fo
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
+  const locked = block.readOnly === true;
   return (
     <input
       type="number"
       name={block.key}
       required={block.required}
       defaultValue={defaultValue}
+      readOnly={locked}
       min={block.min}
       max={block.max}
       step={block.step ?? 1}
       placeholder={block.placeholder ?? ''}
-      className={inputCls}
+      className={locked ? inputClsReadOnly : inputCls}
     />
   );
 }
@@ -1223,15 +1246,17 @@ function DateInput({ block, prefillCtx, legacyResponses }: { block: Extract<Form
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
+  const locked = block.readOnly === true;
   return (
     <input
       type="date"
       name={block.key}
       required={block.required}
       defaultValue={defaultValue}
+      readOnly={locked}
       min={block.min}
       max={block.max}
-      className={inputCls}
+      className={locked ? inputClsReadOnly : inputCls}
     />
   );
 }

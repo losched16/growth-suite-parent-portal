@@ -9,6 +9,11 @@ import { CheckCircle2, Circle, FileText, History, Clock } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { loadStudentsForFamily } from '@/lib/family-data';
 import { query } from '@/lib/db';
+import {
+  studentMatchesAppliesTo,
+  type FormAppliesTo,
+  type AppliesToContext,
+} from '@/lib/forms/applies-to';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +29,7 @@ interface DefRow {
   one_submission_per_year: boolean;
   resubmission_allowed: boolean;
   needs_review: boolean;
+  applies_to: FormAppliesTo | null;
 }
 
 interface SubRow {
@@ -62,7 +68,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     query<DefRow>(
       `SELECT id, slug, display_name, description, category, per_student,
               required_for, fee_amount, one_submission_per_year,
-              resubmission_allowed, needs_review
+              resubmission_allowed, needs_review, applies_to
        FROM portal_form_definitions
        WHERE school_id = $1 AND is_active = true
        ORDER BY
@@ -100,6 +106,64 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     ).then((r) => r.rows),
   ]);
 
+  // Build the AppliesToContext per student so each form's applies_to
+  // rule can be evaluated cheaply. We fetch the active enrollment +
+  // tuition_grid display_name + addon keys for every student in one
+  // query. When a student has no active enrollment, the rule simply
+  // won't match grid/addon criteria — they'll still be evaluated
+  // against metadata.* fields (which is the typical fallback).
+  const studentIds = students.map((s) => s.id);
+  const enrollmentCtxByStudent = new Map<string, { tuitionGridName: string | null; addonKeys: string[] }>();
+  if (studentIds.length > 0) {
+    const { rows: enrRows } = await query<{
+      student_id: string;
+      tuition_grid_name: string | null;
+      addons: Array<{ key?: string }> | null;
+    }>(
+      `SELECT fte.student_id,
+              g.display_name AS tuition_grid_name,
+              fte.addons
+         FROM family_tuition_enrollments fte
+         LEFT JOIN tuition_grids g ON g.id = fte.tuition_grid_id
+        WHERE fte.school_id = $1
+          AND fte.student_id = ANY($2::uuid[])
+          AND fte.status = 'active'`,
+      [id.parent.school_id, studentIds],
+    );
+    for (const r of enrRows) {
+      const addons = Array.isArray(r.addons) ? r.addons : [];
+      enrollmentCtxByStudent.set(r.student_id, {
+        tuitionGridName: r.tuition_grid_name,
+        addonKeys: addons.map((a) => a?.key).filter((k): k is string => typeof k === 'string'),
+      });
+    }
+  }
+
+  // Returns the subset of students this form is visible to.
+  // For non-per_student (family-level) forms, applies_to is ignored —
+  // there's no per-student concept there. Family-level forms always show.
+  function applicableStudents(def: DefRow) {
+    if (!def.per_student) return students;
+    if (!def.applies_to) return students;
+    return students.filter((s) => {
+      const enr = enrollmentCtxByStudent.get(s.id);
+      const ctx: AppliesToContext = {
+        metadata: (s.metadata ?? {}) as Record<string, unknown>,
+        tuitionGridName: enr?.tuitionGridName ?? null,
+        enrollmentAddonKeys: enr?.addonKeys ?? [],
+      };
+      return studentMatchesAppliesTo(ctx, def.applies_to);
+    });
+  }
+
+  // Filter out forms that apply to nobody (e.g. K-only form in a
+  // family with only Primary kids).
+  const visibleDefs = defs.filter((d) => {
+    if (!d.per_student) return true;
+    if (!d.applies_to) return true;
+    return applicableStudents(d).length > 0;
+  });
+
   const flagCountByDefId = new Map<string, number>();
   let crossFormFlagCount = 0;
   for (const fc of flagCounts) {
@@ -124,13 +188,17 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     }
   }
 
-  // Form done = all students covered (per-student) OR family submission exists
+  // Form done = all APPLICABLE students covered (per-student) OR family
+  // submission exists. We count against `applicableStudents(def)` so a
+  // K-only form is considered "done" once it's signed for the family's
+  // K kids — Primary siblings don't make the form linger as "incomplete".
   function isFormComplete(def: DefRow): boolean {
     if (def.per_student) {
-      if (students.length === 0) return false;
+      const applicable = applicableStudents(def);
+      if (applicable.length === 0) return true; // applies to no one → not pending
       const set = submittedByForm.get(def.id);
       if (!set) return false;
-      return students.every((s) => set.has(s.id));
+      return applicable.every((s) => set.has(s.id));
     }
     return familyDone.has(def.id);
   }
@@ -139,12 +207,15 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     if (!def.per_student) return [];
     const set = submittedByForm.get(def.id);
     if (!set) return [];
-    return students.filter((s) => set.has(s.id)).map((s) => s.preferred_name || s.first_name);
+    return applicableStudents(def)
+      .filter((s) => set.has(s.id))
+      .map((s) => s.preferred_name || s.first_name);
   }
 
-  // Group by category for the layout
+  // Group by category for the layout — only the forms that have at
+  // least one applicable student.
   const byCategory = new Map<string, DefRow[]>();
-  for (const def of defs) {
+  for (const def of visibleDefs) {
     const cat = def.category ?? 'other';
     const ex = byCategory.get(cat) ?? [];
     ex.push(def);
@@ -155,8 +226,8 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     ...[...byCategory.keys()].filter((c) => !CATEGORY_ORDER.includes(c)).sort(),
   ];
 
-  const total = defs.length;
-  const complete = defs.filter((d) => isFormComplete(d)).length;
+  const total = visibleDefs.length;
+  const complete = visibleDefs.filter((d) => isFormComplete(d)).length;
   const pct = total ? Math.round((complete / total) * 100) : 0;
 
   return (
@@ -232,7 +303,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
                     def={def}
                     complete={isFormComplete(def)}
                     studentsDone={studentsDone(def)}
-                    totalStudents={students.length}
+                    totalStudents={def.per_student ? applicableStudents(def).length : students.length}
                     flagCount={flagCountByDefId.get(def.id) ?? 0}
                   />
                 ))}

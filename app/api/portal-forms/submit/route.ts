@@ -27,6 +27,11 @@ import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
 import { resolvePrefill, type PrefillContext } from '@/lib/forms/prefill';
+import {
+  studentMatchesAppliesTo,
+  type FormAppliesTo,
+  type AppliesToContext,
+} from '@/lib/forms/applies-to';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { createInvoiceForFormSubmission } from '@/lib/billing/create-form-invoice';
 import { diffResponses, capDiff } from '@/lib/forms/response-diff';
@@ -56,6 +61,8 @@ interface DefRow {
   confirmation_redirect_url: string | null;
   notify_emails: string[] | null;
   webhook_urls: string[] | null;
+  // Migration 048 — per-student visibility rule.
+  applies_to: FormAppliesTo | null;
 }
 
 interface GhlWritebackEntry {
@@ -110,7 +117,8 @@ export async function POST(request: NextRequest) {
     `SELECT id, slug, display_name, category, per_student, field_schema,
             ghl_writeback, fee_amount, one_submission_per_year, resubmission_allowed,
             payment_config, allow_addendum,
-            confirmation_message, confirmation_redirect_url, notify_emails, webhook_urls
+            confirmation_message, confirmation_redirect_url, notify_emails, webhook_urls,
+            applies_to
      FROM portal_form_definitions
      WHERE id = $1 AND school_id = $2 AND is_active = true`,
     [formDefId, session.school_id],
@@ -123,14 +131,47 @@ export async function POST(request: NextRequest) {
   if (def.per_student) {
     const raw = String(fd.get('student_id') ?? '').trim();
     if (!raw) return NextResponse.json({ error: 'missing_student_id' }, { status: 400 });
-    const sRows = (await query<{ id: string }>(
-      `SELECT id FROM students WHERE id = $1 AND family_id = $2 AND status = 'active'`,
+    const sRows = (await query<{ id: string; metadata: Record<string, unknown> | null }>(
+      `SELECT id, metadata FROM students
+        WHERE id = $1 AND family_id = $2 AND status = 'active'`,
       [raw, session.family_id],
     )).rows;
     if (sRows.length === 0) {
       return NextResponse.json({ error: 'student_not_in_family' }, { status: 403 });
     }
     studentId = sRows[0].id;
+
+    // 2a. Server-side applies_to check. The hub + form page already
+    //     hide forms whose rule excludes a given student, but a parent
+    //     with a direct URL could still POST against this endpoint
+    //     directly — so we re-validate here. Fetches the same enrollment
+    //     facts the page used (grid name + addon keys) once.
+    if (def.applies_to) {
+      const { rows: enr } = await query<{
+        tuition_grid_name: string | null;
+        addons: Array<{ key?: string }> | null;
+      }>(
+        `SELECT g.display_name AS tuition_grid_name, fte.addons
+           FROM family_tuition_enrollments fte
+           LEFT JOIN tuition_grids g ON g.id = fte.tuition_grid_id
+          WHERE fte.school_id = $1 AND fte.student_id = $2 AND fte.status = 'active'
+          ORDER BY fte.updated_at DESC LIMIT 1`,
+        [session.school_id, studentId],
+      );
+      const addons = Array.isArray(enr[0]?.addons) ? enr[0]!.addons : [];
+      const ctx: AppliesToContext = {
+        metadata: (sRows[0].metadata ?? {}) as Record<string, unknown>,
+        tuitionGridName: enr[0]?.tuition_grid_name ?? null,
+        enrollmentAddonKeys: addons.map((a) => a?.key).filter((k): k is string => typeof k === 'string'),
+      };
+      if (!studentMatchesAppliesTo(ctx, def.applies_to)) {
+        return NextResponse.json(
+          { error: 'form_not_applicable_to_student',
+            detail: 'This form is not configured for this student. Contact the school office if you think this is wrong.' },
+          { status: 403 },
+        );
+      }
+    }
   }
 
   // 3. Lock-out check: one_submission_per_year + !resubmission_allowed.

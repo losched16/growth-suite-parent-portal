@@ -14,6 +14,11 @@ import { query } from '@/lib/db';
 import type { FormDefinition, FormFieldBlock } from '@/lib/forms/types';
 import type { PrefillContext } from '@/lib/forms/prefill';
 import type { FormPaymentConfig } from '@/lib/forms/types';
+import {
+  studentMatchesAppliesTo,
+  type FormAppliesTo,
+  type AppliesToContext,
+} from '@/lib/forms/applies-to';
 import { FormRenderer, type ExistingSubmission, type MigrationFlag } from './FormRenderer';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +39,7 @@ interface FormDefRow {
   is_active: boolean;
   payment_config: FormPaymentConfig | null;
   allow_addendum: boolean;
+  applies_to: FormAppliesTo | null;
 }
 
 interface HealthRow {
@@ -85,7 +91,7 @@ export default async function FormPage({
     `SELECT id, slug, display_name, description, category, per_student,
             required_for, field_schema, fee_amount, one_submission_per_year,
             resubmission_allowed, needs_review, is_active, payment_config,
-            allow_addendum
+            allow_addendum, applies_to
      FROM portal_form_definitions
      WHERE school_id = $1 AND slug = $2`,
     [id.parent.school_id, slug],
@@ -94,7 +100,45 @@ export default async function FormPage({
   if (!def || !def.is_active) notFound();
 
   // 2) Load students + their health profiles (for per-student forms).
-  const students = await loadStudentsForFamily(id.parent.family_id);
+  // For per-student forms with an applies_to rule, restrict the picker
+  // to students who actually match (e.g. K-only forms hide siblings in
+  // Primary). Fetched here once and used in both the FormRenderer and
+  // the "no applicable students" guard below.
+  const allStudents = await loadStudentsForFamily(id.parent.family_id);
+  let students = allStudents;
+  if (def.per_student && def.applies_to) {
+    const sIds = allStudents.map((s) => s.id);
+    const enrolMap = new Map<string, { tuitionGridName: string | null; addonKeys: string[] }>();
+    if (sIds.length > 0) {
+      const { rows: er } = await query<{
+        student_id: string; tuition_grid_name: string | null;
+        addons: Array<{ key?: string }> | null;
+      }>(
+        `SELECT fte.student_id, g.display_name AS tuition_grid_name, fte.addons
+           FROM family_tuition_enrollments fte
+           LEFT JOIN tuition_grids g ON g.id = fte.tuition_grid_id
+          WHERE fte.school_id = $1 AND fte.student_id = ANY($2::uuid[])
+            AND fte.status = 'active'`,
+        [id.parent.school_id, sIds],
+      );
+      for (const r of er) {
+        const ad = Array.isArray(r.addons) ? r.addons : [];
+        enrolMap.set(r.student_id, {
+          tuitionGridName: r.tuition_grid_name,
+          addonKeys: ad.map((a) => a?.key).filter((k): k is string => typeof k === 'string'),
+        });
+      }
+    }
+    students = allStudents.filter((s) => {
+      const en = enrolMap.get(s.id);
+      const ctx: AppliesToContext = {
+        metadata: (s.metadata ?? {}) as Record<string, unknown>,
+        tuitionGridName: en?.tuitionGridName ?? null,
+        enrollmentAddonKeys: en?.addonKeys ?? [],
+      };
+      return studentMatchesAppliesTo(ctx, def.applies_to);
+    });
+  }
 
   const healthByStudentId: Record<string, PrefillContext['health']> = {};
   if (def.per_student && students.length > 0) {
@@ -447,8 +491,19 @@ export default async function FormPage({
         <>
           {def.per_student && students.length === 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-              This form is per-student, but no students are on file for your family.
-              Please contact the school office.
+              {allStudents.length > 0 && def.applies_to ? (
+                <>
+                  This form doesn&apos;t apply to anyone in your family right now —
+                  the school has it set up for a specific group of students. You
+                  can safely skip it. If you think this is a mistake, please
+                  contact the office.
+                </>
+              ) : (
+                <>
+                  This form is per-student, but no students are on file for your
+                  family. Please contact the school office.
+                </>
+              )}
             </div>
           ) : (
             <FormRenderer

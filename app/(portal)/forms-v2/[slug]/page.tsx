@@ -453,6 +453,11 @@ export default async function FormPage({
                 last_name: s.last_name,
                 preferred_name: s.preferred_name,
                 date_of_birth: s.date_of_birth,
+                // Per-student admission date — set by school staff via
+                // the admin UI, lives in metadata. Pulled into the
+                // prefillCtx so DHS Agreement (+ Summer Camp DHS) can
+                // prefill the "Date of child's admission" line.
+                date_of_admission: (s.metadata?.date_of_admission as string | null) ?? null,
               }))}
               parent={parentCtx}
               currentParentId={id.parent.id}

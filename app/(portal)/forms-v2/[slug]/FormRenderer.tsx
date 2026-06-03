@@ -27,6 +27,10 @@ interface StudentOption {
   last_name: string;
   preferred_name: string | null;
   date_of_birth: string | null;
+  // Per-student admission date — feeds the student.date_of_admission
+  // prefill source. May be null when school hasn't set it yet (the
+  // DHS Agreement field falls back to letting the parent type it in).
+  date_of_admission?: string | null;
 }
 
 export interface ExistingSubmission {
@@ -180,6 +184,7 @@ export function FormRenderer({
           last_name: selectedStudent.last_name,
           preferred_name: selectedStudent.preferred_name,
           date_of_birth: selectedStudent.date_of_birth,
+          date_of_admission: selectedStudent.date_of_admission ?? null,
         }
       : undefined,
     health: selectedStudent ? healthByStudentId[selectedStudent.id] : undefined,

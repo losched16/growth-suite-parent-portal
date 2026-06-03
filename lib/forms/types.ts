@@ -51,6 +51,12 @@ export type PrefillSource =
   | 'student.last_name'
   | 'student.full_name'
   | 'student.date_of_birth'
+  // Per-student admission date. Set by school staff via the family
+  // hub (or synced from GHL custom field student_date_of_admission /
+  // student_N_date_of_admission). Used by DHS Agreement + Summer Camp
+  // DHS to fill in the "Date of child's admission" line without the
+  // parent having to know it.
+  | 'student.date_of_admission'
   | 'health.emergency_contact_name'
   | 'health.emergency_contact_phone'
   | 'health.emergency_contact_relationship'

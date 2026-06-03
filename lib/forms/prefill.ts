@@ -16,6 +16,9 @@ export interface PrefillContext {
     last_name: string;
     preferred_name: string | null;
     date_of_birth: string | null;
+    // Per-student admission date — pulled from students.metadata.date_of_admission.
+    // null when school hasn't set it yet.
+    date_of_admission: string | null;
   };
   health?: {
     emergency_contact_name: string | null;
@@ -60,6 +63,15 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
     case 'student.full_name': return ctx.student
       ? [ctx.student.preferred_name || ctx.student.first_name, ctx.student.last_name].filter(Boolean).join(' ')
       : '';
+    case 'student.date_of_admission': {
+      // Same date-coercion treatment as DOB: node-postgres returns
+      // date columns as JS Date objects, not ISO strings.
+      const v: unknown = ctx.student?.date_of_admission;
+      if (!v) return '';
+      if (typeof v === 'string') return v.slice(0, 10);
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      return String(v).slice(0, 10);
+    }
     case 'student.date_of_birth': {
       // Postgres `date` columns deserialize to a JS Date by node-postgres,
       // not a string — so we must normalize before slicing. Crashed the

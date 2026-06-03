@@ -100,13 +100,30 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
 
   return (
     <div className="bg-white text-gray-900">
-      {/* Print-only stylesheet — strip the portal chrome on print */}
+      {/* Print-only stylesheet — strip portal chrome, compress everything
+          onto a single letter-size page for MCH's inspector binder. */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
+          @page { size: letter; margin: 0.4in; }
           .no-print { display: none !important; }
-          body, html { background: #fff !important; }
-          .print-container { padding: 0 !important; }
-          .print-page { box-shadow: none !important; border: none !important; }
+          html, body { background: #fff !important; font-size: 9pt !important; line-height: 1.25 !important; color: #000 !important; }
+          .print-container { padding: 0 !important; max-width: none !important; margin: 0 !important; }
+          .print-page { box-shadow: none !important; border: none !important; padding: 0 !important; max-width: none !important; }
+          .print-page header { padding-bottom: 4pt !important; margin-bottom: 6pt !important; }
+          .print-page h1 { font-size: 12pt !important; margin: 0 !important; }
+          .print-page h2 { font-size: 10pt !important; margin: 6pt 0 2pt !important; padding-bottom: 1pt !important; }
+          .print-page h3 { font-size: 9.5pt !important; margin: 4pt 0 1pt !important; }
+          .print-page dl { margin-top: 4pt !important; gap: 0 6pt !important; font-size: 8pt !important; }
+          .print-page .print-block { padding: 1pt 0 !important; page-break-inside: avoid; }
+          .print-page .print-block-label { font-size: 8pt !important; }
+          .print-page .print-block-value { font-size: 9pt !important; }
+          .print-page p { margin: 1pt 0 !important; font-size: 8.5pt !important; }
+          .print-page footer { margin-top: 6pt !important; padding-top: 2pt !important; font-size: 7pt !important; }
+          .print-page .space-y-4 > * + * { margin-top: 2pt !important; }
+          .print-page .signature-img { height: 32pt !important; }
+          .print-page .signature-stamp-block { margin-top: 4pt !important; padding-top: 2pt !important; }
+          .print-page .signature-stamp-name { font-size: 16pt !important; }
+          a[href]:after { content: "" !important; }
         }
       ` }} />
 
@@ -130,13 +147,13 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
           {sub.form_description ? (
             <p className="mt-2 text-xs text-gray-600 whitespace-pre-wrap">{sub.form_description}</p>
           ) : null}
-          <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700">
+          <dl className="mt-4 grid grid-cols-[max-content_1fr_max-content_1fr] gap-x-3 gap-y-0.5 text-xs text-gray-700">
             <dt className="text-gray-500">Submitted</dt>
             <dd>{fmtDateTime(sub.submitted_at)}</dd>
-            <dt className="text-gray-500">Submitted by</dt>
+            <dt className="text-gray-500">By</dt>
             <dd>{sub.parent_first_name} {sub.parent_last_name}{sub.parent_email ? ` (${sub.parent_email})` : ''}</dd>
             {studentName ? (<>
-              <dt className="text-gray-500">For student</dt>
+              <dt className="text-gray-500">Student</dt>
               <dd>{studentName}</dd>
             </>) : null}
             {sub.fee_amount_charged && Number(sub.fee_amount_charged) > 0 ? (<>
@@ -196,9 +213,9 @@ function PrintBlock({
         ? block.signed_date
         : date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
       return (
-        <div className="mt-3 border-t border-gray-200 pt-2">
+        <div className="signature-stamp-block mt-3 border-t border-gray-200 pt-2">
           <div
-            className="text-3xl text-gray-900 leading-none"
+            className="signature-stamp-name text-3xl text-gray-900 leading-none"
             style={{ fontFamily: 'var(--font-signature), "Dancing Script", "Brush Script MT", cursive' }}
           >
             {block.signer_name}
@@ -215,9 +232,9 @@ function PrintBlock({
   const value = responses[block.key];
 
   return (
-    <div className="grid grid-cols-3 gap-3 text-sm">
-      <div className="text-xs font-medium text-gray-500 pt-0.5">{block.label}</div>
-      <div className="col-span-2">
+    <div className="print-block grid grid-cols-3 gap-3 text-sm">
+      <div className="print-block-label text-xs font-medium text-gray-500 pt-0.5">{block.label}</div>
+      <div className="print-block-value col-span-2">
         <ResponseValue block={block} value={value} files={filesByField.get(block.key) ?? []} responses={responses} />
       </div>
     </div>
@@ -240,7 +257,7 @@ function ResponseValue({
       if (v.startsWith('data:image/')) {
         return (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={v} alt="signature" className="h-16 border border-gray-300 rounded bg-white" />
+          <img src={v} alt="signature" className="signature-img h-16 border border-gray-300 rounded bg-white" />
         );
       }
       return <em className="text-gray-400">no signature</em>;

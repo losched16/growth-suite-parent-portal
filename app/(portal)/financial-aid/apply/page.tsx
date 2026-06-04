@@ -3,12 +3,17 @@
 // ones attend this school and provides per-student tuition + requested
 // aid. Household-level financials (income, assets, narrative) are
 // captured once at the top.
+//
+// Honors the school's FA settings: redirects to /home if FA isn't
+// enabled, and to /financial-aid (read-only) if applications aren't
+// currently open or the deadline has passed.
 
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
+import { getFinancialAidSettings, FA_DOCUMENT_CATALOG_MAP } from '@/lib/financial-aid/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +46,20 @@ interface ExistingApp {
 export default async function ApplyPage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
   const sp = await searchParams;
-  const year = sp.year ?? '2025-26';
+
+  const settings = await getFinancialAidSettings(id.parent.school_id);
+  if (!settings.is_enabled) redirect('/home');
+
+  // Default the URL `?year=` to the school's active year. The form
+  // ALSO still allows editing past years a parent may have a saved
+  // draft for.
+  const year = sp.year ?? settings.active_academic_year;
+
+  // Block new-application submission if the window is closed.
+  // Existing applications stay viewable via the read-only state.
+  const deadlinePassed = !!settings.application_deadline
+    && new Date(settings.application_deadline) < new Date(new Date().toISOString().slice(0, 10));
+  const submissionsClosed = !settings.application_open || deadlinePassed;
 
   const { rows: students } = await query<StudentRow>(
     `SELECT id, first_name, last_name, preferred_name, metadata
@@ -73,8 +91,11 @@ export default async function ApplyPage({ searchParams }: { searchParams: Search
     for (const r of rows) existingChildren.set(r.student_id, r);
   }
 
-  // Lock down if decision is already final
-  const locked = existingApp?.status === 'decided' || existingApp?.status === 'withdrawn';
+  // Lock down if decision is already final, OR if the school has
+  // closed the application window AND the parent isn't editing a
+  // draft they already started (which we still let them save).
+  const finalDecision = existingApp?.status === 'decided' || existingApp?.status === 'withdrawn';
+  const locked = finalDecision || (submissionsClosed && !existingApp);
 
   return (
     <div className="space-y-4">
@@ -90,10 +111,41 @@ export default async function ApplyPage({ searchParams }: { searchParams: Search
         </p>
       </header>
 
-      {locked ? (
+      {finalDecision ? (
         <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           This application has already been {existingApp?.status} for the {year} school year and is locked.
           Contact the school if you need to make changes.
+        </div>
+      ) : submissionsClosed ? (
+        <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {deadlinePassed
+            ? `The application window for ${year} has closed.`
+            : `Applications for ${year} are not currently open.`}
+          {' '}Contact the school if you need to submit anyway.
+        </div>
+      ) : null}
+
+      {/* Required documents — show the school's required-doc list so
+          parents know what to gather before they fill out the form. */}
+      {settings.required_document_types.length > 0 ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+          <h3 className="text-sm font-semibold text-blue-900">Documents you&rsquo;ll need to upload</h3>
+          <p className="text-[11px] text-blue-800 mt-0.5">Gather these before submitting. You can attach them at the bottom of the form.</p>
+          <ul className="mt-2 space-y-1 text-xs text-blue-900">
+            {settings.required_document_types.map((k) => {
+              const d = FA_DOCUMENT_CATALOG_MAP[k];
+              if (!d) return null;
+              return (
+                <li key={k} className="flex items-start gap-2">
+                  <span className="mt-0.5">📎</span>
+                  <div>
+                    <span className="font-medium">{d.label}</span>
+                    <span className="block text-[11px] text-blue-800/80">{d.hint}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       ) : null}
 

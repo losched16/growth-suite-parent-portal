@@ -1,10 +1,13 @@
 // /financial-aid — list of this family's FA applications (one per year)
-// + entry point to apply for the current year.
+// + entry point to apply for the current year. Honors the school's
+// FA settings (is_enabled / application_open / deadline / intro copy).
 
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { HandCoins, FileText } from 'lucide-react';
+import { HandCoins, FileText, Lock, CalendarX } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
+import { getFinancialAidSettings } from '@/lib/financial-aid/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,10 +25,15 @@ interface AppRow {
   students_summary: string;
 }
 
-const DEFAULT_YEAR = '2025-26';
-
 export default async function FinancialAidPage() {
   const id = await requireParent();
+
+  // Per-school settings drive everything that follows. If the school
+  // hasn't enabled FA we hard-redirect to /home — parents shouldn't
+  // see this page at all.
+  const settings = await getFinancialAidSettings(id.parent.school_id);
+  if (!settings.is_enabled) redirect('/home');
+  const DEFAULT_YEAR = settings.active_academic_year;
 
   const { rows: apps } = await query<AppRow>(
     `SELECT
@@ -45,6 +53,11 @@ export default async function FinancialAidPage() {
   );
 
   const currentYearApp = apps.find((a) => a.academic_year === DEFAULT_YEAR);
+  // Server-side deadline check — defense-in-depth so a parent who
+  // bookmarks /financial-aid/apply can't sneak past application_open=false.
+  const deadlinePassed = !!settings.application_deadline
+    && new Date(settings.application_deadline) < new Date(new Date().toISOString().slice(0, 10));
+  const canSubmit = settings.application_open && !deadlinePassed;
 
   return (
     <div className="space-y-5">
@@ -53,15 +66,29 @@ export default async function FinancialAidPage() {
           <HandCoins className="h-6 w-6" style={{ color: 'var(--brand)' }} />
           Financial Aid
         </div>
-        <p className="mt-1 text-sm text-gray-600">
-          One application per family per school year covers all your enrolled students.
-          Apply once, list each student inside, and the school will respond with a recommended award per student.
-        </p>
+        {settings.intro_copy_markdown ? (
+          // Render markdown as text-with-line-breaks for now — full
+          // markdown support is a small follow-up.
+          <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{settings.intro_copy_markdown}</p>
+        ) : (
+          <p className="mt-1 text-sm text-gray-600">
+            One application per family per school year covers all your enrolled students.
+            Apply once, list each student inside, and the school will respond with a recommended award per student.
+          </p>
+        )}
       </header>
 
       {/* Current-year CTA */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-gray-900">{DEFAULT_YEAR} school year</h2>
+      <div className={`rounded-lg border bg-white p-4 ${canSubmit ? 'border-gray-200' : 'border-amber-200 bg-amber-50/40'}`}>
+        <div className="flex items-baseline justify-between flex-wrap gap-2">
+          <h2 className="text-sm font-semibold text-gray-900">{DEFAULT_YEAR} school year</h2>
+          {settings.application_deadline ? (
+            <span className={`text-[11px] inline-flex items-center gap-1 ${deadlinePassed ? 'text-rose-700' : 'text-gray-600'}`}>
+              <CalendarX className="h-3 w-3" />
+              {deadlinePassed ? 'Deadline passed' : 'Deadline'}: {fmtDate(settings.application_deadline)}
+            </span>
+          ) : null}
+        </div>
         {currentYearApp ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-gray-700">
@@ -73,10 +100,10 @@ export default async function FinancialAidPage() {
             >
               {currentYearApp.status === 'decided' || currentYearApp.status === 'withdrawn'
                 ? 'View application →'
-                : 'Edit application →'}
+                : (canSubmit ? 'Edit application →' : 'View application →')}
             </Link>
           </div>
-        ) : (
+        ) : canSubmit ? (
           <Link
             href={`/financial-aid/apply?year=${DEFAULT_YEAR}`}
             className="mt-2 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
@@ -84,6 +111,11 @@ export default async function FinancialAidPage() {
           >
             Start your {DEFAULT_YEAR} application
           </Link>
+        ) : (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm text-amber-900">
+            <Lock className="h-3.5 w-3.5" />
+            {deadlinePassed ? 'Applications for this year are closed.' : 'Applications are not currently open.'}
+          </div>
         )}
         <p className="mt-2 text-[11px] text-gray-500">
           One application covers every student in your household attending the school.

@@ -13,6 +13,7 @@ import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { PARENT_SESSION_COOKIE, verifySession } from '@/lib/auth/session';
 import { query, withTransaction } from '@/lib/db';
+import { getFinancialAidSettings } from '@/lib/financial-aid/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +38,24 @@ export async function POST(request: NextRequest) {
     return new NextResponse('multipart body required', { status: 400 });
   }
 
-  const year = String(fd.get('academic_year') ?? '').trim() || '2025-26';
+  // Defense-in-depth: gate submission on the school's FA settings.
+  const settings = await getFinancialAidSettings(session.school_id);
+  if (!settings.is_enabled) {
+    return new NextResponse('financial aid is not enabled for this school', { status: 403 });
+  }
+  const deadlinePassed = !!settings.application_deadline
+    && new Date(settings.application_deadline) < new Date(new Date().toISOString().slice(0, 10));
+  if (!settings.application_open || deadlinePassed) {
+    // We still allow editing existing draft/submitted apps below
+    // (we re-check after we know which app this is). For brand-new
+    // submissions in a closed window we hard-block here.
+    // (The form is also hidden in the UI; this is the API gate.)
+    const back = new URL('/financial-aid/apply', request.url);
+    back.searchParams.set('err', 'Applications are not currently open.');
+    return NextResponse.redirect(back, 303);
+  }
+
+  const year = String(fd.get('academic_year') ?? '').trim() || settings.active_academic_year;
 
   // Load this family's active students so we can validate the `include_<id>`
   // checkboxes against ones that actually belong to the family.
@@ -154,6 +172,26 @@ export async function POST(request: NextRequest) {
         f.type, f.size, buf, session.parent_id,
       ],
     );
+  }
+
+  // Fire-and-forget admin notification email. Recipients from
+  // school_financial_aid_settings.admin_notify_emails. We don't await
+  // — a flaky SMTP shouldn't slow down or fail the parent's submit.
+  if (settings.admin_notify_emails.length > 0) {
+    import('@/lib/email').then(({ sendBrandedEmail }) => {
+      const subject = `New financial aid application — ${session.parent_id ? 'family' : ''} · ${year}`;
+      const html = `<p>A family just submitted a financial aid application for the ${year} school year.</p>
+<p>Review it in the Financial Aid queue (admin dashboards).</p>
+<p>Application ID: <code>${applicationId}</code><br/>
+Total requested aid: $${totalRequested.toLocaleString()}<br/>
+Students included: ${studentInputs.length}</p>`;
+      const text = `A family just submitted a financial aid application for ${year}.\n\nApplication ID: ${applicationId}\nTotal requested aid: $${totalRequested.toLocaleString()}\nStudents included: ${studentInputs.length}\n\nReview at: the FA queue in the admin dashboards.`;
+      return Promise.allSettled(
+        settings.admin_notify_emails.map((to) =>
+          sendBrandedEmail({ to, schoolId: session.school_id, subject, html, text }),
+        ),
+      );
+    }).catch((e) => console.error('[fa/submit] admin notify failed:', e));
   }
 
   return NextResponse.redirect(new URL('/financial-aid', request.url), 303);

@@ -312,11 +312,16 @@ function GenericFields({
 }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {fields.map((f) => (
-        <div key={f.key} className={f.width === 'full' ? 'sm:col-span-2' : ''}>
-          <FieldRenderer field={f} value={values[f.key]} onChange={(v) => patch(f.key, v)} locked={locked} />
-        </div>
-      ))}
+      {fields.map((f) => {
+        // Group + long_text fields always span full width regardless
+        // of their `width` hint — they're never readable in half.
+        const isFullWidth = f.width === 'full' || f.type === 'group' || f.type === 'long_text';
+        return (
+          <div key={f.key} className={isFullWidth ? 'sm:col-span-2' : ''}>
+            <FieldRenderer field={f} value={values[f.key]} onChange={(v) => patch(f.key, v)} locked={locked} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -399,7 +404,92 @@ function FieldRenderer({ field, value, onChange, locked }: { field: WizardField;
       </div>
     );
   }
+  if (field.type === 'group') {
+    return (
+      <GroupField field={field} value={Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []} onChange={(v) => onChange(v)} locked={locked} />
+    );
+  }
   return null;
+}
+
+// ── Repeatable group ────────────────────────────────────────────────
+// Renders a stack of "card" sub-forms. Each card contains the field's
+// `groupFields`. Parent provides Add / Remove buttons bounded by
+// groupMinCount / groupMaxCount.
+function GroupField({
+  field, value, onChange, locked,
+}: {
+  field: WizardField;
+  value: Array<Record<string, unknown>>;
+  onChange: (next: Array<Record<string, unknown>>) => void;
+  locked: boolean;
+}) {
+  const minCount = field.groupMinCount ?? 0;
+  const maxCount = field.groupMaxCount ?? 6;
+  const groupFields = field.groupFields ?? [];
+
+  // Pad to minCount on first render so required cards exist.
+  const list = value.length < minCount
+    ? [...value, ...Array(minCount - value.length).fill(0).map(() => ({}))]
+    : value;
+
+  function patchCard(idx: number, k: string, v: unknown) {
+    const next = list.map((card, i) => i === idx ? { ...card, [k]: v } : card);
+    onChange(next);
+  }
+  function removeCard(idx: number) {
+    if (list.length <= minCount) return;
+    const next = list.filter((_, i) => i !== idx);
+    onChange(next);
+  }
+  function addCard() {
+    if (list.length >= maxCount) return;
+    onChange([...list, {}]);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="text-sm font-medium text-gray-800">
+          {field.label} {field.required ? <span className="text-rose-600">*</span> : null}
+        </label>
+        {field.help ? <p className="text-[11px] text-gray-500 mt-0.5">{field.help}</p> : null}
+      </div>
+      {list.length === 0 ? (
+        <p className="text-xs text-gray-500 italic">None added. Skip this step entirely if there are none.</p>
+      ) : null}
+      <div className="space-y-3">
+        {list.map((card, idx) => (
+          <div key={idx} className="rounded-md border border-gray-200 bg-gray-50/40 p-3">
+            <div className="flex items-baseline justify-between mb-2">
+              <div className="text-xs font-semibold text-gray-700">
+                {field.groupSingularLabel ?? 'Entry'} #{idx + 1}
+              </div>
+              {list.length > minCount ? (
+                <button type="button" onClick={() => removeCard(idx)} disabled={locked} className="text-[11px] text-rose-600 hover:text-rose-800 underline disabled:opacity-50">
+                  Remove
+                </button>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {groupFields.map((sub) => (
+                <div key={sub.key} className={sub.width === 'full' ? 'sm:col-span-2' : ''}>
+                  <FieldRenderer field={sub} value={(card as Record<string, unknown>)[sub.key]} onChange={(v) => patchCard(idx, sub.key, v)} locked={locked} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {list.length < maxCount ? (
+        <button type="button" onClick={addCard} disabled={locked} className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
+          + Add another {(field.groupSingularLabel ?? 'entry').toLowerCase()}
+        </button>
+      ) : (
+        <p className="text-[11px] text-gray-500 italic">Maximum of {maxCount} reached.</p>
+      )}
+    </div>
+  );
 }
 
 // ── Step 2: Students ─────────────────────────────────────────────────

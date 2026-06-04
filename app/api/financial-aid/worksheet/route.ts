@@ -30,6 +30,20 @@ export async function GET() {
     }
     const fields = sec.fields.map((f) => {
       const help = f.help ? `<span class="help">${escapeHtml(f.help)}</span>` : '';
+      if (f.type === 'group') {
+        // Render each sub-field once with a note that the parent can
+        // duplicate the card for each entry.
+        const sub = (f.groupFields ?? []).map((sf) => {
+          const subHelp = sf.help ? `<span class="help">${escapeHtml(sf.help)}</span>` : '';
+          return `<div class="subrow"><label>${escapeHtml(sf.label)}</label>${subHelp}<div class="blank">_______________________________</div></div>`;
+        }).join('\n');
+        return `<div class="group">
+  <label>${escapeHtml(f.label)}${f.required ? ' *' : ''}</label>
+  ${help}
+  <p class="grouphint">Repeat this block for each ${escapeHtml((f.groupSingularLabel ?? 'entry').toLowerCase())} (up to ${f.groupMaxCount ?? 6}). Online, click &ldquo;+ Add another&rdquo; to add a new card.</p>
+  <div class="groupbox">${sub}</div>
+</div>`;
+      }
       return `<div class="row"><label>${escapeHtml(f.label)}${f.required ? ' *' : ''}</label>${help}<div class="blank">___________________________________</div></div>`;
     }).join('\n');
     const explanation = sec.optionalExplanationKey
@@ -54,9 +68,14 @@ export async function GET() {
   .why { background: #f0fdf4; border-left: 3px solid #10b981; padding: 8px 12px; font-size: 12px; color: #064e3b; margin: 6px 0 12px; }
   .intro { font-size: 13px; color: #334155; margin: 0 0 12px; }
   .row { margin: 8px 0; }
+  .subrow { margin: 6px 0; }
   label { font-size: 13px; font-weight: 600; color: #0f172a; display: block; }
   .help { font-size: 11px; color: #64748b; display: block; margin: 2px 0 6px; font-weight: normal; }
   .blank { font-size: 13px; color: #94a3b8; letter-spacing: 1px; margin-top: 2px; }
+  .group { margin: 14px 0; padding: 10px 12px; border: 1px dashed #cbd5e1; border-radius: 6px; background: #f8fafc; }
+  .group label { color: #0f172a; }
+  .grouphint { font-size: 11px; color: #64748b; font-style: italic; margin: 4px 0 8px; }
+  .groupbox { background: #fff; border-radius: 4px; padding: 8px 10px; }
   .topnote { background: #eff6ff; border-radius: 6px; padding: 12px 16px; font-size: 12px; color: #1e40af; margin: 0 0 24px; }
   button { background: #047857; color: #fff; border: 0; padding: 6px 12px; border-radius: 4px; cursor: pointer; font: inherit; }
   @media print { body { margin: 0; padding: 0.4in; } .noprint { display: none; } .topnote { background: #fff; border: 1px dashed #94a3b8; } }

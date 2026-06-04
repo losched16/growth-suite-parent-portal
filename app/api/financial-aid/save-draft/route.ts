@@ -177,9 +177,13 @@ export async function POST(request: NextRequest) {
 }
 
 // Pull legacy flat fields out of the responses object so the admin
-// queue keeps working without a schema migration.
+// queue widget keeps working without code changes. We try to roll up
+// values from the new (10-step) shape, falling back to the older
+// (7-step) keys so apps mid-wizard during the schema upgrade still
+// extract sensibly.
 function extractLegacyFlatFields(responses: Record<string, unknown>) {
-  const household = (responses.household as Record<string, unknown>) ?? {};
+  const family   = (responses.family as Record<string, unknown>) ?? {};
+  const household = (responses.household as Record<string, unknown>) ?? {};   // legacy 7-step
   const income    = (responses.income as Record<string, unknown>) ?? {};
   const assets    = (responses.assets as Record<string, unknown>) ?? {};
   const finalSec  = (responses.final as Record<string, unknown>) ?? {};
@@ -189,14 +193,35 @@ function extractLegacyFlatFields(responses: Record<string, unknown>) {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   };
-  const sumIncome = ['w2_adult_1','w2_adult_2','self_employed_income','dividend_interest_income','capital_gains','rental_income','support_received','other_income']
-    .map((k) => num(income[k])).filter((n): n is number => n !== null);
-  const sumAssets = ['checking_savings','investments','retirement','cd_money_market','business_equity','other_assets']
-    .map((k) => num(assets[k])).filter((n): n is number => n !== null);
+
+  // Income: prefer the federal AGI if filled, otherwise sum the W-2
+  // + business + investment lines. AGI is the truer single number.
+  const agi = num(income.federal_agi);
+  let totalIncome: number | null = agi;
+  if (totalIncome === null) {
+    const sumIncome = [
+      'w2_adult_1','w2_adult_2','self_employed_income','dividend_interest_income',
+      'capital_gains','rental_income','trust_inheritance_income',
+      'alimony_received','child_support_received','gifts_received','other_income',
+      'support_received',    // legacy key — equivalent to alimony+support
+    ].map((k) => num(income[k])).filter((n): n is number => n !== null);
+    totalIncome = sumIncome.length > 0 ? sumIncome.reduce((s, n) => s + n, 0) : null;
+  }
+
+  // Assets: sum across the granular keys (new schema) or the older
+  // grouped keys (7-step legacy).
+  const sumAssets = [
+    'checking_total','savings_total','cd_total','money_market_total',
+    'stocks_bonds_securities','retirement_total','business_assets',
+    'trust_assets','other_tangible_assets','student_529_total',
+    // 7-step legacy
+    'checking_savings','investments','retirement','cd_money_market',
+    'business_equity','other_assets',
+  ].map((k) => num(assets[k])).filter((n): n is number => n !== null);
 
   return {
-    household_size: num(household.household_size),
-    total_annual_income: sumIncome.length > 0 ? sumIncome.reduce((s, n) => s + n, 0) : null,
+    household_size: num(family.household_size ?? household.household_size),
+    total_annual_income: totalIncome,
     assets_value: sumAssets.length > 0 ? sumAssets.reduce((s, n) => s + n, 0) : null,
     special_circumstances: (finalSec.special_circumstances as string) ?? null,
     parent_notes: (finalSec.parent_notes_final as string) ?? null,

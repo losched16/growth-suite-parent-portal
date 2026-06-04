@@ -10,7 +10,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Save, CheckCircle2, AlertCircle, Loader2, FileText, Sparkles, Lock, FileUp, Printer } from 'lucide-react';
 import type { WizardSection, WizardField } from '@/lib/financial-aid/wizard-schema';
-import { FA_DOCUMENT_CATALOG_MAP } from '@/lib/financial-aid/settings';
+// Direct import of the pure-data catalog so the client bundle doesn't
+// drag in the server-only settings module (which imports pg via @/lib/db).
+import { FA_DOCUMENT_CATALOG_MAP } from '@/lib/financial-aid/document-catalog';
 
 interface StudentLite { id: string; first_name: string; last_name: string; preferred_name: string | null }
 interface ChildRow { student_id: string; current_tuition: string | null; requested_aid: string | null }

@@ -81,9 +81,11 @@ export default async function ApplyPage({ searchParams }: { searchParams: Search
     childRows = r;
   }
 
-  // Already-uploaded document counts by type — drives the step 7
-  // doc checklist UI.
+  // Already-uploaded files — drives the step 7 doc checklist UI.
+  // We pass BOTH a count per document_type AND the full file list so
+  // the wizard can render Delete buttons next to each uploaded file.
   let docCounts: Record<string, number> = {};
+  let uploadedFiles: Array<{ id: string; document_type: string; original_filename: string; size_bytes: number }> = [];
   if (app) {
     const { rows: dc } = await query<RequiredDocsRow>(
       `SELECT document_type, COUNT(*)::int AS count
@@ -93,6 +95,14 @@ export default async function ApplyPage({ searchParams }: { searchParams: Search
       [app.id],
     );
     for (const r of dc) docCounts[r.document_type] = r.count;
+
+    const { rows: f } = await query<{ id: string; document_type: string; original_filename: string; size_bytes: number }>(
+      `SELECT id, document_type, original_filename, size_bytes
+         FROM fa_application_files WHERE application_id = $1
+         ORDER BY document_type, uploaded_at`,
+      [app.id],
+    );
+    uploadedFiles = f;
   }
 
   // Prior-year app — used for "start from last year" prefill button.
@@ -130,6 +140,8 @@ export default async function ApplyPage({ searchParams }: { searchParams: Search
       responses={app?.responses ?? {}}
       requiredDocs={settings.required_document_types}
       docCounts={docCounts}
+      uploadedFiles={uploadedFiles}
+      applicationId={app?.id ?? null}
       hasExistingApplication={!!app}
       priorYearResponses={priorYear?.responses ?? null}
       priorYear={priorYear?.academic_year ?? null}

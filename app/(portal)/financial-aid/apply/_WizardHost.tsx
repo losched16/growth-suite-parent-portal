@@ -14,6 +14,7 @@ import { FA_DOCUMENT_CATALOG_MAP } from '@/lib/financial-aid/settings';
 
 interface StudentLite { id: string; first_name: string; last_name: string; preferred_name: string | null }
 interface ChildRow { student_id: string; current_tuition: string | null; requested_aid: string | null }
+interface UploadedFile { id: string; document_type: string; original_filename: string; size_bytes: number }
 
 export function WizardHost(props: {
   year: string;
@@ -26,6 +27,8 @@ export function WizardHost(props: {
   responses: Record<string, unknown>;
   requiredDocs: string[];
   docCounts: Record<string, number>;
+  uploadedFiles: UploadedFile[];
+  applicationId: string | null;
   hasExistingApplication: boolean;
   priorYearResponses: Record<string, unknown> | null;
   priorYear: string | null;
@@ -231,8 +234,8 @@ export function WizardHost(props: {
             values={currentSectionResponses()}
             patch={patchResponse}
             requiredDocs={props.requiredDocs}
-            docCounts={props.docCounts}
-            applicationId={undefined /* we don't expose it directly; submit endpoint handles uploads in a separate step */}
+            applicationId={props.applicationId}
+            initialFiles={props.uploadedFiles}
             locked={props.locked}
           />
         ) : (
@@ -450,18 +453,64 @@ function StudentsStep({
   );
 }
 
-// ── Step 7: Final + docs checklist ──────────────────────────────────
+// ── Step 7: Final + interactive doc checklist ───────────────────────
 function FinalStep({
-  fields, values, patch, requiredDocs, docCounts, locked,
+  fields, values, patch, requiredDocs, applicationId, initialFiles, locked,
 }: {
   fields: WizardField[];
   values: Record<string, unknown>;
   patch: (key: string, value: unknown) => void;
   requiredDocs: string[];
-  docCounts: Record<string, number>;
-  applicationId: string | undefined;
+  applicationId: string | null;
+  initialFiles: UploadedFile[];
   locked: boolean;
 }) {
+  // Local file state so uploads + deletes feel immediate. We refresh
+  // from /api/financial-aid/upload-doc?application_id=… after every
+  // change to stay consistent with the server.
+  const [files, setFiles] = useState<UploadedFile[]>(initialFiles);
+  const [uploadingType, setUploadingType] = useState<string | null>(null);
+  const [otherType, setOtherType] = useState<string>('other');
+  const [err, setErr] = useState<string | null>(null);
+
+  async function refresh() {
+    if (!applicationId) return;
+    const r = await fetch(`/api/financial-aid/upload-doc?application_id=${applicationId}`);
+    const j = await r.json();
+    if (r.ok && Array.isArray(j.files)) setFiles(j.files);
+  }
+
+  async function upload(documentType: string, file: File) {
+    if (!applicationId) return;
+    setUploadingType(documentType); setErr(null);
+    try {
+      const fd = new FormData();
+      fd.set('application_id', applicationId);
+      fd.set('document_type', documentType);
+      fd.set('file', file);
+      const r = await fetch('/api/financial-aid/upload-doc', { method: 'POST', body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(j.detail || j.error || `Upload failed (${r.status})`); return; }
+      await refresh();
+    } finally {
+      setUploadingType(null);
+    }
+  }
+
+  async function remove(fileId: string) {
+    if (!confirm('Delete this file? You can re-upload if you change your mind.')) return;
+    const r = await fetch(`/api/financial-aid/upload-doc?file_id=${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+    if (r.ok) await refresh();
+  }
+
+  const filesByType = files.reduce<Record<string, UploadedFile[]>>((acc, f) => {
+    (acc[f.document_type] ??= []).push(f); return acc;
+  }, {});
+
+  // "Other supporting docs" — everything not in the required list.
+  const requiredSet = new Set(requiredDocs);
+  const otherFiles = files.filter((f) => !requiredSet.has(f.document_type));
+
   return (
     <div className="space-y-5">
       <GenericFields fields={fields} values={values} patch={patch} locked={locked} />
@@ -469,35 +518,129 @@ function FinalStep({
       {requiredDocs.length > 0 ? (
         <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4">
           <h3 className="text-sm font-semibold text-blue-900 flex items-center gap-1">
-            <FileUp className="h-4 w-4" /> Required document checklist
+            <FileUp className="h-4 w-4" /> Required documents
           </h3>
           <p className="text-[11px] text-blue-800 mt-0.5 mb-3">
-            Upload these from the Financial Aid landing page (under the application). Each required doc is shown below with how many you&rsquo;ve uploaded so far.
+            Upload each item directly here. PDF or image (JPG / PNG / HEIC), up to 10MB per file. You can upload more than one file per category if needed.
           </p>
-          <ul className="space-y-1.5">
-            {requiredDocs.map((k) => {
-              const d = FA_DOCUMENT_CATALOG_MAP[k];
-              if (!d) return null;
-              const count = docCounts[k] ?? 0;
-              const done = count > 0;
-              return (
-                <li key={k} className={`flex items-start gap-2 rounded px-2 py-1.5 ${done ? 'bg-emerald-50' : 'bg-white border border-amber-200'}`}>
-                  {done ? <CheckCircle2 className="h-4 w-4 text-emerald-700 mt-0.5" /> : <AlertCircle className="h-4 w-4 text-amber-700 mt-0.5" />}
-                  <div className="flex-1">
-                    <div className="text-xs font-medium text-slate-900">{d.label}</div>
-                    <div className="text-[11px] text-slate-600">{d.hint}</div>
-                  </div>
-                  <span className={`text-[10px] uppercase tracking-wide font-semibold ${done ? 'text-emerald-700' : 'text-amber-800'}`}>
-                    {done ? `${count} uploaded` : 'missing'}
-                  </span>
+          {!applicationId ? (
+            <p className="text-xs text-amber-800 italic">Save the wizard once first (next or prev), then upload here.</p>
+          ) : (
+            <ul className="space-y-2">
+              {requiredDocs.map((k) => {
+                const d = FA_DOCUMENT_CATALOG_MAP[k];
+                if (!d) return null;
+                const uploaded = filesByType[k] ?? [];
+                const done = uploaded.length > 0;
+                return (
+                  <li key={k} className={`rounded px-3 py-2 ${done ? 'bg-emerald-50 border border-emerald-200' : 'bg-white border border-amber-200'}`}>
+                    <div className="flex items-start gap-2">
+                      {done ? <CheckCircle2 className="h-4 w-4 text-emerald-700 mt-0.5 shrink-0" /> : <AlertCircle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-slate-900">{d.label}</div>
+                        <div className="text-[11px] text-slate-600">{d.hint}</div>
+                      </div>
+                      <label className="inline-flex items-center gap-1 rounded border border-blue-300 bg-white px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-50 cursor-pointer">
+                        {uploadingType === k ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileUp className="h-3 w-3" />}
+                        {done ? 'Add another' : 'Upload'}
+                        <input
+                          type="file"
+                          accept="application/pdf,image/*,.heic,.heif"
+                          className="hidden"
+                          disabled={locked || !!uploadingType}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) upload(k, f);
+                            e.target.value = '';   // allow re-selecting the same file
+                          }}
+                        />
+                      </label>
+                    </div>
+                    {uploaded.length > 0 ? (
+                      <ul className="mt-2 pl-6 space-y-1">
+                        {uploaded.map((f) => (
+                          <li key={f.id} className="flex items-center gap-2 text-[11px] text-slate-700">
+                            <FileText className="h-3 w-3 text-slate-400" />
+                            <span className="flex-1 truncate">{f.original_filename}</span>
+                            <span className="text-slate-400">{fmtBytes(f.size_bytes)}</span>
+                            <button type="button" onClick={() => remove(f.id)} disabled={locked} className="text-rose-600 hover:text-rose-800 hover:underline disabled:opacity-50">delete</button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {/* Other supporting docs — anything beyond the required list */}
+      {applicationId ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1">
+            <FileUp className="h-4 w-4" /> Other supporting documents (optional)
+          </h3>
+          <p className="text-[11px] text-slate-600 mt-0.5 mb-2">
+            Anything else the committee should see. Pick a category, then upload.
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={otherType}
+              onChange={(e) => setOtherType(e.target.value)}
+              disabled={locked}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+            >
+              {Object.entries(FA_DOCUMENT_CATALOG_MAP).map(([k, d]) => (
+                <option key={k} value={k}>{d.label}</option>
+              ))}
+            </select>
+            <label className="inline-flex items-center gap-1 rounded border border-blue-300 bg-white px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-50 cursor-pointer">
+              {uploadingType === otherType ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileUp className="h-3 w-3" />}
+              Upload
+              <input
+                type="file"
+                accept="application/pdf,image/*,.heic,.heif"
+                className="hidden"
+                disabled={locked || !!uploadingType}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) upload(otherType, f);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+          {otherFiles.length > 0 ? (
+            <ul className="mt-3 space-y-1">
+              {otherFiles.map((f) => (
+                <li key={f.id} className="flex items-center gap-2 text-[11px] text-slate-700 rounded bg-slate-50 px-2 py-1">
+                  <FileText className="h-3 w-3 text-slate-400" />
+                  <span className="text-slate-500 text-[10px] uppercase tracking-wide">{f.document_type.replace(/_/g, ' ')}</span>
+                  <span className="flex-1 truncate">{f.original_filename}</span>
+                  <span className="text-slate-400">{fmtBytes(f.size_bytes)}</span>
+                  <button type="button" onClick={() => remove(f.id)} disabled={locked} className="text-rose-600 hover:text-rose-800 hover:underline disabled:opacity-50">delete</button>
                 </li>
-              );
-            })}
-          </ul>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {err ? (
+        <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          {err}
         </div>
       ) : null}
     </div>
   );
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 const inputCls = 'block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none disabled:bg-gray-100';

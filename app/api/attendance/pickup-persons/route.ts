@@ -87,11 +87,65 @@ export async function POST(request: NextRequest) {
   const phone = strOrNull(fd.get('phone'));
   const notes = strOrNull(fd.get('notes'));
 
-  await query(
-    `INSERT INTO pickup_persons (school_id, added_by_parent_id, name, relationship, phone, notes)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [session.school_id, session.parent_id, name, relationship, phone, notes],
+  // Per-student authorization (Rachel's ask): the form submits one
+  // `authorized_student_ids` value per checked kid. An empty list →
+  // "authorized for every student in the family" (matches the back-
+  // compat default for legacy rows; back-end keeps the junction empty).
+  // We accept either repeated values OR a CSV (for JSON callers).
+  const familyRow = await query<{ family_id: string }>(
+    `SELECT family_id FROM parents WHERE id = $1`,
+    [session.parent_id],
   );
+  const familyId = familyRow.rows[0]?.family_id;
+  if (!familyId) return badRequest(request, 'Could not resolve your family — please refresh.');
+
+  const allStudentIds = (await query<{ id: string }>(
+    `SELECT id FROM students WHERE family_id = $1 AND school_id = $2 AND status = 'active'`,
+    [familyId, session.school_id],
+  )).rows.map((r) => r.id);
+
+  const requestedIds = fd
+    .getAll('authorized_student_ids')
+    .flatMap((v) => String(v).split(','))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // Scope to this family — silently drop anything else (defense in depth).
+  const scopedIds = requestedIds.filter((id) => allStudentIds.includes(id));
+  // If the user checked every kid OR none, treat as "applies to all" by
+  // leaving the junction empty. Cleaner data, same effective meaning.
+  const persistIds = (scopedIds.length === 0 || scopedIds.length === allStudentIds.length)
+    ? []
+    : scopedIds;
+
+  // Dedupe-aware insert: if a row already exists with this name (case-
+  // insensitive) in the same family AND active=true, treat it as an
+  // edit instead of an insert. Migration 045's partial unique index
+  // would error otherwise.
+  const ins = await query<{ id: string }>(
+    `INSERT INTO pickup_persons (school_id, added_by_parent_id, family_id, name, relationship, phone, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (school_id, family_id, lower(name)) WHERE active = true
+     DO UPDATE SET relationship = EXCLUDED.relationship,
+                   phone = COALESCE(EXCLUDED.phone, pickup_persons.phone),
+                   notes = COALESCE(EXCLUDED.notes, pickup_persons.notes),
+                   updated_at = now()
+     RETURNING id`,
+    [session.school_id, session.parent_id, familyId, name, relationship, phone, notes],
+  );
+  const pickupPersonId = ins.rows[0].id;
+
+  // Replace the per-student authorization set in one transaction-ish
+  // pair: delete + insert. Empty `persistIds` means "all kids".
+  await query(`DELETE FROM pickup_person_students WHERE pickup_person_id = $1`, [pickupPersonId]);
+  for (const sid of persistIds) {
+    await query(
+      `INSERT INTO pickup_person_students (pickup_person_id, student_id, school_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (pickup_person_id, student_id) DO NOTHING`,
+      [pickupPersonId, sid, session.school_id],
+    );
+  }
+
   return redirectBack(request);
 }
 
@@ -137,6 +191,44 @@ async function handlePatch(
      WHERE id = $6`,
     [name, relationship, phone, notes, active, id],
   );
+
+  // If `authorized_student_ids` is in the form, also replace the
+  // per-student authorization set. Same convention as POST: empty
+  // list (or all-kids) means "applies to all" → junction stays empty.
+  if (fd.has('authorized_student_ids') || fd.get('_update_students') === '1') {
+    const familyRow = await query<{ family_id: string }>(
+      `SELECT family_id FROM parents WHERE id = $1`,
+      [session.parent_id],
+    );
+    const familyId = familyRow.rows[0]?.family_id;
+    if (familyId) {
+      const allStudentIds = (await query<{ id: string }>(
+        `SELECT id FROM students WHERE family_id = $1 AND school_id = $2 AND status = 'active'`,
+        [familyId, session.school_id],
+      )).rows.map((r) => r.id);
+
+      const requestedIds = fd
+        .getAll('authorized_student_ids')
+        .flatMap((v) => String(v).split(','))
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const scopedIds = requestedIds.filter((sid) => allStudentIds.includes(sid));
+      const persistIds = (scopedIds.length === 0 || scopedIds.length === allStudentIds.length)
+        ? []
+        : scopedIds;
+
+      await query(`DELETE FROM pickup_person_students WHERE pickup_person_id = $1`, [id]);
+      for (const sid of persistIds) {
+        await query(
+          `INSERT INTO pickup_person_students (pickup_person_id, student_id, school_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (pickup_person_id, student_id) DO NOTHING`,
+          [id, sid, session.school_id],
+        );
+      }
+    }
+  }
+
   return redirectBack(request);
 }
 

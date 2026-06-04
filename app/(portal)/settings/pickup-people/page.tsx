@@ -3,16 +3,24 @@
 // phone). Any parent in the family can add / edit / deactivate any
 // entry. Deactivation flips active=false; the row is preserved so
 // event history that references it stays intact.
+//
+// Per-student authorization: each pickup person can be scoped to
+// specific students in the family. Empty junction = authorized for
+// every student. UI surfaces the kids as checkboxes when adding +
+// editing; display row lists the authorized children inline.
 
 import Link from 'next/link';
 import { ArrowLeft, UserPlus } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { SetPinControl } from './SetPinControl';
+import { EditAuthorizedStudents } from './EditAuthorizedStudents';
 
 export const dynamic = 'force-dynamic';
 
 type SearchParams = Promise<{ err?: string; msg?: string; new_pin?: string; pin_for?: string }>;
+
+interface StudentLite { id: string; first_name: string; last_name: string; preferred_name: string | null }
 
 interface PickupPersonRow {
   id: string;
@@ -27,6 +35,7 @@ interface PickupPersonRow {
   pin_set_at: string | null;
   pin_expires_at: string | null;
   is_temporary: boolean;
+  authorized_student_ids: string[]; // empty array means "all kids in family"
 }
 
 export default async function PickupPeoplePage({ searchParams }: { searchParams: SearchParams }) {
@@ -38,7 +47,11 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
        pp.id, pp.name, pp.relationship, pp.phone, pp.notes, pp.active,
        p.first_name AS added_by_first_name, p.last_name AS added_by_last_name,
        (pp.added_by_parent_id = $2) AS added_by_self,
-       pp.pin_set_at, pp.pin_expires_at, pp.is_temporary
+       pp.pin_set_at, pp.pin_expires_at, pp.is_temporary,
+       COALESCE(
+         ARRAY(SELECT student_id::text FROM pickup_person_students pps WHERE pps.pickup_person_id = pp.id),
+         ARRAY[]::text[]
+       ) AS authorized_student_ids
      FROM pickup_persons pp
      JOIN parents p ON p.id = pp.added_by_parent_id
      WHERE pp.school_id = $1
@@ -46,6 +59,19 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
      ORDER BY pp.active DESC, pp.name`,
     [id.parent.school_id, id.parent.id],
   );
+
+  // Family's kids — used to render the per-student checkbox group on
+  // the add form and as the lookup table for the display chips.
+  const { rows: kids } = await query<StudentLite>(
+    `SELECT id, first_name, last_name, preferred_name
+       FROM students
+      WHERE family_id = (SELECT family_id FROM parents WHERE id = $1)
+        AND school_id = $2
+        AND status = 'active'
+      ORDER BY first_name`,
+    [id.parent.id, id.parent.school_id],
+  );
+  const kidLabel = (s: StudentLite) => `${s.preferred_name?.trim() || s.first_name} ${s.last_name}`.trim();
 
   const active = rows.filter((r) => r.active);
   const inactive = rows.filter((r) => !r.active);
@@ -103,7 +129,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
         ) : (
           <ul className="divide-y divide-gray-100">
             {active.map((p) => (
-              <PersonRow key={p.id} person={p} />
+              <PersonRow key={p.id} person={p} kids={kids} kidLabel={kidLabel} />
             ))}
           </ul>
         )}
@@ -160,6 +186,30 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
               />
             </label>
           </div>
+          {kids.length > 1 ? (
+            <fieldset className="mt-2 rounded-md border border-emerald-200 bg-white px-3 py-2">
+              <legend className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                Authorized to pick up
+              </legend>
+              <p className="text-[11px] text-gray-600 mb-1.5">
+                Pick which of your children this person can pick up. Leaving every box unchecked means
+                <strong> all kids</strong>.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {kids.map((k) => (
+                  <label key={k.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      name="authorized_student_ids"
+                      value={k.id}
+                      className="h-4 w-4 rounded border-emerald-300"
+                    />
+                    <span>{kidLabel(k)}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
           <button
             type="submit"
             className="rounded-md px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
@@ -178,7 +228,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
           </summary>
           <ul className="mt-2 divide-y divide-gray-100">
             {inactive.map((p) => (
-              <PersonRow key={p.id} person={p} />
+              <PersonRow key={p.id} person={p} kids={kids} kidLabel={kidLabel} />
             ))}
           </ul>
         </details>
@@ -187,9 +237,15 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
   );
 }
 
-function PersonRow({ person: p }: { person: PickupPersonRow }) {
+function PersonRow({ person: p, kids, kidLabel }: { person: PickupPersonRow; kids: StudentLite[]; kidLabel: (s: StudentLite) => string }) {
   const hasPin = !!p.pin_set_at;
   const pinExpired = p.pin_expires_at && new Date(p.pin_expires_at) < new Date();
+  // Empty junction = all kids. When the parent restricted to specific
+  // kids, render their names as small purple chips so the row reads
+  // "Grandma Jo — authorized for: Charlie".
+  const authorizedKids = p.authorized_student_ids.length === 0
+    ? null
+    : kids.filter((k) => p.authorized_student_ids.includes(k.id));
   return (
     <li className="px-4 py-3 flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
@@ -213,6 +269,27 @@ function PersonRow({ person: p }: { person: PickupPersonRow }) {
             </span>
           )}
         </div>
+        {kids.length > 1 ? (
+          <div className="mt-1 flex items-center gap-1 flex-wrap">
+            <span className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Authorized for:</span>
+            {authorizedKids === null ? (
+              <span className="inline-block rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">All children</span>
+            ) : (
+              authorizedKids.map((k) => (
+                <span key={k.id} className="inline-block rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">
+                  {kidLabel(k)}
+                </span>
+              ))
+            )}
+            {p.active ? (
+              <EditAuthorizedStudents
+                pickupPersonId={p.id}
+                kids={kids.map((k) => ({ id: k.id, label: kidLabel(k) }))}
+                currentlyAuthorized={p.authorized_student_ids}
+              />
+            ) : null}
+          </div>
+        ) : null}
         {p.phone ? <div className="text-[11px] text-gray-600">{p.phone}</div> : null}
         {p.notes ? <div className="text-[11px] text-gray-600">{p.notes}</div> : null}
         {hasPin && p.pin_expires_at ? (

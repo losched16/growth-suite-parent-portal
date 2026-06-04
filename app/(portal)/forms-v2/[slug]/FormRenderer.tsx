@@ -1091,8 +1091,42 @@ function BlockRenderer({
     case 'email':
     case 'tel':
     case 'url':
+      // student_specific=true (and >1 student) → render one input per
+      // student, named `<key>__<student_id>`. Lets Wooster's medical
+      // form capture per-kid values without forcing the whole form to
+      // be filled once per student.
+      if (block.student_specific && students.length > 1) {
+        return (
+          <FieldShell block={block}>
+            <StudentSplitWrapper students={students}>
+              {(s) => (
+                <TextInput
+                  block={{ ...block, key: `${block.key}__${s.id}` }}
+                  prefillCtx={prefillCtx}
+                  legacyResponses={legacyResponses}
+                />
+              )}
+            </StudentSplitWrapper>
+          </FieldShell>
+        );
+      }
       return <FieldShell block={block}><TextInput block={block} prefillCtx={prefillCtx} legacyResponses={legacyResponses} /></FieldShell>;
     case 'textarea':
+      if (block.student_specific && students.length > 1) {
+        return (
+          <FieldShell block={block}>
+            <StudentSplitWrapper students={students}>
+              {(s) => (
+                <Textarea
+                  block={{ ...block, key: `${block.key}__${s.id}` }}
+                  prefillCtx={prefillCtx}
+                  legacyResponses={legacyResponses}
+                />
+              )}
+            </StudentSplitWrapper>
+          </FieldShell>
+        );
+      }
       return <FieldShell block={block}><Textarea block={block} prefillCtx={prefillCtx} legacyResponses={legacyResponses} /></FieldShell>;
     case 'number':
       return <FieldShell block={block}><NumberInput block={block} prefillCtx={prefillCtx} legacyResponses={legacyResponses} /></FieldShell>;
@@ -1200,6 +1234,37 @@ function TextInput({ block, prefillCtx, legacyResponses }: { block: Extract<Form
       placeholder={'placeholder' in block ? block.placeholder : ''}
       className={locked ? inputClsReadOnly : inputCls}
     />
+  );
+}
+
+// Render the same input N times — once per student in the family — and
+// label each one with the student's name. Used by `student_specific`
+// text / textarea fields. Each child input is responsible for its own
+// per-student key (the caller mints `<key>__<student_id>`).
+function StudentSplitWrapper({
+  students, children,
+}: {
+  students: StudentOption[];
+  children: (s: StudentOption) => React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-gray-500">
+        We&rsquo;ll capture this <strong>separately for each of your children</strong> —
+        leave any kid&rsquo;s box blank if it doesn&rsquo;t apply.
+      </p>
+      {students.map((s) => {
+        const display = `${(s.preferred_name?.trim() || s.first_name)} ${s.last_name}`.trim();
+        return (
+          <div key={s.id} className="rounded-md border border-emerald-200 bg-emerald-50/30 px-3 py-2">
+            <div className="text-[11px] uppercase tracking-wide text-emerald-800 font-semibold mb-1">
+              {display}
+            </div>
+            {children(s)}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

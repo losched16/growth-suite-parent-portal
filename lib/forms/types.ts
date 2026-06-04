@@ -47,6 +47,15 @@ interface BaseField {
   // can't edit it. Schools using readOnly should also set `prefill` so
   // there's something to display (an empty readOnly input is useless).
   readOnly?: boolean;
+  // When true on a per-family form (`per_student: false`), the input
+  // renders ONE COPY PER STUDENT in the family instead of a single
+  // family-wide input. Each per-student copy submits its value under
+  // a separate key: `<block.key>__<student_id>`. Used on Wooster's
+  // Emergency Medical form so existing conditions / medications /
+  // allergies can differ per kid without forcing the parent to fill
+  // the entire form once per child. When the family has only one
+  // student, the renderer falls through to the normal single input.
+  student_specific?: boolean;
 }
 
 export type PrefillSource =

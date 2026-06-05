@@ -159,6 +159,30 @@ export async function POST(request: NextRequest) {
     return appId;
   });
 
+  // Auto-fire AI committee analysis on submit. Fire-and-forget — we
+  // don't want a slow Claude call (or a missing env var) to delay the
+  // parent's redirect. Result is persisted onto the application row by
+  // the dashboards endpoint, so the committee sees it the next time
+  // they open the queue.
+  if (nowSubmit) {
+    const base = process.env.DASHBOARDS_INTERNAL_BASE_URL;
+    const secret = process.env.INTERNAL_FA_SECRET;
+    if (base && secret) {
+      // Use a fresh AbortController with a long timeout — Claude can
+      // take 20s. We DON'T await, so this never blocks the user.
+      fetch(`${base.replace(/\/$/, '')}/api/school/fa-applications/${applicationId}/analyze`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${secret}` },
+      }).then((r) => {
+        if (!r.ok) console.warn('[fa/save-draft] auto-analysis HTTP', r.status);
+      }).catch((e) => {
+        console.warn('[fa/save-draft] auto-analysis network err:', e instanceof Error ? e.message : String(e));
+      });
+    } else {
+      console.warn('[fa/save-draft] auto-analysis skipped — DASHBOARDS_INTERNAL_BASE_URL or INTERNAL_FA_SECRET not set');
+    }
+  }
+
   // Admin notify email on submit
   if (nowSubmit && settings.admin_notify_emails.length > 0) {
     import('@/lib/email').then(({ sendBrandedEmail }) => {

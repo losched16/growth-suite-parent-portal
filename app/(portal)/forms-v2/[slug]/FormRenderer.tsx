@@ -1139,6 +1139,23 @@ function BlockRenderer({
     case 'checkbox':
       return <SingleCheckbox block={block} legacyResponses={legacyResponses} />;
     case 'multi_checkbox':
+      // student_specific=true (and >1 student) → render one full checkbox
+      // set per student, each labeled with the kid's name. Lets Wooster's
+      // Media Permission form allow different channel grants per child.
+      if (block.student_specific && students.length > 1) {
+        return (
+          <FieldShell block={block}>
+            <StudentSplitWrapper students={students}>
+              {(s) => (
+                <MultiCheckbox
+                  block={{ ...block, key: `${block.key}__${s.id}` }}
+                  legacyResponses={legacyResponses}
+                />
+              )}
+            </StudentSplitWrapper>
+          </FieldShell>
+        );
+      }
       return <FieldShell block={block}><MultiCheckbox block={block} legacyResponses={legacyResponses} /></FieldShell>;
     case 'student_applicability':
       return <FieldShell block={block}><StudentApplicability block={block} students={students} legacyResponses={legacyResponses} /></FieldShell>;

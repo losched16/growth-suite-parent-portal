@@ -17,6 +17,13 @@ export interface FinancialAidSettings {
   decision_letter_template: string | null;
   signature_name: string | null;
   signature_title: string | null;
+  // Policy caps (analyzer uses these — parent portal doesn't surface
+  // them directly but keeps the shape mirrored).
+  max_award_pct_of_tuition: number | null;
+  min_family_contribution_pct: number | null;
+  policy_notes: string | null;
+  regional_col_multiplier: number;
+  regional_col_label: string | null;
 }
 
 export const LEGACY_FA_DEFAULTS: FinancialAidSettings = {
@@ -32,6 +39,11 @@ export const LEGACY_FA_DEFAULTS: FinancialAidSettings = {
   decision_letter_template: null,
   signature_name: null,
   signature_title: null,
+  max_award_pct_of_tuition: null,
+  min_family_contribution_pct: null,
+  policy_notes: null,
+  regional_col_multiplier: 1.0,
+  regional_col_label: null,
 };
 
 export async function getFinancialAidSettings(schoolId: string): Promise<FinancialAidSettings> {
@@ -41,7 +53,12 @@ export async function getFinancialAidSettings(schoolId: string): Promise<Financi
             to_char(application_deadline, 'YYYY-MM-DD') AS application_deadline,
             intro_copy_markdown, required_document_types,
             max_award_per_student_cents, admin_notify_emails,
-            decision_letter_template, signature_name, signature_title
+            decision_letter_template, signature_name, signature_title,
+            max_award_pct_of_tuition::float8 AS max_award_pct_of_tuition,
+            min_family_contribution_pct::float8 AS min_family_contribution_pct,
+            policy_notes,
+            COALESCE(regional_col_multiplier, 1.0)::float8 AS regional_col_multiplier,
+            regional_col_label
        FROM school_financial_aid_settings WHERE school_id = $1`,
     [schoolId],
   );

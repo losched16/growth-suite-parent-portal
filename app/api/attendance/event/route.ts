@@ -71,12 +71,21 @@ export async function POST(request: NextRequest) {
   // Optional free-form note attached to the event. Capped at 500 chars
   // server-side regardless of what the client sends.
   const notes = String(fd.get('notes') ?? '').trim().slice(0, 500) || null;
+  // Pickup time — required on check_in, ignored on check_out. We only
+  // accept the three canonical values the form offers; anything else
+  // is dropped (so a hand-crafted POST can't stash garbage).
+  const pickupTimeRaw = String(fd.get('pickup_time') ?? '').trim();
+  const VALID_PICKUP_TIMES = new Set(['14:30', '15:15', '15:30']);
+  const pickupTime = VALID_PICKUP_TIMES.has(pickupTimeRaw) ? pickupTimeRaw : null;
 
   if (!studentId || !['check_in', 'check_out'].includes(eventType)) {
     return errBack(request, 'Invalid request.');
   }
   if (!signaturePng || !signaturePng.startsWith('data:image/')) {
     return errBack(request, 'Please sign before submitting.');
+  }
+  if (eventType === 'check_in' && !pickupTime) {
+    return errBack(request, 'Please pick a pickup time before submitting.');
   }
 
   // Scope: student must belong to parent's family
@@ -144,14 +153,16 @@ export async function POST(request: NextRequest) {
        performed_by_parent_id, picked_up_by_parent_id, picked_up_by_pickup_person_id,
        picked_up_by_name_snapshot,
        signature_png, curbside, curbside_slot,
+       pickup_time,
        notes,
        ip_address, user_agent
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [
       s.school_id, s.id, eventType,
       session.parent_id, pickedUpByParentId, pickedUpByPickupPersonId,
       pickedUpByName,
       signaturePng, curbside, curbsideSlot,
+      pickupTime,
       notes,
       ip, ua,
     ],

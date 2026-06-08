@@ -3,10 +3,11 @@
 
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Clock } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { SignatureCanvasField } from '../_signature-canvas';
+import { eligiblePickupTimes } from '@/lib/attendance/pickup-times';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,7 @@ interface StudentRow {
   first_name: string;
   last_name: string;
   preferred_name: string | null;
+  program: string | null;
 }
 
 export default async function CheckInPage({ searchParams }: { searchParams: SearchParams }) {
@@ -28,7 +30,8 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
   if (!studentId) redirect('/attendance');
 
   const { rows } = await query<StudentRow>(
-    `SELECT id, family_id, school_id, first_name, last_name, preferred_name
+    `SELECT id, family_id, school_id, first_name, last_name, preferred_name,
+            metadata->>'program' AS program
      FROM students WHERE id = $1`,
     [studentId],
   );
@@ -39,6 +42,12 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
   const displayName = s.preferred_name?.trim()
     ? `${s.preferred_name} ${s.last_name}`
     : `${s.first_name} ${s.last_name}`;
+
+  // Pickup-time options gated by the student's program. If we got back
+  // a single option (most common), we still render it as a radio so the
+  // parent has to consciously confirm the time — not silently pre-checked.
+  const pickupOptions = eligiblePickupTimes(s.program);
+  const singleProgramMatch = pickupOptions.length === 1;
 
   return (
     <div className="space-y-4">
@@ -64,6 +73,42 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
       >
         <input type="hidden" name="student_id" value={s.id} />
         <input type="hidden" name="event_type" value="check_in" />
+
+        {/* Pickup time — required, gated by the student's program. The
+            school dispatches three dismissal waves; the parent has to
+            pick the one their student belongs to so staff can stage. */}
+        <fieldset className="rounded-md border-2 border-emerald-300 bg-emerald-50/40 p-3 space-y-2">
+          <legend className="px-1 text-sm font-semibold text-emerald-900 inline-flex items-center gap-1">
+            <Clock className="h-4 w-4" /> Pickup time today
+          </legend>
+          <p className="text-[11px] text-emerald-900/70">
+            {singleProgramMatch ? (
+              <>This is {displayName}&apos;s dismissal wave based on their classroom. Confirm to continue.</>
+            ) : (
+              <>Pick the dismissal wave for {displayName} today.</>
+            )}
+          </p>
+          <div className="grid gap-2">
+            {pickupOptions.map((opt) => (
+              <label
+                key={opt.value}
+                className="flex items-start gap-2 rounded-md border border-emerald-200 bg-white px-3 py-2 cursor-pointer hover:border-emerald-400"
+              >
+                <input
+                  type="radio"
+                  name="pickup_time"
+                  value={opt.value}
+                  required
+                  className="mt-1 h-4 w-4 border-emerald-300 text-emerald-700 focus:ring-emerald-300"
+                />
+                <span className="flex-1">
+                  <span className="block text-base font-semibold text-emerald-900">{opt.label}</span>
+                  <span className="block text-[11px] text-emerald-900/70">{opt.programs_short}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         {/* Notes — optional. Saved on the event row and visible to staff. */}
         <label className="block">

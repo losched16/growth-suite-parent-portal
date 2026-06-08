@@ -55,10 +55,11 @@ export default async function ResourcesPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-gray-900">School Resources</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">Important Documents</h1>
         <p className="text-sm text-gray-600">
-          Documents and reference materials from {id.school.name}. Click to view,
-          or use the download button to save a copy.
+          Helpful reference materials from {id.school.name} — calendars,
+          handbooks, supply lists, schedules, and other docs to keep handy.
+          Click to view, or use the download button to save a copy.
         </p>
       </header>
 
@@ -67,9 +68,9 @@ export default async function ResourcesPage() {
           <Folder className="mx-auto mb-3 h-10 w-10 text-gray-300" />
           <h2 className="text-base font-semibold text-gray-900">Nothing here yet</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-gray-600">
-            Your school hasn&apos;t posted any resources here yet. Documents like
-            the supply list, calendar, and parent handbook will appear here once
-            they&apos;re uploaded.
+            Your school hasn&apos;t posted any documents here yet. Things like the
+            supply list, school calendar, and parent handbook will appear here
+            once they&apos;re uploaded.
           </p>
         </div>
       ) : (

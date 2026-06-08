@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { href: '/attendance', label: 'Attendance', icon: UserCheck },
   { href: '/family', label: 'Family', icon: Users },
   { href: '/forms-v2', label: 'Forms', icon: FilePen },
-  { href: '/resources', label: 'Resources', icon: BookOpen },
+  { href: '/resources', label: 'Important Documents', icon: BookOpen },
   { href: '/forms', label: 'Documents', icon: FileText },
   { href: '/messages', label: 'Messages', icon: MessageSquare },
   { href: '/tuition', label: 'Tuition', icon: CreditCard },

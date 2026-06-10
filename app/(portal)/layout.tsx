@@ -40,6 +40,7 @@ const HIDDEN_NAV_BY_SCHOOL: Record<string, Set<string>> = {
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const id = await requireParent();
   const b = id.branding;
+  const navItems = NAV_ITEMS.filter((item) => !(HIDDEN_NAV_BY_SCHOOL[id.school.id]?.has(item.href)));
 
   return (
     <div
@@ -81,29 +82,48 @@ export default async function PortalLayout({ children }: { children: React.React
             </form>
           </div>
         </div>
-        <nav className="border-t border-gray-100 bg-gray-50">
-          <div className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-2">
-            {NAV_ITEMS
-              .filter((item) => !(HIDDEN_NAV_BY_SCHOOL[id.school.id]?.has(item.href)))
-              .map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm text-gray-700 hover:text-gray-900 hover:bg-white"
-                  >
-                    <Icon className="h-4 w-4" /> {item.label}
-                  </Link>
-                );
-              })}
-          </div>
-        </nav>
       </header>
 
-      <main className="flex-1">
-        <div className="mx-auto max-w-5xl px-4 py-6">{children}</div>
-      </main>
+      {/* Mobile: horizontal scrolling nav under the header (a left
+          sidebar would eat too much of a phone screen). */}
+      <nav className="border-b border-gray-100 bg-gray-50 md:hidden">
+        <div className="flex gap-1 overflow-x-auto px-2">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm text-gray-700 hover:bg-white hover:text-gray-900"
+              >
+                <Icon className="h-4 w-4" /> {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+
+      <div className="mx-auto flex w-full max-w-6xl flex-1">
+        {/* Desktop / laptop: vertical left sidebar — no more horizontal scroll. */}
+        <aside className="hidden w-56 shrink-0 flex-col gap-0.5 border-r border-gray-200 bg-gray-50 p-2 md:flex">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-2 rounded px-3 py-2 text-sm text-gray-700 hover:bg-white hover:text-gray-900"
+              >
+                <Icon className="h-4 w-4 shrink-0" /> {item.label}
+              </Link>
+            );
+          })}
+        </aside>
+
+        <main className="min-w-0 flex-1">
+          <div className="mx-auto max-w-4xl px-4 py-6">{children}</div>
+        </main>
+      </div>
 
       <footer className="border-t border-gray-200 bg-white">
         <div className="mx-auto max-w-5xl px-4 py-4 text-xs text-gray-500">

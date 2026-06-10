@@ -3,7 +3,7 @@
 // CSS custom properties so every page picks it up automatically.
 
 import Link from 'next/link';
-import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen } from 'lucide-react';
+import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/forms', label: 'Documents', icon: FileText },
   { href: '/messages', label: 'Messages', icon: MessageSquare },
   { href: '/tuition', label: 'Tuition', icon: CreditCard },
+  { href: '/billing', label: 'Invoices', icon: Receipt },
   { href: '/financial-aid', label: 'Financial Aid', icon: HandCoins },
   { href: '/products', label: 'School Store', icon: ShoppingBag },
 ];
@@ -32,7 +33,7 @@ const HIDDEN_NAV_BY_SCHOOL: Record<string, Set<string>> = {
   // until other modules are migration-ready for them. Adding /products
   // explicitly so it doesn't appear until Wooster opts in.
   '2c944223-b2ad-45e1-8ba4-a4b616e4c29a': new Set([
-    '/attendance', '/messages', '/tuition', '/financial-aid', '/products',
+    '/attendance', '/messages', '/tuition', '/billing', '/financial-aid', '/products',
   ]),
 };
 

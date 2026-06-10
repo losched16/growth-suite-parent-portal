@@ -28,6 +28,12 @@ interface StudentStatus {
   last_check_out_at: string | null;
   picked_up_by_name: string | null;
   curbside_pickup: boolean | null;
+  // Who performed today's check-in + whether it came from the
+  // front-door kiosk — the family-facing audit trail ("Grandma Linda
+  // checked Anaiyah in via the kiosk").
+  checked_in_by_name: string | null;
+  checked_in_via_kiosk: boolean;
+  checked_out_via_kiosk: boolean;
 }
 
 // Today in DG's timezone — for the MVP we hardcode America/Phoenix.
@@ -46,10 +52,33 @@ export default async function AttendancePage() {
        da.first_check_in_at,
        da.last_check_out_at,
        da.picked_up_by_name,
-       da.curbside_pickup
+       da.curbside_pickup,
+       ci.by_name AS checked_in_by_name,
+       COALESCE(ci.via_kiosk, false) AS checked_in_via_kiosk,
+       COALESCE(co.via_kiosk, false) AS checked_out_via_kiosk
      FROM students s
      LEFT JOIN daily_attendance da
        ON da.student_id = s.id AND da.school_id = s.school_id AND da.date = $3::date
+     LEFT JOIN LATERAL (
+       -- Who performed today's first check-in: parent join first,
+       -- kiosk name-snapshot as fallback (covers grandparents).
+       SELECT COALESCE(p.first_name || ' ' || p.last_name, e.performed_by_name_snapshot) AS by_name,
+              (e.source = 'kiosk') AS via_kiosk
+         FROM attendance_events e
+         LEFT JOIN parents p ON p.id = e.performed_by_parent_id
+        WHERE e.student_id = s.id AND e.school_id = s.school_id
+          AND e.event_type = 'check_in'
+          AND (e.performed_at AT TIME ZONE '${TZ}')::date = $3::date
+        ORDER BY e.performed_at ASC LIMIT 1
+     ) ci ON true
+     LEFT JOIN LATERAL (
+       SELECT (e.source = 'kiosk') AS via_kiosk
+         FROM attendance_events e
+        WHERE e.student_id = s.id AND e.school_id = s.school_id
+          AND e.event_type = 'check_out'
+          AND (e.performed_at AT TIME ZONE '${TZ}')::date = $3::date
+        ORDER BY e.performed_at DESC LIMIT 1
+     ) co ON true
      WHERE s.family_id = $1
        AND s.school_id = $2
        AND s.status = 'active'
@@ -114,13 +143,18 @@ function StudentCard({ s }: { s: StudentStatus }) {
       {s.first_check_in_at || s.last_check_out_at ? (
         <div className="mt-2 text-xs text-gray-600 space-y-0.5">
           {s.first_check_in_at ? (
-            <div>Checked in at <span className="font-medium">{fmtTime(s.first_check_in_at)}</span></div>
+            <div>
+              Checked in at <span className="font-medium">{fmtTime(s.first_check_in_at)}</span>
+              {s.checked_in_by_name ? <> by <span className="font-medium">{s.checked_in_by_name}</span></> : null}
+              {s.checked_in_via_kiosk ? <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-800">kiosk</span> : null}
+            </div>
           ) : null}
           {s.last_check_out_at ? (
             <div>
               Picked up at <span className="font-medium">{fmtTime(s.last_check_out_at)}</span>
               {s.picked_up_by_name ? <> by <span className="font-medium">{s.picked_up_by_name}</span></> : null}
               {s.curbside_pickup ? <> · curbside</> : null}
+              {s.checked_out_via_kiosk ? <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-800">kiosk</span> : null}
             </div>
           ) : null}
         </div>

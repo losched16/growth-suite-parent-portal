@@ -15,6 +15,7 @@ import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { SetPinControl } from './SetPinControl';
 import { EditAuthorizedStudents } from './EditAuthorizedStudents';
+import { MyPinControl } from './MyPinControl';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +77,14 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
   const active = rows.filter((r) => r.active);
   const inactive = rows.filter((r) => !r.active);
 
+  // The caller's own kiosk PIN state (set / not set). Self-scoped —
+  // co-parents' PIN status is intentionally not surfaced here.
+  const { rows: myPinRows } = await query<{ pin_set: boolean }>(
+    `SELECT (pin_hash IS NOT NULL) AS pin_set FROM parents WHERE id = $1`,
+    [id.parent.id],
+  );
+  const myPinSet = myPinRows[0]?.pin_set ?? false;
+
   return (
     <div className="space-y-5">
       <Link href="/family" className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700">
@@ -85,11 +94,13 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
       <header>
         <h1 className="text-2xl font-semibold text-gray-900">Authorized pickup people</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Anyone listed here can pick up your child. Set a 6-digit PIN for non-parent pickup
-          people so they can sign out at the school&rsquo;s pickup kiosk without needing a parent
+          Anyone listed here can pick up your child. Set a PIN for non-parent pickup
+          people so they can sign out at the school&rsquo;s check-in kiosk without needing a parent
           portal account.
         </p>
       </header>
+
+      <MyPinControl pinSet={myPinSet} />
 
       {sp.new_pin && sp.pin_for ? (
         <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4">

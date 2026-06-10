@@ -13,7 +13,7 @@ import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { PARENT_SESSION_COOKIE, verifySession } from '@/lib/auth/session';
 import { query } from '@/lib/db';
-import { generatePin, hashPin } from '@/lib/attendance/pickup-pin';
+import { generatePin, hashPin, pinLookup, validateChosenPin } from '@/lib/attendance/pickup-pin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -49,17 +49,20 @@ export async function POST(request: NextRequest) {
   let pickupPersonId = '';
   let expiresAt: string | null = null;
   let isTemporary = false;
+  let customPin = '';
   const ct = request.headers.get('content-type') ?? '';
   if (ct.includes('application/json')) {
     const body = await request.json().catch(() => ({} as Record<string, unknown>));
     pickupPersonId = String(body.id ?? '').trim();
     expiresAt = typeof body.expires_at === 'string' ? body.expires_at : null;
     isTemporary = body.is_temporary === true;
+    customPin = typeof body.custom_pin === 'string' ? body.custom_pin.trim() : '';
   } else {
     const fd = await request.formData();
     pickupPersonId = String(fd.get('id') ?? '').trim();
     expiresAt = String(fd.get('expires_at') ?? '').trim() || null;
     isTemporary = fd.get('is_temporary') === '1';
+    customPin = String(fd.get('custom_pin') ?? '').trim();
   }
 
   if (!pickupPersonId) return new NextResponse('id required', { status: 400 });
@@ -67,19 +70,48 @@ export async function POST(request: NextRequest) {
   const owned = await loadOwnedPickupPerson(pickupPersonId, session.parent_id, session.school_id);
   if (!owned) return new NextResponse('forbidden', { status: 403 });
 
-  const pin = generatePin();
+  // custom_pin lets a parent pick a memorable 4-digit PIN for Grandma
+  // instead of a generated 6-digit one. Validated like the parent's
+  // own self-chosen PIN.
+  if (customPin) {
+    const problem = validateChosenPin(customPin);
+    if (problem) return NextResponse.json({ error: 'invalid_pin', detail: problem }, { status: 400 });
+  }
+  const pin = customPin || generatePin();
+
+  // School-wide uniqueness — duplicate PINs would make kiosk
+  // attribution ambiguous. A generated collision (1-in-1M per holder)
+  // simply regenerates; a chosen collision tells the parent to retry.
+  const lookup = pinLookup(session.school_id, pin);
+  const { rows: clash } = await query<{ n: string }>(
+    `SELECT (
+       (SELECT COUNT(*) FROM parents WHERE school_id = $1 AND pin_lookup = $2)
+       +
+       (SELECT COUNT(*) FROM pickup_persons
+         WHERE school_id = $1 AND pin_lookup = $2 AND id <> $3 AND active = true)
+     )::text AS n`,
+    [session.school_id, lookup, pickupPersonId],
+  );
+  if (Number(clash[0]?.n ?? 0) > 0) {
+    return NextResponse.json({
+      error: 'pin_taken',
+      detail: 'That PIN is already in use at your school — pick a different one.',
+    }, { status: 409 });
+  }
+
   const pinHash = await hashPin(pin);
 
   await query(
     `UPDATE pickup_persons
         SET pin_hash = $1,
+            pin_lookup = $2,
             pin_set_at = now(),
-            pin_expires_at = $2,
-            is_temporary = $3,
+            pin_expires_at = $3,
+            is_temporary = $4,
             active = true,
             updated_at = now()
-      WHERE id = $4`,
-    [pinHash, expiresAt, isTemporary, pickupPersonId],
+      WHERE id = $5`,
+    [pinHash, lookup, expiresAt, isTemporary, pickupPersonId],
   );
 
   // We return the redirect-friendly response on HTML form submits, but
@@ -118,6 +150,7 @@ export async function DELETE(request: NextRequest) {
   await query(
     `UPDATE pickup_persons
         SET pin_hash = NULL,
+            pin_lookup = NULL,
             pin_set_at = NULL,
             pin_expires_at = NULL,
             is_temporary = false,

@@ -49,11 +49,18 @@ interface Props {
   // to the form they were submitting). Validated server-side against an
   // allow-list before being passed in.
   returnTo: string | null;
+  // When set, this is a PUBLIC (no-login) pay session: the form posts
+  // to the public payment-intent endpoint with this token instead of
+  // the session endpoint. Used by the tokenized /pay/<id> page so a
+  // non-family recipient can pay. Public sessions never offer
+  // save-for-autopay (a one-off billee has no autopay).
+  payToken?: string;
 }
 
 export function PaymentForm({
-  invoiceId, subtotalCents, platformFeeCents, owedCents, feeConfig, returnTo,
+  invoiceId, subtotalCents, platformFeeCents, owedCents, feeConfig, returnTo, payToken,
 }: Props) {
+  const isPublic = !!payToken;
   // Default rail: prefer card (familiar). Operator can change behavior
   // later by adding a "default_rail" column to school_payment_config.
   const initialRail: PaymentRail =
@@ -85,11 +92,18 @@ export function PaymentForm({
     setErr(null);
     setPhase('submitting');
     try {
-      const r = await fetch('/api/billing/create-payment-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: invoiceId, rail, save_for_future_use: saveForFutureUse }),
-      });
+      const r = await fetch(
+        isPublic ? '/api/billing/public/create-payment-intent' : '/api/billing/create-payment-intent',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            isPublic
+              ? { invoice_id: invoiceId, rail, pay_token: payToken }
+              : { invoice_id: invoiceId, rail, save_for_future_use: saveForFutureUse },
+          ),
+        },
+      );
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         throw new Error(j.detail || j.error || `HTTP ${r.status}`);
@@ -188,22 +202,25 @@ export function PaymentForm({
         ) : null}
       </div>
 
-      {/* Save-for-future-autopay opt-in */}
-      <label className="flex items-start gap-2 text-sm rounded-md border border-gray-200 bg-white p-3">
-        <input
-          type="checkbox"
-          checked={saveForFutureUse}
-          onChange={(e) => setSaveForFutureUse(e.target.checked)}
-          className="mt-0.5 h-4 w-4 rounded border-gray-300"
-        />
-        <span>
-          <strong className="text-gray-900">Save this payment method for future autopay.</strong>
-          <span className="block text-xs text-gray-600 mt-0.5">
-            Next time an invoice is due, we&rsquo;ll charge this method automatically. You can
-            turn this off later from your <span className="underline">Payment methods</span> page.
+      {/* Save-for-future-autopay opt-in. Hidden for public (no-login)
+          payers — a one-off billee has no portal account to autopay. */}
+      {!isPublic ? (
+        <label className="flex items-start gap-2 text-sm rounded-md border border-gray-200 bg-white p-3">
+          <input
+            type="checkbox"
+            checked={saveForFutureUse}
+            onChange={(e) => setSaveForFutureUse(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300"
+          />
+          <span>
+            <strong className="text-gray-900">Save this payment method for future autopay.</strong>
+            <span className="block text-xs text-gray-600 mt-0.5">
+              Next time an invoice is due, we&rsquo;ll charge this method automatically. You can
+              turn this off later from your <span className="underline">Payment methods</span> page.
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      ) : null}
 
       {err ? (
         <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
@@ -275,7 +292,10 @@ function StripeCheckout({ railLabel, totalCents, returnTo, onBack }: {
     setSubmitting(true);
     setErr(null);
 
-    const sp = new URLSearchParams({ success: '1' });
+    // Preserve existing query params (notably the public pay `t` token)
+    // so the success redirect lands back on a page that still authorizes.
+    const sp = new URLSearchParams(window.location.search);
+    sp.set('success', '1');
     if (returnTo) sp.set('return_to', returnTo);
     const returnUrl = `${window.location.origin}${window.location.pathname}?${sp.toString()}`;
     const { error } = await stripe.confirmPayment({

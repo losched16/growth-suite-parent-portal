@@ -36,6 +36,13 @@ export const config = {
     // is used by non-parents (grandma, babysitter) who don't have a
     // parent portal session. Auth happens via a 6-digit PIN + per-IP
     // rate limiting on PIN attempts.
-    '/((?!login|api/auth|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|_next/static|_next/image|favicon.ico|robots.txt).*)',
+    //
+    // `pay` and `api/billing/public` are excluded because the public
+    // invoice pay page (/pay/invoice/<id>?t=<token>) is used by people
+    // a school invoices who have no parent account — a GHL contact, a
+    // one-off billee. Auth is the invoice's public_pay_token, verified
+    // by the page + the public payment-intent route. (The /pay product
+    // checkout pages were already outside the session model.)
+    '/((?!login|api/auth|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|_next/static|_next/image|favicon.ico|robots.txt).*)',
   ],
 };

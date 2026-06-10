@@ -40,6 +40,11 @@ interface GhlReceiptRow {
   parent_email: string | null;
   parent_phone: string | null;
   ghl_contact_id: string | null;
+  // Inline recipient (non-family invoices) — fallback when there's no
+  // family parent to resolve.
+  recipient_name: string | null;
+  recipient_email: string | null;
+  recipient_ghl_contact_id: string | null;
 }
 
 // Pull everything the GHL payload needs in one query: the payment +
@@ -55,7 +60,8 @@ async function loadForGhl(paymentIntentId: string): Promise<GhlReceiptRow | null
             pm.brand AS pm_brand, pm.last4 AS pm_last4, pm.type AS pm_type,
             pp.first_name AS parent_first, pp.last_name AS parent_last,
             pp.email AS parent_email, pp.phone AS parent_phone,
-            pp.ghl_contact_id
+            pp.ghl_contact_id,
+            i.recipient_name, i.recipient_email, i.recipient_ghl_contact_id
        FROM payments p
        JOIN invoices i ON i.id = p.invoice_id
        JOIN schools  s ON s.id = p.school_id
@@ -94,14 +100,18 @@ export async function sendPaymentEventToGhl(
 
     // FLAT payload — every value is a string/number GHL can drop into
     // an email template as a merge field with no nesting gymnastics.
+    // Prefer the family parent; fall back to the inline recipient for
+    // non-family invoices (split recipient_name into first/last).
+    const recipFirst = (r.recipient_name ?? '').trim().split(/\s+/)[0] ?? '';
+    const recipLast = (r.recipient_name ?? '').trim().split(/\s+/).slice(1).join(' ');
     const payload = {
       event: opts.event,                              // 'payment.succeeded' | 'payment.failed'
       // contact identifiers (GHL matches/updates the contact off these)
-      contact_id: r.ghl_contact_id ?? '',
-      email: r.parent_email ?? '',
+      contact_id: r.ghl_contact_id ?? r.recipient_ghl_contact_id ?? '',
+      email: r.parent_email ?? r.recipient_email ?? '',
       phone: r.parent_phone ?? '',
-      first_name: r.parent_first ?? '',
-      last_name: r.parent_last ?? '',
+      first_name: r.parent_first ?? recipFirst,
+      last_name: r.parent_last ?? recipLast,
       // payment details (merge fields for the email body)
       amount_formatted: amountFormatted,
       amount_cents: r.amount_cents,

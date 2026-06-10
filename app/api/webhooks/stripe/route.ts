@@ -18,6 +18,7 @@ import type { NextRequest } from 'next/server';
 import { stripe } from '@/lib/stripe/client';
 import { query } from '@/lib/db';
 import { sendPaymentReceiptEmail, sendPaymentFailureEmail } from '@/lib/billing/send-payment-email';
+import { sendPaymentEventToGhl } from '@/lib/billing/ghl-receipt';
 import { writebackProductPurchaseToGhl } from '@/lib/ghl/product-writeback';
 import type Stripe from 'stripe';
 
@@ -303,7 +304,10 @@ async function handlePaymentSucceeded(pi: Stripe.PaymentIntent): Promise<void> {
     );
   }
 
-  // Receipt email — best-effort, never throws into the webhook ack.
+  // Receipt — best-effort, never throws into the webhook ack. Two
+  // independent channels, each self-skips if unconfigured: GHL workflow
+  // webhook (school owns the template) and Resend email (fallback).
+  await sendPaymentEventToGhl(pi.id, { event: 'payment.succeeded' }).catch(() => undefined);
   await sendPaymentReceiptEmail(pi.id).catch(() => undefined);
 }
 
@@ -318,7 +322,9 @@ async function handlePaymentFailed(pi: Stripe.PaymentIntent): Promise<void> {
       WHERE stripe_payment_intent_id = $3`,
     [lastError?.code ?? null, lastError?.message ?? null, pi.id],
   );
-  // Failure email to the parent — best-effort.
+  // Failure notice to the parent — best-effort. GHL webhook + Resend
+  // fallback, same dual-channel posture as the success path.
+  await sendPaymentEventToGhl(pi.id, { event: 'payment.failed', failureReason: lastError?.message ?? null }).catch(() => undefined);
   await sendPaymentFailureEmail(pi.id, lastError?.message ?? null).catch(() => undefined);
 
   // Scale gap #3 — also notify the school's admin. When autopay fails

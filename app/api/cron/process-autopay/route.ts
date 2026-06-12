@@ -147,6 +147,52 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // ── Late fees ──────────────────────────────────────────────────────
+  // Apply the school's configured late fee exactly once per overdue
+  // invoice (open/partially_paid, past due_at + grace days, never
+  // late-fee'd before). Gated on billing_active so dry-run schools
+  // never fee anyone. Adds a 'Late fee' line + bumps total_cents.
+  let lateFeesApplied = 0;
+  try {
+    const { rows: feed } = await query<{ id: string }>(
+      `WITH cfg AS (
+         SELECT school_id, late_fee_amount_cents, COALESCE(late_fee_grace_days, 0) AS grace
+           FROM school_payment_config
+          WHERE COALESCE(billing_active, false) = true AND late_fee_amount_cents > 0
+       )
+       SELECT i.id FROM invoices i
+       JOIN cfg ON cfg.school_id = i.school_id
+      WHERE i.status IN ('open', 'partially_paid')
+        AND i.late_fee_applied_at IS NULL
+        AND i.due_at + make_interval(days => cfg.grace) < now()
+      LIMIT 500`,
+    );
+    for (const f of feed) {
+      try {
+        await query(
+          `WITH cfg AS (
+             SELECT spc.late_fee_amount_cents AS fee FROM school_payment_config spc
+             JOIN invoices i ON i.school_id = spc.school_id WHERE i.id = $1
+           ),
+           pos AS (SELECT COALESCE(MAX(position), -1) + 1 AS p FROM invoice_line_items WHERE invoice_id = $1),
+           line AS (
+             INSERT INTO invoice_line_items (invoice_id, position, description, quantity, unit_amount_cents, amount_cents, category)
+             SELECT $1, pos.p, 'Late fee', 1, cfg.fee, cfg.fee, 'fee' FROM cfg, pos
+           )
+           UPDATE invoices SET total_cents = total_cents + (SELECT fee FROM cfg),
+                  late_fee_applied_at = now(), updated_at = now()
+            WHERE id = $1`,
+          [f.id],
+        );
+        lateFeesApplied++;
+      } catch (e) {
+        console.warn('[autopay-cron] late fee failed for', f.id, e instanceof Error ? e.message : String(e));
+      }
+    }
+  } catch (e) {
+    console.warn('[autopay-cron] late-fee pass failed:', e instanceof Error ? e.message : String(e));
+  }
+
   const durationMs = Date.now() - startedAt;
 
   await query(
@@ -154,7 +200,7 @@ export async function GET(request: NextRequest) {
        (invoices_attempted, invoices_succeeded, invoices_failed, invoices_skipped,
         duration_ms, details)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-    [due.length, succeeded, failed, skipped, durationMs, JSON.stringify({ results })],
+    [due.length, succeeded, failed, skipped, durationMs, JSON.stringify({ results, late_fees_applied: lateFeesApplied })],
   ).catch(() => undefined);
 
   return NextResponse.json({
@@ -162,6 +208,7 @@ export async function GET(request: NextRequest) {
     succeeded,
     failed,
     skipped,
+    late_fees_applied: lateFeesApplied,
     duration_ms: durationMs,
   });
 }

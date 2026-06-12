@@ -75,11 +75,14 @@ export async function chargeAutopayInvoice(invoiceId: string): Promise<AutopayCh
     card_enabled: boolean;
     ach_enabled: boolean;
     processing_fee_label: string;
+    default_currency: string | null;
   }>(
-    `SELECT pass_card_fee, pass_ach_fee, card_enabled, ach_enabled, processing_fee_label
+    `SELECT pass_card_fee, pass_ach_fee, card_enabled, ach_enabled, processing_fee_label,
+            default_currency
        FROM school_payment_config WHERE school_id = $1`,
     [inv.school_id],
   );
+  const currency = (cfgRows[0]?.default_currency ?? 'usd').toLowerCase();
   const cfg: FeeConfig = cfgRows[0] ? {
     passCardFee: cfgRows[0].pass_card_fee,
     passAchFee: cfgRows[0].pass_ach_fee,
@@ -107,7 +110,7 @@ export async function chargeAutopayInvoice(invoiceId: string): Promise<AutopayCh
     const pi = await stripe().paymentIntents.create(
       {
         amount: breakdown.total_cents,
-        currency: 'usd',
+        currency,
         customer: pm.stripe_customer_id,
         payment_method: pm.stripe_payment_method_id,
         payment_method_types: [pm.type],

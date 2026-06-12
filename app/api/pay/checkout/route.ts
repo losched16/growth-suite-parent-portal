@@ -142,6 +142,13 @@ export async function POST(request: NextRequest) {
   }
   const stripeAccount = paRows[0].stripe_account_id;
 
+  // Per-school currency (standalone Canadian schools charge CAD).
+  const { rows: curRows } = await query<{ default_currency: string | null }>(
+    `SELECT default_currency FROM school_payment_config WHERE school_id = $1`,
+    [school.id],
+  );
+  const currency = (curRows[0]?.default_currency ?? 'usd').toLowerCase();
+
   // 1. Insert a pending purchase row so we have an audit trail even if checkout is abandoned
   const purchaseRow = (await query<{ id: string }>(
     `INSERT INTO product_purchases (
@@ -184,7 +191,7 @@ export async function POST(request: NextRequest) {
         const created = await s.prices.create(
           {
             unit_amount: unit,
-            currency: 'usd',
+            currency,
             recurring: { interval: product.recurring_interval ?? 'month' },
             product_data: { name: product.name },
           },
@@ -238,7 +245,7 @@ export async function POST(request: NextRequest) {
         line_items: [
           {
             price_data: {
-              currency: 'usd',
+              currency,
               unit_amount: unit,
               product_data: { name: product.name },
             },

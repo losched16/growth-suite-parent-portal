@@ -71,12 +71,14 @@ export async function POST(request: NextRequest) {
 
   const { rows: cfgRows } = await query<{
     pass_card_fee: boolean; pass_ach_fee: boolean; card_enabled: boolean;
-    ach_enabled: boolean; processing_fee_label: string;
+    ach_enabled: boolean; processing_fee_label: string; default_currency: string | null;
   }>(
-    `SELECT pass_card_fee, pass_ach_fee, card_enabled, ach_enabled, processing_fee_label
+    `SELECT pass_card_fee, pass_ach_fee, card_enabled, ach_enabled, processing_fee_label,
+            default_currency
        FROM school_payment_config WHERE school_id = $1`,
     [inv.school_id],
   );
+  const currency = (cfgRows[0]?.default_currency ?? 'usd').toLowerCase();
   const cfg: FeeConfig = cfgRows[0] ? {
     passCardFee: cfgRows[0].pass_card_fee, passAchFee: cfgRows[0].pass_ach_fee,
     cardEnabled: cfgRows[0].card_enabled, achEnabled: cfgRows[0].ach_enabled,
@@ -93,7 +95,7 @@ export async function POST(request: NextRequest) {
   const idempotencyKey = `pi-pub-${inv.id}-${rail}`;
   const piParams: import('stripe').Stripe.PaymentIntentCreateParams = {
     amount: breakdown.total_cents,
-    currency: 'usd',
+    currency,
     payment_method_types: rail === 'card' ? ['card'] : ['us_bank_account'],
     application_fee_amount: breakdown.platform_fee_cents > 0 ? breakdown.platform_fee_cents : undefined,
     description: `${inv.invoice_number} · ${inv.title}`,

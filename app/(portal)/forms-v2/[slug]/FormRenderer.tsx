@@ -1592,6 +1592,10 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [hasInk, setHasInk] = useState(false);
   const [dataUrl, setDataUrl] = useState<string>('');
+  // Mirror hasInk in a ref so the ResizeObserver closure (set up once on
+  // mount) and lock() always read the LATEST value, not the value
+  // captured at mount. This is what makes "once drawn, never wipe" work.
+  const hasInkRef = useRef(false);
 
   // Imperative canvas sizing — runs once after mount and on every
   // wrapper resize. We keep this OUTSIDE React's render cycle so we
@@ -1607,12 +1611,17 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
       const sig = canvasRef.current;
       const canvas = sig?.getCanvas();
       if (!sig || !canvas || !wrapper) return;
+      // Once the parent has put ink down, NEVER re-size: changing
+      // canvas.width clears the backing buffer, and the async
+      // fromDataURL restore both races the parent's next interaction and
+      // leaves signature_pad's point data empty (so isEmpty()/lock break).
+      // A layout shift after drawing — the live payment summary
+      // recalculating, a validation message appearing — used to wipe the
+      // signature here. Sizing only matters for touch accuracy on a
+      // blank pad, so we lock the size in as soon as they start drawing.
+      if (hasInkRef.current) return;
       const cssWidth = Math.floor(wrapper.clientWidth);
       if (cssWidth < 10) return; // wrapper not laid out yet — wait for next observer fire
-
-      // Snapshot current drawing so we can restore after the resize
-      // (changing canvas.width clears the backing buffer).
-      const snap = sig.isEmpty() ? null : canvas.toDataURL('image/png');
 
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       // Backing buffer = CSS pixels × DPR for crisp strokes on retina.
@@ -1630,17 +1639,6 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
       const ctx = canvas.getContext('2d');
       ctx?.setTransform(1, 0, 0, 1, 0, 0); // reset any prior transform
       ctx?.scale(dpr, dpr);
-
-      if (snap) {
-        // fromDataURL accepts a {ratio, width, height} options bag —
-        // pass the new CSS dims so the library re-draws to fit.
-        try {
-          sig.fromDataURL(snap, { width: cssWidth, height: CSS_HEIGHT, ratio: dpr });
-        } catch {
-          // Old snapshot incompatible with new dims — accept the loss
-          // rather than crash. The user can re-draw.
-        }
-      }
     }
 
     // First sizing pass — wait one frame so the wrapper is in the DOM.
@@ -1657,12 +1655,16 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
 
   function clear() {
     canvasRef.current?.clear();
+    hasInkRef.current = false;
     setHasInk(false);
     setDataUrl('');
   }
   function lock() {
     const c = canvasRef.current;
-    if (!c || c.isEmpty()) return;
+    // Gate on OUR ink flag, not the library's isEmpty(): a layout shift
+    // can leave signature_pad's point data empty while real pixels are
+    // on the canvas. Read the pixels straight off the backing buffer.
+    if (!c || !hasInkRef.current) return;
     setDataUrl(c.getCanvas().toDataURL('image/png'));
   }
 
@@ -1686,7 +1688,7 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
             className: 'rounded-md',
             style: { display: 'block', touchAction: 'none' },
           }}
-          onBegin={() => setHasInk(true)}
+          onBegin={() => { hasInkRef.current = true; setHasInk(true); }}
         />
       </div>
       <input type="hidden" name={block.key} value={dataUrl} required={block.required} />

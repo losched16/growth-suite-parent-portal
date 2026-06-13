@@ -126,8 +126,29 @@ export async function createEnrollmentInvoices(opts: CreateOpts): Promise<Create
   );
   const stubPlanId = planRows[0].id;
 
+  // School-chosen first-payment date (set by the admin at enrollment)
+  // anchors the whole schedule; falls back to the parent's start date,
+  // then the academic-year default. Also load the autopay-default flag.
+  const { rows: cfgRows } = await query<{ autopay_default_on: boolean }>(
+    `SELECT COALESCE(autopay_default_on, true) AS autopay_default_on
+       FROM school_payment_config WHERE school_id = $1`,
+    [opts.schoolId],
+  );
+  const autopayOn = cfgRows[0]?.autopay_default_on ?? true;
+  const { rows: existingEnr } = await query<{ first_due_date: string | null }>(
+    `SELECT to_char(first_due_date, 'YYYY-MM-DD') AS first_due_date
+       FROM family_tuition_enrollments
+      WHERE school_id = $1 AND family_id = $2
+        AND student_id IS NOT DISTINCT FROM $3 AND academic_year = $4
+      LIMIT 1`,
+    [opts.schoolId, opts.familyId, opts.studentId, ACADEMIC_YEAR],
+  );
+  const firstDueAnchor = existingEnr[0]?.first_due_date ?? null;
+
   // ── Compute due dates for each installment ─────────────────────────
-  const dueDates = computeDueDates(opts.paymentPlan, ACADEMIC_YEAR, opts.enrollmentStartDate ?? null);
+  const dueDates = computeDueDates(
+    opts.paymentPlan, ACADEMIC_YEAR, opts.enrollmentStartDate ?? null, firstDueAnchor,
+  );
 
   // ── Build per-installment line splits ──────────────────────────────
   // Strategy: pro-rate each installment line by its share of the annual
@@ -274,9 +295,10 @@ export async function createEnrollmentInvoices(opts: CreateOpts): Promise<Create
            (school_id, family_id, student_id, invoice_number, title, description,
             status, subtotal_cents, platform_fee_cents, discount_total_cents,
             total_cents, due_at, issued_at, source, source_ref,
-            includes_platform_setup_fee, created_by_email)
+            includes_platform_setup_fee, created_by_email,
+            autopay_enabled, autopay_charge_on)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, $10, $11, $11,
-                 'tuition_plan', $12::jsonb, false, $13)
+                 'tuition_plan', $12::jsonb, false, $13, $14, $11::date)
          RETURNING id`,
         [
           opts.schoolId, opts.familyId, opts.studentId,
@@ -296,6 +318,7 @@ export async function createEnrollmentInvoices(opts: CreateOpts): Promise<Create
             payment_plan: opts.paymentPlan,
           }),
           opts.createdByEmail,
+          autopayOn,
         ],
       );
       const invoiceId = inv[0].id;
@@ -407,9 +430,27 @@ function computeDueDates(
   plan: 'monthly' | 'semi_annual' | 'annual',
   academicYear: string,
   enrollmentStart: string | null,
+  firstDueAnchor: string | null = null,
 ): Date[] {
   const [startYearStr] = academicYear.split('-');
   const startYear = parseInt(startYearStr, 10);
+
+  // School-chosen first-due date wins: anchor the schedule to it.
+  // monthly = +1 month each, semi-annual = +6 months each, annual = the
+  // date itself. Day-of-month clamped to each month's length.
+  const anchorMatch = firstDueAnchor && /^(\d{4})-(\d{2})-(\d{2})$/.exec(firstDueAnchor);
+  if (anchorMatch) {
+    const ay = +anchorMatch[1], am = +anchorMatch[2] - 1, ad = +anchorMatch[3];
+    const at = (monthsOut: number) => {
+      const tgtY = ay + Math.floor((am + monthsOut) / 12);
+      const tgtM = (am + monthsOut) % 12;
+      const lastDay = new Date(Date.UTC(tgtY, tgtM + 1, 0)).getUTCDate();
+      return new Date(Date.UTC(tgtY, tgtM, Math.min(ad, lastDay), 12, 0, 0));
+    };
+    const count = plan === 'monthly' ? 10 : plan === 'semi_annual' ? 2 : 1;
+    const step = plan === 'semi_annual' ? 6 : 1;
+    return Array.from({ length: count }, (_, i) => at(i * step));
+  }
 
   if (plan === 'annual') {
     // Due July 1 of the start year, or before late start date.

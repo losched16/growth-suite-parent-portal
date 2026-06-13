@@ -20,6 +20,7 @@ import { query } from '@/lib/db';
 import { sendPaymentReceiptEmail, sendPaymentFailureEmail } from '@/lib/billing/send-payment-email';
 import { sendPaymentEventToGhl } from '@/lib/billing/ghl-receipt';
 import { writebackProductPurchaseToGhl } from '@/lib/ghl/product-writeback';
+import { chargeAutopayInvoice } from '@/lib/billing/autopay-charge';
 import type Stripe from 'stripe';
 
 export const runtime = 'nodejs';
@@ -479,7 +480,7 @@ async function handlePaymentMethodAttached(
   );
   const shouldBeDefault = Number(existing[0]?.count ?? 0) === 0;
 
-  await query(
+  const { rows: pmIns } = await query<{ id: string }>(
     `INSERT INTO payment_methods
        (school_id, family_id, stripe_payment_method_id, stripe_customer_id,
         type, brand, last4, exp_month, exp_year, is_default, active)
@@ -490,13 +491,61 @@ async function handlePaymentMethodAttached(
        exp_month = EXCLUDED.exp_month,
        exp_year = EXCLUDED.exp_year,
        active = true,
-       updated_at = now()`,
+       updated_at = now()
+     RETURNING id`,
     [
       m.school_id, m.family_id, pm.id, pm.customer,
       pm.type, brand, last4, expMonth, expYear,
       shouldBeDefault,
     ],
   );
+
+  // Autopay-by-default: the moment a family saves a card, wire it into
+  // their open autopay tuition installments that don't yet have a
+  // method — so the schedule drafts automatically and the school never
+  // hand-sends a tuition invoice.
+  const methodRowId = pmIns[0]?.id;
+  if (methodRowId) {
+    await query(
+      `UPDATE invoices
+          SET autopay_payment_method_id = $1, updated_at = now()
+        WHERE school_id = $2 AND family_id = $3
+          AND status IN ('open', 'partially_paid')
+          AND autopay_enabled = true
+          AND autopay_payment_method_id IS NULL`,
+      [methodRowId, m.school_id, m.family_id],
+    );
+
+    // Charge anything already due right now (e.g. a late enrollee whose
+    // first installment is past its draft date). Gated on billing_active;
+    // skip invoices with a payment already in flight or succeeded so we
+    // never double-charge the card the parent just used.
+    const { rows: dueNow } = await query<{ id: string }>(
+      `SELECT i.id
+         FROM invoices i
+         JOIN school_payment_config spc ON spc.school_id = i.school_id
+        WHERE i.school_id = $1 AND i.family_id = $2
+          AND i.status IN ('open', 'partially_paid')
+          AND i.autopay_enabled = true
+          AND i.autopay_payment_method_id = $3
+          AND COALESCE(spc.billing_active, false) = true
+          AND COALESCE(i.autopay_charge_on, i.due_at::date) <= CURRENT_DATE
+          AND NOT EXISTS (
+            SELECT 1 FROM payments p
+             WHERE p.invoice_id = i.id AND p.status IN ('pending', 'processing', 'succeeded')
+          )
+        ORDER BY i.due_at ASC
+        LIMIT 25`,
+      [m.school_id, m.family_id, methodRowId],
+    );
+    for (const d of dueNow) {
+      try {
+        await chargeAutopayInvoice(d.id);
+      } catch (e) {
+        console.warn('[stripe/webhook] autopay-on-attach charge failed for', d.id, e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
 }
 
 async function handlePaymentMethodDetached(pm: Stripe.PaymentMethod): Promise<void> {

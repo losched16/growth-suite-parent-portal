@@ -12,7 +12,7 @@
 //      for each open flag on this family/form. Includes the 1-tap
 //      emergency-contacts-per-student confirm flow.
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import SignatureCanvas from 'react-signature-canvas';
 import { useRouter } from 'next/navigation';
 import { RotateCcw, Check, AlertCircle, CheckCircle2, FileText, Edit3, CreditCard, Minus, Plus } from 'lucide-react';
@@ -1597,60 +1597,39 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
   // captured at mount. This is what makes "once drawn, never wipe" work.
   const hasInkRef = useRef(false);
 
-  // Imperative canvas sizing — runs once after mount and on every
-  // wrapper resize. We keep this OUTSIDE React's render cycle so we
-  // never trigger the SignatureCanvas re-mount that would wipe ink.
-  useEffect(() => {
+  // Size the canvas ONCE on mount, then never touch it again.
+  //
+  // Rachel (May 2026 round 2) reported ink disappearing mid-stroke
+  // before she could tap Lock. Root cause: my ResizeObserver was
+  // firing on inner-form layout shifts (typing in a per-student
+  // textarea relayouts the form → RO sees it → resize() ran). Even
+  // with the hasInkRef guard, the COMBINATION of state updates from
+  // onBegin + the inline ref callback was causing the SignatureCanvas
+  // instance to churn on some devices, wiping the backing buffer.
+  //
+  // New approach: useLayoutEffect runs after DOM mutation but BEFORE
+  // browser paint, so we size the canvas before any user interaction
+  // is possible. NO ResizeObserver, NO window-resize handler — drawing
+  // happens in a 100% stable canvas. Trade-off: if Rachel rotates her
+  // phone mid-signature, the canvas keeps its portrait dimensions.
+  // Worth it for "ink never disappears."
+  useLayoutEffect(() => {
+    const sig = canvasRef.current;
+    const canvas = sig?.getCanvas();
     const wrapper = wrapperRef.current;
-    if (!wrapper) return;
+    if (!sig || !canvas || !wrapper) return;
 
+    const cssWidth = Math.max(280, Math.floor(wrapper.clientWidth) || 400);
     const CSS_HEIGHT = 180;
-    let raf = 0;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
 
-    function resize() {
-      const sig = canvasRef.current;
-      const canvas = sig?.getCanvas();
-      if (!sig || !canvas || !wrapper) return;
-      // Once the parent has put ink down, NEVER re-size: changing
-      // canvas.width clears the backing buffer, and the async
-      // fromDataURL restore both races the parent's next interaction and
-      // leaves signature_pad's point data empty (so isEmpty()/lock break).
-      // A layout shift after drawing — the live payment summary
-      // recalculating, a validation message appearing — used to wipe the
-      // signature here. Sizing only matters for touch accuracy on a
-      // blank pad, so we lock the size in as soon as they start drawing.
-      if (hasInkRef.current) return;
-      const cssWidth = Math.floor(wrapper.clientWidth);
-      if (cssWidth < 10) return; // wrapper not laid out yet — wait for next observer fire
-
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      // Backing buffer = CSS pixels × DPR for crisp strokes on retina.
-      canvas.width  = cssWidth  * dpr;
-      canvas.height = CSS_HEIGHT * dpr;
-      // CSS box = logical pixel size; the browser handles the scaling
-      // from buffer → CSS. With buffer = CSS × DPR, that scale ratio
-      // is the DPR — perfect 1:1 logical mapping for touch handlers.
-      canvas.style.width  = cssWidth + 'px';
-      canvas.style.height = CSS_HEIGHT + 'px';
-      // Scale the 2d context so the underlying signature-pad library
-      // draws strokes in logical (CSS) coordinates instead of buffer
-      // coordinates. Without this, the line would render at 1/dpr
-      // scale relative to where the finger is.
-      const ctx = canvas.getContext('2d');
-      ctx?.setTransform(1, 0, 0, 1, 0, 0); // reset any prior transform
-      ctx?.scale(dpr, dpr);
-    }
-
-    // First sizing pass — wait one frame so the wrapper is in the DOM.
-    raf = requestAnimationFrame(resize);
-    const ro = new ResizeObserver(() => {
-      // Coalesce bursts of resize events (orientation change, devtools
-      // toggle, sibling validation message appearing) into ONE re-size.
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(resize);
-    });
-    ro.observe(wrapper);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+    canvas.width  = cssWidth  * dpr;
+    canvas.height = CSS_HEIGHT * dpr;
+    canvas.style.width  = cssWidth + 'px';
+    canvas.style.height = CSS_HEIGHT + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx?.setTransform(1, 0, 0, 1, 0, 0);
+    ctx?.scale(dpr, dpr);
   }, []);
 
   function clear() {
@@ -1676,15 +1655,23 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
         style={{ touchAction: 'none', overflow: 'hidden' }}
       >
         <SignatureCanvas
-          ref={(r) => { canvasRef.current = r; }}
+          // Pass the useRef object DIRECTLY. The old inline arrow
+          // (`ref={(r) => { canvasRef.current = r; }}`) created a new
+          // function every render — React's reconciliation called the
+          // OLD callback with null then the NEW with the instance on
+          // every parent re-render, which on iOS Safari caused the
+          // SignatureCanvas to lose its in-flight stroke state.
+          ref={canvasRef}
           penColor="#047857"
-          // Disable the library's own ResizeObserver — we handle sizing
-          // imperatively above so layout shifts don't wipe the signature.
+          // Disable the library's own ResizeObserver — even with
+          // clearOnResize:false, the library's internal sizing logic
+          // can still run; we keep the canvas dimensions frozen after
+          // mount so nothing in the library can decide to wipe the pad.
           clearOnResize={false}
           canvasProps={{
-            // Don't set width/height here — useEffect sizes the backing
-            // buffer imperatively. Skipping them keeps React from
-            // recreating the canvas when we'd rather mutate it.
+            // Don't set width/height here — useLayoutEffect sizes the
+            // backing buffer imperatively. Skipping them keeps React
+            // from recreating the canvas when we'd rather mutate it.
             className: 'rounded-md',
             style: { display: 'block', touchAction: 'none' },
           }}

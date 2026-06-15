@@ -9,8 +9,25 @@
 
 import { Resend } from 'resend';
 import { query } from '@/lib/db';
+import { sendEmailViaGhl } from '@/lib/email-ghl';
 
 let _resend: Resend | undefined;
+
+// Per-school provider toggle (school_branding.email_provider, migration
+// 059). 'ghl' routes through the GHL Conversations API; anything else
+// (incl. no row) → Resend. Default-safe for tenants that never opted in.
+async function emailProviderFor(schoolId: string | null): Promise<'resend' | 'ghl'> {
+  if (!schoolId) return 'resend';
+  try {
+    const { rows } = await query<{ email_provider: string | null }>(
+      `SELECT email_provider FROM school_branding WHERE school_id = $1`,
+      [schoolId],
+    );
+    return rows[0]?.email_provider === 'ghl' ? 'ghl' : 'resend';
+  } catch {
+    return 'resend';
+  }
+}
 
 // Returns null when RESEND_API_KEY isn't set — callers should log+skip
 // rather than crash. This lets the demo run without Resend configured
@@ -80,11 +97,6 @@ export async function sendMagicLinkEmail(opts: {
   schoolName: string;
   supportEmail: string | null;
 }): Promise<void> {
-  const c = client();
-  if (!c) {
-    console.warn('[email/magic-link] RESEND_API_KEY not set — skipping send to', opts.to);
-    return;
-  }
   const sender = await resolveSenderForSchool(opts.schoolId);
 
   const subject = `Your sign-in link for ${opts.schoolName}`;
@@ -119,6 +131,18 @@ ${opts.loginUrl}
 
 ${support}`;
 
+  // GHL-first for opted-in schools, Resend fallback on any failure.
+  if (opts.schoolId && (await emailProviderFor(opts.schoolId)) === 'ghl') {
+    const r = await sendEmailViaGhl({ to: opts.to, schoolId: opts.schoolId, subject, html, text });
+    if (r.ok) return;
+    console.warn('[email/magic-link] GHL send failed, falling back to Resend:', r.reason, '(to:', opts.to, ')');
+  }
+
+  const c = client();
+  if (!c) {
+    console.warn('[email/magic-link] RESEND_API_KEY not set — skipping send to', opts.to);
+    return;
+  }
   await c.emails.send({
     from: formatFrom(sender),
     to: opts.to,
@@ -145,6 +169,22 @@ export async function sendBrandedEmail(opts: {
     content: Buffer;
   }>;
 }): Promise<void> {
+  // GHL-first for opted-in schools, Resend fallback on any failure.
+  // NOTE: GHL email sends here do NOT carry attachments — the GHL
+  // Conversations API attaches by public URL, not raw bytes. When an
+  // email has PDF attachments (e.g. an invoice copy), we skip GHL and
+  // use Resend so the attachment isn't silently dropped.
+  if (opts.schoolId
+      && (!opts.attachments || opts.attachments.length === 0)
+      && (await emailProviderFor(opts.schoolId)) === 'ghl') {
+    const r = await sendEmailViaGhl({
+      to: opts.to, schoolId: opts.schoolId,
+      subject: opts.subject, html: opts.html, text: opts.text,
+    });
+    if (r.ok) return;
+    console.warn('[email/branded] GHL send failed, falling back to Resend:', r.reason, '(to:', opts.to, ')');
+  }
+
   const c = client();
   if (!c) {
     console.warn('[email/branded] RESEND_API_KEY not set — skipping send to', opts.to, '(subject:', opts.subject, ')');

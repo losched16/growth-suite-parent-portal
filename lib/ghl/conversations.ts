@@ -73,6 +73,14 @@ export interface SendMessageInput {
   // creates a new conversation if none exists and is fully in-app.
   type?: string;
   subject?: string; // required for Email
+  // HTML body for Email sends. When set (and type='Email'), GHL renders
+  // this as the email body; `body` is still sent as the plain-text
+  // `message` fallback. Ignored for non-Email types.
+  html?: string;
+  // Explicit from/to for Email — lets the caller override the location's
+  // default sending identity. Usually omitted (GHL uses the location's
+  // configured email).
+  emailFrom?: string;
   // Array of public file URLs (e.g. from GHL media library) to attach.
   attachments?: string[];
 }
@@ -92,6 +100,9 @@ export async function sendMessage(
     message: input.body,
   };
   if (input.subject) body.subject = input.subject;
+  // GHL Email sends use the `html` field for the rendered body.
+  if (input.html && (input.type === 'Email')) body.html = input.html;
+  if (input.emailFrom) body.emailFrom = input.emailFrom;
   if (input.attachments && input.attachments.length > 0) {
     body.attachments = input.attachments;
   }

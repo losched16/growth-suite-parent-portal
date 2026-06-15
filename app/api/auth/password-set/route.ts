@@ -22,6 +22,7 @@ import {
   mintSession,
   recordSession,
 } from '@/lib/auth/session';
+import { ghlWritebackPasswordSetAt } from '@/lib/auth/writeback-password-set';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,6 +95,13 @@ export async function POST(request: NextRequest) {
     ip, user_agent: ua,
   });
   await recordSession({ parent_id: parent.id, school_id: parent.school_id, ip, user_agent: ua });
+
+  // Fire-and-forget GHL writeback: stamp portal_password_set_at on the
+  // contact so the welcome-email workflow's smart-list filter can
+  // narrow them out of the next reminder send. Never blocks the
+  // redirect — if GHL is down or the field doesn't exist, we still
+  // log them in normally.
+  void ghlWritebackPasswordSetAt(parent.id);
 
   const jwt = await mintSession({
     parent_id: parent.id,

@@ -60,6 +60,9 @@ interface DefRow {
   confirmation_message: string | null;
   confirmation_redirect_url: string | null;
   notify_emails: string[] | null;
+  // Migration 060 — master on/off for the notify_emails fan-out without
+  // wiping the list. NULL/true = send notifications, false = mute.
+  notifications_enabled: boolean | null;
   webhook_urls: string[] | null;
   // Migration 048 — per-student visibility rule.
   applies_to: FormAppliesTo | null;
@@ -117,7 +120,8 @@ export async function POST(request: NextRequest) {
     `SELECT id, slug, display_name, category, per_student, field_schema,
             ghl_writeback, fee_amount, one_submission_per_year, resubmission_allowed,
             payment_config, allow_addendum,
-            confirmation_message, confirmation_redirect_url, notify_emails, webhook_urls,
+            confirmation_message, confirmation_redirect_url,
+            notify_emails, notifications_enabled, webhook_urls,
             applies_to
      FROM portal_form_definitions
      WHERE id = $1 AND school_id = $2 AND is_active = true`,
@@ -799,7 +803,9 @@ export async function POST(request: NextRequest) {
       parentId: session.parent_id,
       studentId,
       responses,
-      notifyEmails: def.notify_emails ?? null,
+      // Mute when notifications_enabled is explicitly false — preserves
+      // the notify_emails list for later re-enable without re-typing.
+      notifyEmails: def.notifications_enabled === false ? null : (def.notify_emails ?? null),
       webhookUrls: def.webhook_urls ?? null,
     })
   ).catch((e) => console.error('[portal-forms/submit] post-submit effects scheduling failed:', e));

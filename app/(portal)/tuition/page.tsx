@@ -256,11 +256,23 @@ function EnrollmentCard({
   );
 }
 
+// Exact installment breakdown — mirrors the tuition-plan generator:
+// floor(total / count) per installment, with the remainder cents added
+// to the FINAL installment so the amounts sum to the exact annual total.
+// Never an "about" — parents see the precise figures they'll be billed.
+function installmentSummary(totalCents: number, count: number): string {
+  if (count <= 1) return `One payment of ${fmtCents(totalCents)}.`;
+  const base = Math.floor(totalCents / count);
+  const remainder = totalCents - base * count;
+  if (remainder === 0) {
+    return `${count} payments of ${fmtCents(base)} each.`;
+  }
+  // count-1 installments at base, final installment absorbs the remainder.
+  const last = base + remainder;
+  return `${count - 1} payments of ${fmtCents(base)}, then a final payment of ${fmtCents(last)}.`;
+}
+
 function ConfirmedPlan({ enrollment }: { enrollment: EnrollmentRow }) {
-  const monthlyEstimate =
-    enrollment.installment_count > 0
-      ? Math.round(enrollment.total_annual_cents / enrollment.installment_count)
-      : enrollment.total_annual_cents;
   return (
     <div className="rounded-md border border-emerald-200 bg-emerald-50/40 p-3">
       <div className="flex items-start gap-2">
@@ -270,9 +282,7 @@ function ConfirmedPlan({ enrollment }: { enrollment: EnrollmentRow }) {
             Plan locked in: {enrollment.plan_display_name}
           </div>
           <div className="mt-1 text-xs text-emerald-800">
-            {enrollment.installment_count === 1
-              ? `One payment of ${fmtCents(enrollment.total_annual_cents)}.`
-              : `${enrollment.installment_count} payments of about ${fmtCents(monthlyEstimate)} each.`}
+            {installmentSummary(enrollment.total_annual_cents, enrollment.installment_count)}
           </div>
           <div className="mt-2 flex items-center gap-3 text-xs">
             <Link

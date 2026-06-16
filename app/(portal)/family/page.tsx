@@ -9,11 +9,12 @@
 //     above the form.
 
 import Link from 'next/link';
-import { Pencil, ShieldCheck, Phone, Mail, AlertTriangle, Users, ArrowRight, Heart, Lock } from 'lucide-react';
+import { Pencil, ShieldCheck, Phone, Mail, AlertTriangle, Users, ArrowRight, Heart, Lock, UserPlus } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { loadParentsForFamily, loadStudentsForFamily, loadParentStudentAssignments } from '@/lib/family-data';
 import { editParentAction } from '@/lib/actions/edit-parent';
 import { editStudentAction } from '@/lib/actions/edit-student';
+import { addCoParentAction } from '@/lib/actions/add-co-parent';
 import { query } from '@/lib/db';
 import type { ParentRow, StudentRow, ParentStudentAssignment } from '@/lib/family-data';
 
@@ -152,6 +153,8 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
             School staff still see their full record.
           </p>
         ) : null}
+
+        <AddCoParent />
       </section>
 
       {/* Students */}
@@ -641,6 +644,101 @@ function Field({ label, value, highlight }: { label: string; value: string; high
       <span className="text-[10px] uppercase tracking-wide text-gray-400">{label}</span>{' '}
       <span className={highlight ? 'font-medium text-amber-700' : 'text-gray-700'}>{value}</span>
     </div>
+  );
+}
+
+// Collapsible "Add a co-parent" form. Closed by default — most families
+// won't need it. Uses native <details> so it works without client JS.
+// Submits to the addCoParentAction server action which creates a GHL
+// contact, inserts the parents row, and emails the new parent a 7-day
+// welcome link.
+function AddCoParent() {
+  return (
+    <details className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white">
+      <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-medium text-gray-800 hover:bg-gray-50">
+        <UserPlus className="h-4 w-4 text-gray-500" />
+        Add a co-parent
+        <span className="ml-1 text-[11px] font-normal text-gray-500">
+          — for a spouse, partner, or other guardian who should also have portal access
+        </span>
+      </summary>
+      <form action={addCoParentAction} className="space-y-3 border-t border-gray-100 p-4 text-sm">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">First name *</span>
+            <input
+              name="first_name"
+              required
+              className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Last name *</span>
+            <input
+              name="last_name"
+              required
+              className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Email *</span>
+            <input
+              name="email"
+              type="email"
+              required
+              placeholder="they'll use this to sign in"
+              className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Phone</span>
+            <input
+              name="phone"
+              type="tel"
+              placeholder="(optional)"
+              className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Role</span>
+            <select
+              name="role"
+              defaultValue="parent"
+              className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none bg-white"
+            >
+              <option value="parent">Parent</option>
+              <option value="guardian">Guardian</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+        </div>
+        <label className="flex items-start gap-2 text-[12px] text-gray-700">
+          <input
+            type="checkbox"
+            name="send_invite"
+            value="1"
+            defaultChecked
+            className="mt-0.5 h-4 w-4 rounded border-gray-300"
+          />
+          <span>
+            Email them a welcome link to sign in (recommended). Uncheck if you&rsquo;d rather tell them
+            in person — they can always sign in later by entering their email on the portal.
+          </span>
+        </label>
+        <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+          <p className="text-[11px] text-gray-500">
+            Creates a contact record at the school. They&rsquo;ll see the same family and students you do.
+          </p>
+          <button
+            type="submit"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-white"
+            style={{ background: 'var(--brand)' }}
+          >
+            Add co-parent
+          </button>
+        </div>
+      </form>
+    </details>
   );
 }
 

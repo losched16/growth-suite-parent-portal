@@ -148,6 +148,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     return students.filter((s) => {
       const enr = enrollmentCtxByStudent.get(s.id);
       const ctx: AppliesToContext = {
+        studentId: s.id,
         metadata: (s.metadata ?? {}) as Record<string, unknown>,
         tuitionGridName: enr?.tuitionGridName ?? null,
         enrollmentAddonKeys: enr?.addonKeys ?? [],

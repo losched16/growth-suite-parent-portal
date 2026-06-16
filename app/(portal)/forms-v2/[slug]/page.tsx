@@ -132,6 +132,7 @@ export default async function FormPage({
     students = allStudents.filter((s) => {
       const en = enrolMap.get(s.id);
       const ctx: AppliesToContext = {
+        studentId: s.id,
         metadata: (s.metadata ?? {}) as Record<string, unknown>,
         tuitionGridName: en?.tuitionGridName ?? null,
         enrollmentAddonKeys: en?.addonKeys ?? [],

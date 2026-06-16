@@ -164,6 +164,7 @@ export async function POST(request: NextRequest) {
       );
       const addons = Array.isArray(enr[0]?.addons) ? enr[0]!.addons : [];
       const ctx: AppliesToContext = {
+        studentId,
         metadata: (sRows[0].metadata ?? {}) as Record<string, unknown>,
         tuitionGridName: enr[0]?.tuition_grid_name ?? null,
         enrollmentAddonKeys: addons.map((a) => a?.key).filter((k): k is string => typeof k === 'string'),

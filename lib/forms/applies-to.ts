@@ -40,9 +40,19 @@ export interface FormAppliesTo {
   // for the future when MCH actually adds extended-care as an
   // addon line — today the signal lives in students.metadata.aftercare.
   addon_keys?: string[];
+
+  // Explicit allowlist of student UUIDs. The form shows ONLY for these
+  // students. Use when the school hands you a hand-picked list that
+  // doesn't follow any program/grade rule (e.g. "these 42 kids need a
+  // current physical on file"). Resolved against the rendering
+  // student's id, so it's robust to name-spelling differences. Manage
+  // the list with the operator roster tool; never hand-edit UUIDs.
+  student_ids?: string[];
 }
 
 export interface AppliesToContext {
+  // The rendering student's id — matched against rule.student_ids.
+  studentId: string;
   metadata: Record<string, unknown>;
   // The active enrollment's tuition_grid.display_name. May be null if
   // the student has no active enrollment row yet (rare; usually means
@@ -59,6 +69,10 @@ export function studentMatchesAppliesTo(
   rule: FormAppliesTo | null | undefined,
 ): boolean {
   if (!rule || isEmptyRule(rule)) return true;
+
+  if (rule.student_ids?.length) {
+    if (rule.student_ids.includes(ctx.studentId)) return true;
+  }
 
   if (rule.tuition_grid_match?.length && ctx.tuitionGridName) {
     const grid = ctx.tuitionGridName.toLowerCase();
@@ -93,6 +107,7 @@ export function studentMatchesAppliesTo(
 
 function isEmptyRule(r: FormAppliesTo): boolean {
   return !(
+    (r.student_ids && r.student_ids.length > 0) ||
     (r.tuition_grid_match && r.tuition_grid_match.length > 0) ||
     (r.program_match && r.program_match.length > 0) ||
     (r.metadata_match && Object.keys(r.metadata_match).length > 0) ||

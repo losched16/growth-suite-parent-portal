@@ -3,7 +3,7 @@
 // CSS custom properties so every page picks it up automatically.
 
 import Link from 'next/link';
-import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt } from 'lucide-react';
+import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt, HelpCircle } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: '/billing', label: 'Invoices', icon: Receipt },
   { href: '/financial-aid', label: 'Financial Aid', icon: HandCoins },
   { href: '/products', label: 'School Store', icon: ShoppingBag },
+  { href: '/help', label: 'Help', icon: HelpCircle },
 ];
 
 // Per-school nav-item hide list. Keyed by school_id. Values are the

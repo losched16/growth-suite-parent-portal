@@ -647,19 +647,17 @@ function Field({ label, value, highlight }: { label: string; value: string; high
   );
 }
 
-// Collapsible "Add a co-parent" form. Closed by default — most families
-// won't need it. Uses native <details> so it works without client JS.
-// Submits to the addCoParentAction server action which creates a GHL
-// contact, inserts the parents row, and emails the new parent a 7-day
-// welcome link.
+// "Add another parent" form. Family-record completeness — only first
+// and last name are required. Email + portal access are optional add-ons.
+// Native <details> for no-JS disclosure.
 function AddCoParent() {
   return (
     <details className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white">
       <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-medium text-gray-800 hover:bg-gray-50">
         <UserPlus className="h-4 w-4 text-gray-500" />
-        Add a co-parent
+        Add another parent
         <span className="ml-1 text-[11px] font-normal text-gray-500">
-          — for a spouse, partner, or other guardian who should also have portal access
+          — list a spouse, partner, or other parent on your family record
         </span>
       </summary>
       <form action={addCoParentAction} className="space-y-3 border-t border-gray-100 p-4 text-sm">
@@ -677,16 +675,6 @@ function AddCoParent() {
             <input
               name="last_name"
               required
-              className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Email *</span>
-            <input
-              name="email"
-              type="email"
-              required
-              placeholder="they'll use this to sign in"
               className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none"
             />
           </label>
@@ -712,29 +700,41 @@ function AddCoParent() {
             </select>
           </label>
         </div>
-        <label className="flex items-start gap-2 text-[12px] text-gray-700">
-          <input
-            type="checkbox"
-            name="send_invite"
-            value="1"
-            defaultChecked
-            className="mt-0.5 h-4 w-4 rounded border-gray-300"
-          />
-          <span>
-            Email them a welcome link to sign in (recommended). Uncheck if you&rsquo;d rather tell them
-            in person — they can always sign in later by entering their email on the portal.
-          </span>
-        </label>
+        <div className="mt-2 rounded-md border border-gray-200 bg-gray-50/40 p-3 space-y-2">
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">
+              Email <span className="font-normal text-gray-400">(optional — only needed if they want portal access)</span>
+            </span>
+            <input
+              name="email"
+              type="email"
+              placeholder="leave blank to just list them"
+              className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none"
+            />
+          </label>
+          <label className="flex items-start gap-2 text-[12px] text-gray-700">
+            <input
+              type="checkbox"
+              name="send_invite"
+              value="1"
+              className="mt-0.5 h-4 w-4 rounded border-gray-300"
+            />
+            <span>
+              Email them a sign-in link so they can access the portal too. Leave unchecked
+              to just list them on your record.
+            </span>
+          </label>
+        </div>
         <div className="flex items-center justify-between border-t border-gray-100 pt-3">
           <p className="text-[11px] text-gray-500">
-            Creates a contact record at the school. They&rsquo;ll see the same family and students you do.
+            Updates your family record at the school. School staff see the update right away.
           </p>
           <button
             type="submit"
             className="rounded-md px-3 py-1.5 text-sm font-medium text-white"
             style={{ background: 'var(--brand)' }}
           >
-            Add co-parent
+            Add to family record
           </button>
         </div>
       </form>

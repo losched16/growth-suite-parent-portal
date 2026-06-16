@@ -131,11 +131,17 @@ ${opts.loginUrl}
 
 ${support}`;
 
-  // GHL-first for opted-in schools, Resend fallback on any failure.
+  // GHL-only for opted-in schools — no Resend fallback. The school
+  // explicitly chose GHL as their sending provider, so a Resend
+  // fallback would send from our default domain (not their branded
+  // one) and bypass the deliverability work they did to verify
+  // their sending domain in GHL. Better to surface the failure than
+  // to silently send from the wrong sender.
   if (opts.schoolId && (await emailProviderFor(opts.schoolId)) === 'ghl') {
     const r = await sendEmailViaGhl({ to: opts.to, schoolId: opts.schoolId, subject, html, text });
     if (r.ok) return;
-    console.warn('[email/magic-link] GHL send failed, falling back to Resend:', r.reason, '(to:', opts.to, ')');
+    console.error('[email/magic-link] GHL send failed for school', opts.schoolId, '→', r.reason, '(to:', opts.to, ')');
+    throw new Error(`magic_link_send_failed_ghl: ${r.reason}`);
   }
 
   const c = client();
@@ -169,20 +175,27 @@ export async function sendBrandedEmail(opts: {
     content: Buffer;
   }>;
 }): Promise<void> {
-  // GHL-first for opted-in schools, Resend fallback on any failure.
-  // NOTE: GHL email sends here do NOT carry attachments — the GHL
-  // Conversations API attaches by public URL, not raw bytes. When an
-  // email has PDF attachments (e.g. an invoice copy), we skip GHL and
-  // use Resend so the attachment isn't silently dropped.
-  if (opts.schoolId
-      && (!opts.attachments || opts.attachments.length === 0)
-      && (await emailProviderFor(opts.schoolId)) === 'ghl') {
-    const r = await sendEmailViaGhl({
-      to: opts.to, schoolId: opts.schoolId,
-      subject: opts.subject, html: opts.html, text: opts.text,
-    });
-    if (r.ok) return;
-    console.warn('[email/branded] GHL send failed, falling back to Resend:', r.reason, '(to:', opts.to, ')');
+  // GHL-only for opted-in schools — no Resend fallback. The one
+  // exception is attachments: GHL's Conversations API only attaches
+  // by public URL, not raw bytes, so emails carrying a PDF
+  // (invoice copies, form receipts) still go via Resend. Without
+  // attachments, GHL is the sole path; failures throw so callers
+  // see them instead of silently sending from a wrong-domain
+  // fallback.
+  const hasAttachments = opts.attachments && opts.attachments.length > 0;
+  if (opts.schoolId && (await emailProviderFor(opts.schoolId)) === 'ghl') {
+    if (!hasAttachments) {
+      const r = await sendEmailViaGhl({
+        to: opts.to, schoolId: opts.schoolId,
+        subject: opts.subject, html: opts.html, text: opts.text,
+      });
+      if (r.ok) return;
+      console.error('[email/branded] GHL send failed for school', opts.schoolId, '→', r.reason, '(to:', opts.to, ', subject:', opts.subject, ')');
+      throw new Error(`branded_email_send_failed_ghl: ${r.reason}`);
+    }
+    // Attachments present — explicitly fall through to Resend with
+    // a clear log since this is the documented exception.
+    console.warn('[email/branded] GHL provider has attachments — routing through Resend so the file isn\'t dropped. (to:', opts.to, ')');
   }
 
   const c = client();

@@ -1251,14 +1251,23 @@ async function buildPrefillContextForSubmit(
     first_due_month_day: string | null;
     schedule: { kind?: string; months?: string[] } | null;
     academic_year: string;
+    addons: Array<{ key?: string; amount_cents?: number }> | null;
+    schedule_days: string | null;
+    arrival_time: string | null;
+    departure_time: string | null;
   }>(
     `SELECT g.display_name AS program_label,
             pp.display_name AS plan_label,
             fte.annual_tuition_cents, fte.total_annual_cents, fte.installment_count,
-            pp.first_due_month_day, fte.schedule, fte.academic_year
+            pp.first_due_month_day, fte.schedule, fte.academic_year,
+            fte.addons,
+            s.metadata->>'schedule_days'  AS schedule_days,
+            s.metadata->>'arrival_time'   AS arrival_time,
+            s.metadata->>'departure_time' AS departure_time
        FROM family_tuition_enrollments fte
        JOIN tuition_grids g ON g.id = fte.tuition_grid_id
        JOIN payment_plans pp ON pp.id = fte.payment_plan_id
+       JOIN students s ON s.id = fte.student_id
       WHERE fte.school_id = $1 AND fte.student_id = $2 AND fte.status = 'active'
       ORDER BY fte.updated_at DESC LIMIT 1`,
     [schoolId, studentId],
@@ -1280,6 +1289,11 @@ async function buildPrefillContextForSubmit(
       const last = new Date(Date.UTC(yearOf(m), m, 0)).getUTCDate();
       return new Date(Date.UTC(yearOf(m), m - 1, Math.min(day, last)));
     }).filter((d): d is Date => d != null).sort((a, b) => a.getTime() - b.getTime());
+    const ad = Array.isArray(e.addons) ? e.addons : [];
+    const cents = (key: string) => {
+      const hit = ad.find((a) => a?.key === key);
+      return hit && typeof hit.amount_cents === 'number' ? Math.abs(hit.amount_cents) : null;
+    };
     ctx.enrollment = {
       program_label: e.program_label,
       plan_label: e.plan_label,
@@ -1288,6 +1302,14 @@ async function buildPrefillContextForSubmit(
       installment_count: e.installment_count,
       first_due_date: dates[0]?.toISOString().slice(0, 10) ?? null,
       last_due_date: dates[dates.length - 1]?.toISOString().slice(0, 10) ?? null,
+      extended_care_cents: cents('extended_care'),
+      development_fee_cents: cents('development_fee'),
+      deposit_cents: cents('deposit'),
+      sibling_discount_cents: cents('sibling_discount'),
+      scholarship_cents: cents('scholarship'),
+      schedule_days: e.schedule_days,
+      arrival_time: e.arrival_time,
+      departure_time: e.departure_time,
     };
   }
 

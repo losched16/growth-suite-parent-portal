@@ -97,6 +97,19 @@ export type PrefillSource =
   | 'enrollment.installment_dollars'     // "1241.60"   (total_annual / installment_count, 2dp)
   | 'enrollment.first_due_date'          // "2026-07-15"
   | 'enrollment.last_due_date'           // "2027-04-15"
+  // Fee breakdown (from family_tuition_enrollments.addons) — for the
+  // tuition contract + DHS form to show every line.
+  | 'enrollment.base_tuition_dollars'    // grid base tuition
+  | 'enrollment.extended_care_dollars'
+  | 'enrollment.extended_care_monthly_dollars'  // annual ext care ÷ 10 (DHS Jul–Apr)
+  | 'enrollment.development_fee_dollars'
+  | 'enrollment.deposit_dollars'         // deposit already paid (credit)
+  | 'enrollment.sibling_discount_dollars'
+  | 'enrollment.scholarship_dollars'
+  // Attendance schedule (from students.metadata, surfaced per-enrollment).
+  | 'enrollment.schedule_days'
+  | 'enrollment.arrival_time'
+  | 'enrollment.departure_time'
   | 'today';
 
 export interface TextField extends BaseField {

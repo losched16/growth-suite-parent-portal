@@ -40,11 +40,24 @@ export interface PrefillContext {
   enrollment?: {
     program_label: string | null;          // tuition_grids.display_name
     plan_label: string | null;             // payment_plans.display_name
-    annual_tuition_cents: number | null;
-    total_annual_cents: number | null;
+    annual_tuition_cents: number | null;   // base grid tuition (before add-ons)
+    total_annual_cents: number | null;     // final amount owed
     installment_count: number | null;
     first_due_date: string | null;         // ISO YYYY-MM-DD
     last_due_date: string | null;
+    // Line-item breakdown, parsed from family_tuition_enrollments.addons
+    // by the form page loader. Each is the dollar magnitude (positive),
+    // null when that line doesn't apply to the student.
+    extended_care_cents: number | null;
+    development_fee_cents: number | null;
+    deposit_cents: number | null;          // the paid deposit credit
+    sibling_discount_cents: number | null;
+    scholarship_cents: number | null;
+    // Attendance schedule — from students.metadata (set from the
+    // enrollment sheet). Surfaced on the tuition contract + DHS form.
+    schedule_days: string | null;          // e.g. "M-F Full" / "T/Th"
+    arrival_time: string | null;           // e.g. "8:15am"
+    departure_time: string | null;         // e.g. "4:30pm"
   };
 }
 
@@ -120,6 +133,35 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
       return ctx.enrollment?.first_due_date ?? '';
     case 'enrollment.last_due_date':
       return ctx.enrollment?.last_due_date ?? '';
+    case 'enrollment.base_tuition_dollars':
+      return ctx.enrollment?.annual_tuition_cents != null
+        ? (ctx.enrollment.annual_tuition_cents / 100).toFixed(2) : '';
+    case 'enrollment.extended_care_dollars':
+      return ctx.enrollment?.extended_care_cents != null
+        ? (ctx.enrollment.extended_care_cents / 100).toFixed(2) : '';
+    case 'enrollment.extended_care_monthly_dollars':
+      // Annual extended-care fee split across the 10 DHS payment months
+      // (July–April), to fill the DHS Agreement's "Per payment" line.
+      return ctx.enrollment?.extended_care_cents != null
+        ? (ctx.enrollment.extended_care_cents / 10 / 100).toFixed(2) : '';
+    case 'enrollment.development_fee_dollars':
+      return ctx.enrollment?.development_fee_cents != null
+        ? (ctx.enrollment.development_fee_cents / 100).toFixed(2) : '';
+    case 'enrollment.deposit_dollars':
+      return ctx.enrollment?.deposit_cents != null
+        ? (ctx.enrollment.deposit_cents / 100).toFixed(2) : '';
+    case 'enrollment.sibling_discount_dollars':
+      return ctx.enrollment?.sibling_discount_cents != null
+        ? (ctx.enrollment.sibling_discount_cents / 100).toFixed(2) : '';
+    case 'enrollment.scholarship_dollars':
+      return ctx.enrollment?.scholarship_cents != null
+        ? (ctx.enrollment.scholarship_cents / 100).toFixed(2) : '';
+    case 'enrollment.schedule_days':
+      return ctx.enrollment?.schedule_days ?? '';
+    case 'enrollment.arrival_time':
+      return ctx.enrollment?.arrival_time ?? '';
+    case 'enrollment.departure_time':
+      return ctx.enrollment?.departure_time ?? '';
     case 'today': return new Intl.DateTimeFormat('en-CA', {
       timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(new Date());

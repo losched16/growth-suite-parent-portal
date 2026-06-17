@@ -189,6 +189,10 @@ export default async function FormPage({
       first_due_month_day: string | null;
       schedule: { kind?: string; months?: string[] } | null;
       academic_year: string;
+      addons: Array<{ key?: string; amount_cents?: number }> | null;
+      schedule_days: string | null;
+      arrival_time: string | null;
+      departure_time: string | null;
     }>(
       `SELECT fte.student_id,
               g.display_name AS program_label,
@@ -198,10 +202,15 @@ export default async function FormPage({
               fte.installment_count,
               pp.first_due_month_day,
               fte.schedule,
-              fte.academic_year
+              fte.academic_year,
+              fte.addons,
+              s.metadata->>'schedule_days'   AS schedule_days,
+              s.metadata->>'arrival_time'    AS arrival_time,
+              s.metadata->>'departure_time'  AS departure_time
          FROM family_tuition_enrollments fte
          JOIN tuition_grids g    ON g.id  = fte.tuition_grid_id
          JOIN payment_plans pp   ON pp.id = fte.payment_plan_id
+         JOIN students s         ON s.id  = fte.student_id
         WHERE fte.school_id = $1
           AND fte.student_id = ANY($2::uuid[])
           AND fte.status = 'active'`,
@@ -243,6 +252,15 @@ export default async function FormPage({
 
     for (const e of eRows) {
       const { first, last } = derivedueDates(e.academic_year, e.first_due_month_day, e.schedule?.months);
+      // Pull the per-line breakdown out of the addons array (written by
+      // recompute-mch-tuition.mjs). Credits (deposit / sibling discount /
+      // scholarship) are stored as NEGATIVE amounts — surface their
+      // magnitude so the contract can label them "− $X" itself.
+      const ad = Array.isArray(e.addons) ? e.addons : [];
+      const cents = (key: string) => {
+        const hit = ad.find((a) => a?.key === key);
+        return hit && typeof hit.amount_cents === 'number' ? Math.abs(hit.amount_cents) : null;
+      };
       enrollmentByStudentId[e.student_id] = {
         program_label: e.program_label,
         plan_label: e.plan_label,
@@ -251,6 +269,14 @@ export default async function FormPage({
         installment_count: e.installment_count,
         first_due_date: first,
         last_due_date: last,
+        extended_care_cents: cents('extended_care'),
+        development_fee_cents: cents('development_fee'),
+        deposit_cents: cents('deposit'),
+        sibling_discount_cents: cents('sibling_discount'),
+        scholarship_cents: cents('scholarship'),
+        schedule_days: e.schedule_days,
+        arrival_time: e.arrival_time,
+        departure_time: e.departure_time,
       };
     }
   }

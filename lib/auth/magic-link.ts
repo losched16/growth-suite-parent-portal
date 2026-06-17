@@ -132,30 +132,48 @@ export interface ConsumeTokenResult {
   email: string;
 }
 
-// Look up the token, ensure unconsumed + unexpired, mark consumed atomically.
-// Returns null on any failure (caller decides how to redirect).
+// Look up the token, ensure unexpired, and (for single-use tokens) mark
+// it consumed atomically. Returns null on any failure.
+//
+// Two modes, keyed by the token's multi_use flag:
+//   multi_use = false (default, parent self-login): single-use — the
+//     first valid call consumes it; later calls return null.
+//   multi_use = true (operator "view as parent" / emailed spot-check):
+//     reusable within its TTL — NOT consumed, so email link-scanners
+//     (which GET every URL) and repeat clicks don't burn it.
 export async function consumeToken(token: string): Promise<ConsumeTokenResult | null> {
   if (!token || typeof token !== 'string') return null;
 
-  // Atomic mark-consumed: only succeeds if not already consumed and not expired.
-  const { rows } = await query<{
-    parent_id: string;
-    school_id: string;
-    email: string;
-  }>(
-    `UPDATE parent_magic_link_tokens
-     SET consumed_at = now()
-     WHERE token = $1
-       AND consumed_at IS NULL
-       AND expires_at > now()
-     RETURNING parent_id, school_id, email`,
+  // Peek at the token's mode (and that it exists at all).
+  const { rows: peek } = await query<{ multi_use: boolean }>(
+    `SELECT multi_use FROM parent_magic_link_tokens WHERE token = $1`,
     [token],
   );
-  if (rows.length === 0) return null;
-  const row = rows[0];
+  if (peek.length === 0) return null;
 
-  // Look up family_id (parents.family_id). Could JOIN above but easier as a
-  // follow-up since we need the parent row to validate it still exists.
+  let row: { parent_id: string; school_id: string; email: string } | undefined;
+  if (peek[0].multi_use) {
+    // Reusable: validate not-expired; do NOT consume.
+    const { rows } = await query<{ parent_id: string; school_id: string; email: string }>(
+      `SELECT parent_id, school_id, email FROM parent_magic_link_tokens
+        WHERE token = $1 AND expires_at > now()`,
+      [token],
+    );
+    row = rows[0];
+  } else {
+    // Single-use: atomic mark-consumed (only succeeds if unconsumed + unexpired).
+    const { rows } = await query<{ parent_id: string; school_id: string; email: string }>(
+      `UPDATE parent_magic_link_tokens
+         SET consumed_at = now()
+        WHERE token = $1 AND consumed_at IS NULL AND expires_at > now()
+        RETURNING parent_id, school_id, email`,
+      [token],
+    );
+    row = rows[0];
+  }
+  if (!row) return null;
+
+  // Validate the parent still exists + is active.
   const { rows: parentRows } = await query<{ family_id: string }>(
     `SELECT family_id FROM parents WHERE id = $1 AND status = 'active'`,
     [row.parent_id],

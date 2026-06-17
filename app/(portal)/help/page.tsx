@@ -125,18 +125,21 @@ export default async function HelpPage() {
                 Go to <Link href="/family" className="underline" style={{ color: 'var(--brand-fg)' }}>Family</Link>,
                 scroll down to the <span className="font-medium">&ldquo;Add another parent&rdquo;</span> section
                 (it&rsquo;s collapsed — click to open). Only their first and last name are
-                required. If you want them to have their own portal access, also enter
-                their email and check the &ldquo;Email them a sign-in link&rdquo; box.
+                required. If you want them to have their own portal access, add their email
+                too — they can then sign in at the login page with that email and set their
+                own password.
               </>
             }
           />
           <FaqItem
-            q="Can I share my login with my spouse?"
+            q="Can my spouse / co-parent have their own login?"
             a={
               <>
-                You can, but you don&rsquo;t have to. Each parent can have their own sign-in
-                with their own email — they&rsquo;ll see the same family info you do. Add them
-                from the Family page (see above).
+                Yes. Each parent can sign in with their own email and their own password —
+                they&rsquo;ll see the same family info you do. Make sure both parents are
+                listed on the <Link href="/family" className="underline" style={{ color: 'var(--brand-fg)' }}>Family</Link> page
+                with their email addresses, then each of you signs in separately and sets a
+                password the first time.
               </>
             }
           />
@@ -165,37 +168,29 @@ export default async function HelpPage() {
             }
           />
           <FaqItem
-            q="My child has an allergy / medical condition / IEP. Where do I record that?"
+            q="My child has an allergy / medical condition. Where do I record that?"
             a={
               <>
-                Open the <Link href="/family" className="underline" style={{ color: 'var(--brand-fg)' }}>Family</Link> page
-                and find your student&rsquo;s card. Allergies, medications, and provider info
-                live there. For more detail, the <Link href="/forms-v2/health-history" className="underline" style={{ color: 'var(--brand-fg)' }}>Health History</Link>
-                {' '}and <Link href="/forms-v2/health-conditions" className="underline" style={{ color: 'var(--brand-fg)' }}>Health Conditions</Link>
-                {' '}forms capture more thorough info.
+                It&rsquo;s captured on your school&rsquo;s health forms — open{' '}
+                <Link href="/forms-v2" className="underline" style={{ color: 'var(--brand-fg)' }}>Forms</Link>{' '}
+                and look for the health / medical form (for many families that&rsquo;s the
+                Child Health Report or Emergency Contact form). Fill in allergies,
+                medications, and provider details there. Your student&rsquo;s card on the{' '}
+                <Link href="/family" className="underline" style={{ color: 'var(--brand-fg)' }}>Family</Link> page
+                also shows what&rsquo;s on file.
               </>
             }
           />
           <FaqItem
-            q="I want different media permissions for each of my kids — is that possible?"
+            q="Why don't I see a form that another parent told me about?"
             a={
               <>
-                Yes. The <Link href="/forms-v2/media-permission" className="underline" style={{ color: 'var(--brand-fg)' }}>Media Permission</Link>
-                {' '}form lets you set permissions per channel (school newsletter, social
-                media, marketing materials, etc.) and per child. Each of your students gets
-                their own section.
-              </>
-            }
-          />
-          <FaqItem
-            q="I signed the form but it disappeared / the signature looked broken."
-            a={
-              <>
-                We fixed a signature display issue at the start of June. If you saw the
-                signature reset right before locking, the latest version of the portal
-                should work cleanly — try again. Hit the page&rsquo;s refresh button if it
-                still misbehaves. If it persists, email us and we&rsquo;ll resolve it on our
-                side.
+                Some forms only apply to certain children — for example, kindergarten-only
+                forms, or a care agreement that only applies to toddlers and extended-care
+                students. Your <Link href="/forms-v2" className="underline" style={{ color: 'var(--brand-fg)' }}>Forms</Link> list
+                only shows the forms <span className="font-medium">your</span> child actually
+                needs, so you won&rsquo;t see ones that don&rsquo;t apply. If you think a form
+                is missing, contact the office.
               </>
             }
           />
@@ -211,12 +206,15 @@ export default async function HelpPage() {
             }
           />
           <FaqItem
-            q="I forgot my password."
+            q="How do I sign in? / I forgot my password."
             a={
               <>
                 Go to the <a href="/login" className="underline" style={{ color: 'var(--brand-fg)' }}>sign-in page</a>{' '}
-                and enter your email. We&rsquo;ll send a one-time sign-in link — when you click
-                it, you can set a new password.
+                and enter your email. The first time, you&rsquo;ll be asked to{' '}
+                <span className="font-medium">create a password</span> — after that, you sign
+                in with your email and that password. Forgot it? Email the school office
+                {b.support_email ? <> at <a href={`mailto:${b.support_email}`} className="underline">{b.support_email}</a></> : null}
+                {' '}and they&rsquo;ll reset it so you can set a new one.
               </>
             }
           />
@@ -268,9 +266,9 @@ export default async function HelpPage() {
         </h2>
         <ul className="mt-2 space-y-1 text-[12px] text-gray-700 list-disc pl-5">
           <li>Your information is visible only to {b.display_name} staff and the parents on your family record.</li>
-          <li>Sign-in links from your email expire after 15 minutes and can be used only once.</li>
+          <li>You sign in with your own email and a password you choose — keep it private to you.</li>
           <li>You&rsquo;re signed out automatically if you&rsquo;re inactive for a long stretch — sign back in any time.</li>
-          <li>If you suspect someone got access they shouldn&rsquo;t have, email the office to revoke and reset.</li>
+          <li>If you suspect someone got access they shouldn&rsquo;t have, email the office to reset your password.</li>
         </ul>
       </section>
 

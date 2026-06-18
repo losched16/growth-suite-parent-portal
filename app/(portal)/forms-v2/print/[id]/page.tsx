@@ -269,10 +269,29 @@ function ResponseValue({
   switch (block.type) {
     case 'signature_drawn': {
       const v = typeof value === 'string' ? value : '';
+      // The block can carry EITHER a drawn PNG dataUrl OR (when the
+      // parent used the "Type instead" fallback) a plain text name.
       if (v.startsWith('data:image/')) {
         return (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={v} alt="signature" className="signature-img h-16 border border-gray-300 rounded bg-white" />
+        );
+      }
+      if (v.trim()) {
+        const signedAt = typeof responses[`${block.key}_signed_at`] === 'string'
+          ? String(responses[`${block.key}_signed_at`]) : null;
+        return (
+          <div>
+            <span
+              className="text-2xl text-gray-900 leading-none"
+              style={{ fontFamily: 'var(--font-signature), "Dancing Script", "Brush Script MT", "Lucida Handwriting", cursive' }}
+            >
+              {v}
+            </span>
+            {signedAt ? (
+              <span className="ml-2 text-[10px] text-gray-500">signed {fmtDateTime(signedAt)}</span>
+            ) : null}
+          </div>
         );
       }
       return <em className="text-gray-400">no signature</em>;

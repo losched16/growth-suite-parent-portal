@@ -236,7 +236,7 @@ export function FormRenderer({
         if (block.type === 'signature_drawn' && block.required) {
           const sigVal = String(fd.get(block.key) ?? '').trim();
           if (!sigVal) {
-            setErr(`Please sign below before submitting (${block.label}). Tap "Lock signature" after drawing.`);
+            setErr(`Please sign below before submitting (${block.label}). Draw your signature and tap "Lock signature", OR switch to "Type instead" and key your name.`);
             setBusy(false);
             // Scroll the signature pad into view so they don't have
             // to hunt.
@@ -1554,6 +1554,13 @@ function FileInput({ block, legacyResponses }: { block: Extract<FormFieldBlock, 
   );
 }
 
+// SignatureDrawn now offers a fallback: if drawing breaks (touch
+// canvas glitches on a particular device, ink disappearing, etc.)
+// the parent can click "Type instead" and key their name. The same
+// hidden input stores either:
+//   - a data:image/png... URL (drawn signature)
+//   - a plain text name (typed signature)
+// Renderers downstream detect by prefix.
 function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'signature_drawn' }> }) {
   // Correctness gotchas earned the hard way:
   //
@@ -1596,6 +1603,10 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
   // mount) and lock() always read the LATEST value, not the value
   // captured at mount. This is what makes "once drawn, never wipe" work.
   const hasInkRef = useRef(false);
+  // Mode toggle: draw (default) or type. When mode='type', the canvas
+  // is hidden and a text input drives the hidden signature value.
+  const [mode, setMode] = useState<'draw' | 'type'>('draw');
+  const [typedName, setTypedName] = useState<string>('');
 
   // Size the canvas ONCE on mount, then never touch it again.
   //
@@ -1647,50 +1658,102 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
     setDataUrl(c.getCanvas().toDataURL('image/png'));
   }
 
+  // Submitted value:
+  //   draw mode → locked PNG dataUrl
+  //   type mode → trimmed typed name (used as plain text marker)
+  // Empty when neither is set.
+  const submittedValue = mode === 'type' ? typedName.trim() : dataUrl;
+  const trackedSignedAt = submittedValue ? new Date().toISOString() : '';
+
   return (
     <div className="space-y-2">
-      <div
-        ref={wrapperRef}
-        className={`rounded-md border-2 ${dataUrl ? 'border-emerald-400' : 'border-dashed border-gray-300'} bg-white`}
-        style={{ touchAction: 'none', overflow: 'hidden' }}
-      >
-        <SignatureCanvas
-          // Pass the useRef object DIRECTLY. The old inline arrow
-          // (`ref={(r) => { canvasRef.current = r; }}`) created a new
-          // function every render — React's reconciliation called the
-          // OLD callback with null then the NEW with the instance on
-          // every parent re-render, which on iOS Safari caused the
-          // SignatureCanvas to lose its in-flight stroke state.
-          ref={canvasRef}
-          penColor="#047857"
-          // Disable the library's own ResizeObserver — even with
-          // clearOnResize:false, the library's internal sizing logic
-          // can still run; we keep the canvas dimensions frozen after
-          // mount so nothing in the library can decide to wipe the pad.
-          clearOnResize={false}
-          canvasProps={{
-            // Don't set width/height here — useLayoutEffect sizes the
-            // backing buffer imperatively. Skipping them keeps React
-            // from recreating the canvas when we'd rather mutate it.
-            className: 'rounded-md',
-            style: { display: 'block', touchAction: 'none' },
-          }}
-          onBegin={() => { hasInkRef.current = true; setHasInk(true); }}
-        />
-      </div>
-      <input type="hidden" name={block.key} value={dataUrl} required={block.required} />
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={clear} disabled={!hasInk && !dataUrl} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs disabled:opacity-40 inline-flex items-center gap-1">
-          <RotateCcw className="h-3 w-3" /> Clear
+      {/* Mode toggle. Keep "Draw" first since it's the more legally
+          familiar option; "Type instead" is the fallback if drawing
+          ever misbehaves. */}
+      <div role="tablist" className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5 text-xs">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'draw'}
+          onClick={() => setMode('draw')}
+          className={`rounded px-2.5 py-1 font-medium transition-colors ${
+            mode === 'draw' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          ✍️ Draw
         </button>
-        {!dataUrl ? (
-          <button type="button" onClick={lock} disabled={!hasInk} className="rounded-md px-2 py-1 text-xs font-semibold text-white disabled:opacity-40 inline-flex items-center gap-1" style={{ background: '#047857' }}>
-            <Check className="h-3 w-3" /> Lock signature
-          </button>
-        ) : (
-          <span className="text-xs text-emerald-700">Signature locked.</span>
-        )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'type'}
+          onClick={() => setMode('type')}
+          className={`rounded px-2.5 py-1 font-medium transition-colors ${
+            mode === 'type' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          ⌨️ Type instead
+        </button>
       </div>
+
+      {/* Drawing pad — always mounted but hidden in 'type' mode so the
+          canvas keeps its size/ink state if the parent toggles back. */}
+      <div className={mode === 'draw' ? '' : 'hidden'}>
+        <div
+          ref={wrapperRef}
+          className={`rounded-md border-2 ${dataUrl ? 'border-emerald-400' : 'border-dashed border-gray-300'} bg-white`}
+          style={{ touchAction: 'none', overflow: 'hidden' }}
+        >
+          <SignatureCanvas
+            ref={canvasRef}
+            penColor="#047857"
+            clearOnResize={false}
+            canvasProps={{
+              className: 'rounded-md',
+              style: { display: 'block', touchAction: 'none' },
+            }}
+            onBegin={() => { hasInkRef.current = true; setHasInk(true); }}
+          />
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <button type="button" onClick={clear} disabled={!hasInk && !dataUrl} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs disabled:opacity-40 inline-flex items-center gap-1">
+            <RotateCcw className="h-3 w-3" /> Clear
+          </button>
+          {!dataUrl ? (
+            <button type="button" onClick={lock} disabled={!hasInk} className="rounded-md px-2 py-1 text-xs font-semibold text-white disabled:opacity-40 inline-flex items-center gap-1" style={{ background: '#047857' }}>
+              <Check className="h-3 w-3" /> Lock signature
+            </button>
+          ) : (
+            <span className="text-xs text-emerald-700">Signature locked.</span>
+          )}
+        </div>
+      </div>
+
+      {/* Typed fallback. Renders the name in a script font as a preview
+          so the parent sees what their signature will look like. */}
+      <div className={mode === 'type' ? '' : 'hidden'}>
+        <input
+          type="text"
+          value={typedName}
+          onChange={(e) => setTypedName(e.target.value)}
+          placeholder="Type your full legal name"
+          autoComplete="off"
+          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-200"
+        />
+        {typedName.trim() ? (
+          <div
+            className="mt-2 rounded-md border-2 border-emerald-400 bg-white px-4 py-3 text-3xl text-gray-900 leading-none"
+            style={{ fontFamily: 'var(--font-signature), "Dancing Script", "Brush Script MT", "Lucida Handwriting", cursive' }}
+          >
+            {typedName.trim()}
+          </div>
+        ) : null}
+        <p className="mt-1 text-[11px] text-gray-500">
+          By typing your name above you are signing this form. Same legal effect as a drawn signature.
+        </p>
+      </div>
+
+      <input type="hidden" name={block.key} value={submittedValue} required={block.required} />
+      <input type="hidden" name={`${block.key}_signed_at`} value={trackedSignedAt} />
     </div>
   );
 }

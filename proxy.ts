@@ -43,6 +43,12 @@ export const config = {
     // one-off billee. Auth is the invoice's public_pay_token, verified
     // by the page + the public payment-intent route. (The /pay product
     // checkout pages were already outside the session model.)
-    '/((?!login|api/auth|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|_next/static|_next/image|favicon.ico|robots.txt).*)',
+    //
+    // `api/admin-impersonate` is excluded because the route is itself
+    // an auth-mint endpoint — it verifies a signed token in the URL,
+    // mints the parent session cookie, and redirects to /home. If the
+    // proxy fires first, it sees no cookie yet and bounces the admin
+    // to /login — exactly what View as parent is designed to avoid.
+    '/((?!login|api/auth|api/admin-impersonate|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|_next/static|_next/image|favicon.ico|robots.txt).*)',
   ],
 };

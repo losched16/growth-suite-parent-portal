@@ -136,6 +136,21 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
         <PrintButton />
       </div>
 
+      {/* Legacy banner — when a submission was brought over from the
+          school's previous form system, surface that explicitly so the
+          parent knows where this came from and that it's fully editable. */}
+      {sub.status === 'legacy_imported' ? (
+        <div className="no-print mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 max-w-3xl mx-auto">
+          <strong>On file from your previous submission.</strong>{' '}
+          We brought this over from the old form system so you don&rsquo;t have to re-enter
+          anything. Review what we have below — if anything has changed,{' '}
+          <Link href={`/forms-v2/${sub.form_slug}`} className="underline font-medium">
+            open the live form
+          </Link>{' '}
+          to update it.
+        </div>
+      ) : null}
+
       <article className="print-page rounded-lg border border-gray-200 bg-white p-8 max-w-3xl mx-auto print-container">
         <header className="border-b border-gray-200 pb-4 mb-5">
           <div className="flex items-baseline justify-between gap-4">

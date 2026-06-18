@@ -179,6 +179,10 @@ function StatusBadge({ status, paymentStatus }: { status: string; paymentStatus:
     pending_payment: { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Pending payment' },
     draft: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Draft' },
     voided: { bg: 'bg-red-100', text: 'text-red-800', label: 'Voided' },
+    // Brought over from the school's previous form system during the
+    // portal launch. The form is fully readable + editable — parents
+    // can confirm or update anything that's changed.
+    legacy_imported: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'On file from previous system' },
   };
   const cfg = map[status] ?? { bg: 'bg-gray-100', text: 'text-gray-700', label: status };
   return (

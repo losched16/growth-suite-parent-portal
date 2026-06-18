@@ -105,6 +105,7 @@ export type PrefillSource =
   | 'enrollment.development_fee_dollars'
   | 'enrollment.deposit_dollars'         // deposit already paid (credit)
   | 'enrollment.sibling_discount_dollars'
+  | 'enrollment.prompt_pay_discount_dollars'  // 3% paid-in-full discount
   | 'enrollment.scholarship_dollars'
   // Attendance schedule (from students.metadata, surfaced per-enrollment).
   | 'enrollment.schedule_days'

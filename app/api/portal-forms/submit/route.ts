@@ -1319,6 +1319,7 @@ async function buildPrefillContextForSubmit(
       development_fee_cents: cents('development_fee'),
       deposit_cents: cents('deposit'),
       sibling_discount_cents: cents('sibling_discount'),
+      prompt_pay_discount_cents: cents('prompt_pay_discount'),
       scholarship_cents: cents('scholarship'),
       schedule_days: e.schedule_days,
       arrival_time: e.arrival_time,

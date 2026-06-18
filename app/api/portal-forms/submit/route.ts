@@ -811,6 +811,19 @@ export async function POST(request: NextRequest) {
     })
   ).catch((e) => console.error('[portal-forms/submit] post-submit effects scheduling failed:', e));
 
+  // 14. If this submission brings the family to 100% completion, write
+  //     the school's configured "forms completed" tag to every active
+  //     parent's GHL contact. Wooster uses this to power their
+  //     "forms completed - 26/27" segmentation. Opt-in per school via
+  //     school_branding.completion_tag — empty → no-op. Fire-and-forget,
+  //     idempotent on the GHL side, never blocks the parent's redirect.
+  import('@/lib/forms/completion-tag').then((m) =>
+    m.maybeApplyCompletionTag({
+      schoolId: session.school_id,
+      familyId: session.family_id,
+    })
+  ).catch((e) => console.error('[portal-forms/submit] completion-tag effect failed:', e));
+
   return NextResponse.json({
     id: submissionId,
     slug: def.slug,

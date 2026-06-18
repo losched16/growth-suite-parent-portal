@@ -10,10 +10,18 @@
 // We don't disclose whether an email is on file (security: prevents
 // enumeration). If the email isn't found, we show the same "Set your
 // password" form anyway and the POST silently no-ops on the server.
+//
+// Pre-login branding: if the request host is registered as a school's
+// custom_host (e.g. family.woomontessori.org → Wooster), we render the
+// header with that school's logo + brand color so the parent lands on
+// a recognizably-school page before they sign in. Otherwise we fall
+// through to the generic Family Portal branding.
 
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { ShieldCheck, AlertCircle } from 'lucide-react';
 import { query } from '@/lib/db';
+import { loadBrandingByHost, type PreloginBranding } from '@/lib/branding';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,14 +33,26 @@ type SearchParams = Promise<{
 
 export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
-  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'Family Portal';
+  const h = await headers();
+  const host = h.get('x-forwarded-host') ?? h.get('host');
+  const branding = await loadBrandingByHost(host);
+  const appName = branding?.display_name
+    ?? process.env.NEXT_PUBLIC_APP_NAME
+    ?? 'Family Portal';
 
   // Step 1 — if no email yet, show the email-only form
   if (!sp.email) {
     return (
-      <main className="flex flex-1 items-center justify-center px-4 py-16">
+      <main
+        className="flex flex-1 items-center justify-center px-4 py-16"
+        style={brandStyle(branding)}
+      >
         <div className="w-full max-w-md">
-          <Header appName={appName} subtitle="Sign in with your email and password." />
+          <Header
+            appName={appName}
+            subtitle="Sign in with your email and password."
+            branding={branding}
+          />
 
           {sp.out === '1' ? (
             <div className="mb-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
@@ -50,12 +70,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
               placeholder="you@example.com"
               className={inputCls}
             />
-            <button type="submit" className={primaryBtnCls}>
-              Continue
-            </button>
+            <PrimaryBtn branding={branding}>Continue</PrimaryBtn>
           </form>
 
-          <Footer />
+          <Footer branding={branding} />
         </div>
       </main>
     );
@@ -77,11 +95,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   const hasPassword = rows[0]?.has_password === true;
 
   return (
-    <main className="flex flex-1 items-center justify-center px-4 py-16">
+    <main
+      className="flex flex-1 items-center justify-center px-4 py-16"
+      style={brandStyle(branding)}
+    >
       <div className="w-full max-w-md">
-        <Header appName={appName} subtitle={hasPassword
-          ? `Welcome back. Sign in to continue.`
-          : `First time here? Set a password so you can sign in any time.`} />
+        <Header
+          appName={appName}
+          subtitle={hasPassword
+            ? `Welcome back. Sign in to continue.`
+            : `First time here? Set a password so you can sign in any time.`}
+          branding={branding}
+        />
 
         {sp.err === 'wrong_password' ? (
           <ErrorBanner>Email or password is incorrect.</ErrorBanner>
@@ -99,7 +124,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             <input type="hidden" name="email" value={email} />
             <div>
               <div className="text-xs text-gray-500 mb-1 font-mono">{email}</div>
-              <Link href="/login" className="text-[11px] text-emerald-700 underline">
+              <Link href="/login" className="text-[11px] underline" style={{ color: 'var(--brand-fg)' }}>
                 use a different email
               </Link>
             </div>
@@ -111,7 +136,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
               autoComplete="current-password"
               className={inputCls}
             />
-            <button type="submit" className={primaryBtnCls}>Sign in</button>
+            <PrimaryBtn branding={branding}>Sign in</PrimaryBtn>
           </form>
         ) : (
           // ── First-time / set-password mode ─────────────────────
@@ -119,7 +144,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             <input type="hidden" name="email" value={email} />
             <div>
               <div className="text-xs text-gray-500 mb-1 font-mono">{email}</div>
-              <Link href="/login" className="text-[11px] text-emerald-700 underline">
+              <Link href="/login" className="text-[11px] underline" style={{ color: 'var(--brand-fg)' }}>
                 use a different email
               </Link>
             </div>
@@ -142,21 +167,50 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
               autoComplete="new-password"
               className={inputCls}
             />
-            <button type="submit" className={primaryBtnCls}>Create password &amp; sign in</button>
+            <PrimaryBtn branding={branding}>Create password &amp; sign in</PrimaryBtn>
           </form>
         )}
 
-        <Footer />
+        <Footer branding={branding} />
       </div>
     </main>
   );
 }
 
-function Header({ appName, subtitle }: { appName: string; subtitle: string }) {
+// Inject brand CSS custom properties on the outer container so child
+// buttons / links pick them up via var(--brand). Falls back to the
+// emerald defaults already in globals.css when no branding match.
+function brandStyle(b: PreloginBranding | null): React.CSSProperties {
+  if (!b) return {};
+  return {
+    ['--brand' as string]: b.primary_color,
+    ['--brand-soft' as string]: b.primary_color_soft,
+    ['--brand-fg' as string]: b.primary_color_fg,
+  };
+}
+
+function Header({ appName, subtitle, branding }: {
+  appName: string;
+  subtitle: string;
+  branding: PreloginBranding | null;
+}) {
   return (
     <div className="mb-6 text-center">
-      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
-        <ShieldCheck className="h-6 w-6 text-emerald-700" />
+      <div
+        className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full overflow-hidden"
+        style={{
+          background: branding ? 'var(--brand-soft)' : '#d1fae5',
+        }}
+      >
+        {branding?.logo_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={branding.logo_url} alt="" className="h-12 w-12 object-contain" />
+        ) : (
+          <ShieldCheck
+            className="h-6 w-6"
+            style={{ color: branding ? 'var(--brand-fg)' : '#047857' }}
+          />
+        )}
       </div>
       <h1 className="text-xl font-semibold text-gray-900">{appName}</h1>
       <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
@@ -164,7 +218,26 @@ function Header({ appName, subtitle }: { appName: string; subtitle: string }) {
   );
 }
 
-function Footer() {
+function Footer({ branding }: { branding: PreloginBranding | null }) {
+  if (branding?.support_email || branding?.support_phone) {
+    return (
+      <p className="mt-6 text-center text-xs text-gray-400">
+        Trouble signing in? Contact{' '}
+        {branding.support_email ? (
+          <a href={`mailto:${branding.support_email}`} className="underline" style={{ color: 'var(--brand-fg)' }}>
+            {branding.support_email}
+          </a>
+        ) : null}
+        {branding.support_email && branding.support_phone ? ' or ' : null}
+        {branding.support_phone ? (
+          <a href={`tel:${branding.support_phone}`} className="underline" style={{ color: 'var(--brand-fg)' }}>
+            {branding.support_phone}
+          </a>
+        ) : null}
+        .
+      </p>
+    );
+  }
   return (
     <p className="mt-6 text-center text-xs text-gray-400">
       Trouble signing in? Contact your school directly.
@@ -184,5 +257,26 @@ function ErrorBanner({ children }: { children: React.ReactNode }) {
 const inputCls =
   'w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100';
 
-const primaryBtnCls =
-  'w-full rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800';
+// Primary submit button. Uses the school's brand color when a branding
+// match is found; falls back to the emerald default otherwise.
+function PrimaryBtn({ branding, children }: { branding: PreloginBranding | null; children: React.ReactNode }) {
+  if (branding) {
+    return (
+      <button
+        type="submit"
+        className="w-full rounded-md px-3 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
+        style={{ background: 'var(--brand)' }}
+      >
+        {children}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="submit"
+      className="w-full rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+    >
+      {children}
+    </button>
+  );
+}

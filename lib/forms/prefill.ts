@@ -19,6 +19,11 @@ export interface PrefillContext {
     // Per-student admission date — pulled from students.metadata.date_of_admission.
     // null when school hasn't set it yet.
     date_of_admission: string | null;
+    // Full students.metadata bag. Powers the generic `meta:<key>` prefill
+    // source so a form field can pull ANY metadata value (e.g. the
+    // DGM enrollment-agreement pre-fill writes clean, form-ready values
+    // under `ea_*` keys that the schema reads via `meta:ea_pg1_street`).
+    metadata?: Record<string, unknown> | null;
   };
   health?: {
     emergency_contact_name: string | null;
@@ -66,6 +71,15 @@ const TZ = 'America/Phoenix';
 
 export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillContext): string {
   if (!source) return '';
+  // Generic metadata passthrough: `meta:<key>` reads students.metadata[key]
+  // verbatim. Used by forms whose pre-fill values are computed upstream and
+  // stamped into metadata as clean, form-ready strings (option values, ISO
+  // dates, etc.) — keeps this resolver free of per-field mapping logic.
+  if (source.startsWith('meta:')) {
+    const key = source.slice('meta:'.length);
+    const v = ctx.student?.metadata?.[key];
+    return v == null ? '' : String(v);
+  }
   switch (source) {
     case 'parent.first_name': return ctx.parent.first_name ?? '';
     case 'parent.last_name': return ctx.parent.last_name ?? '';
@@ -170,4 +184,7 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
       timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(new Date());
   }
+  // `meta:<key>` sources are handled above the switch; any unrecognized
+  // source falls through to an empty string.
+  return '';
 }

@@ -547,6 +547,9 @@ export default async function FormPage({
                 // prefillCtx so DHS Agreement (+ Summer Camp DHS) can
                 // prefill the "Date of child's admission" line.
                 date_of_admission: (s.metadata?.date_of_admission as string | null) ?? null,
+                // Full metadata bag — powers `meta:<key>` prefill sources
+                // (e.g. the DGM enrollment agreement's pre-filled fields).
+                metadata: (s.metadata ?? null) as Record<string, unknown> | null,
               }))}
               parent={parentCtx}
               currentParentId={id.parent.id}

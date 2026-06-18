@@ -30,6 +30,8 @@ interface StudentOption {
   // prefill source. May be null when school hasn't set it yet (the
   // DHS Agreement field falls back to letting the parent type it in).
   date_of_admission?: string | null;
+  // Full metadata bag — powers `meta:<key>` prefill sources.
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface ExistingSubmission {
@@ -184,6 +186,7 @@ export function FormRenderer({
           preferred_name: selectedStudent.preferred_name,
           date_of_birth: selectedStudent.date_of_birth,
           date_of_admission: selectedStudent.date_of_admission ?? null,
+          metadata: selectedStudent.metadata ?? null,
         }
       : undefined,
     health: selectedStudent ? healthByStudentId[selectedStudent.id] : undefined,
@@ -1167,7 +1170,7 @@ function BlockRenderer({
     case 'signature_stamp':
       return <SignatureStamp block={block} />;
     case 'pricing_select':
-      return <FieldShell block={block}><PricingSelect block={block} legacyResponses={legacyResponses} formResponses={formResponses} /></FieldShell>;
+      return <FieldShell block={block}><PricingSelect block={block} prefillCtx={prefillCtx} legacyResponses={legacyResponses} formResponses={formResponses} /></FieldShell>;
     case 'multi_pricing':
       return <FieldShell block={block}><MultiPricing block={block} legacyResponses={legacyResponses} /></FieldShell>;
     case 'quantity_pricing':
@@ -1230,6 +1233,20 @@ const inputCls =
 // FieldShell's readOnly branch.
 const inputClsReadOnly =
   'mt-1 block w-full rounded-md border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-700 cursor-not-allowed focus:outline-none';
+
+// Locked display for choice fields (select / radio / pricing_select).
+// HTML `readOnly` is a no-op on <select> and radio groups, so we render
+// the resolved value as a static, clearly-locked box plus a hidden input
+// that still submits the value. `label` is the human option label;
+// `value` is what posts.
+function LockedChoice({ name, value, label }: { name: string; value: string; label: string }) {
+  return (
+    <>
+      <input type="hidden" name={name} value={value} />
+      <div className={inputClsReadOnly}>{label || value || '—'}</div>
+    </>
+  );
+}
 
 type LegacyProp = { legacyResponses: Record<string, unknown> | null };
 
@@ -1346,6 +1363,10 @@ function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<Fo
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
+  if (block.readOnly === true) {
+    const opt = block.options.find((o) => o.value === defaultValue);
+    return <LockedChoice name={block.key} value={defaultValue} label={opt?.label ?? ''} />;
+  }
   return (
     <select name={block.key} required={block.required} defaultValue={defaultValue || ''} className={inputCls}>
       <option value="">— select —</option>
@@ -1360,6 +1381,10 @@ function RadioGroup({ block, prefillCtx, legacyResponses }: { block: Extract<For
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
+  if (block.readOnly === true) {
+    const opt = block.options.find((o) => o.value === defaultValue);
+    return <LockedChoice name={block.key} value={defaultValue} label={opt?.label ?? ''} />;
+  }
   return (
     <div className="mt-1 space-y-1">
       {block.options.map((o) => (
@@ -1590,9 +1615,17 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
 // form's onChange picks them up via FormData.
 
 function PricingSelect({
-  block, legacyResponses, formResponses,
-}: { block: Extract<FormFieldBlock, { type: 'pricing_select' }>; formResponses: Record<string, unknown> } & LegacyProp) {
-  const legacy = legacyVal(legacyResponses, block.key) ?? '';
+  block, prefillCtx, legacyResponses, formResponses,
+}: { block: Extract<FormFieldBlock, { type: 'pricing_select' }>; prefillCtx: PrefillContext; formResponses: Record<string, unknown> } & LegacyProp) {
+  // Resolve the pre-selected option: prior/invite response first, then the
+  // schema's prefill source (e.g. `meta:ea_program_tuition`).
+  const legacy = (legacyVal(legacyResponses, block.key)
+    ?? resolvePrefill(block.prefill, prefillCtx)) || '';
+  if (block.readOnly === true) {
+    const opt = block.options.find((o) => o.value === legacy);
+    const label = opt ? `${opt.label} — ${fmtCents(opt.amount_cents)}` : '';
+    return <LockedChoice name={block.key} value={legacy} label={label} />;
+  }
   // Filter options by `visible_when` (e.g. grade-based tuition filter).
   const visibleOptions = block.options.filter((o) => {
     if (!o.visible_when) return true;

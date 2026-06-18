@@ -111,7 +111,12 @@ export type PrefillSource =
   | 'enrollment.schedule_days'
   | 'enrollment.arrival_time'
   | 'enrollment.departure_time'
-  | 'today';
+  | 'today'
+  // Generic students.metadata passthrough — `meta:<key>` returns
+  // students.metadata[key] verbatim. Lets a form field pull any
+  // pre-computed value (e.g. the DGM enrollment agreement reads clean,
+  // form-ready values stamped under `ea_*` keys via `meta:ea_pg1_street`).
+  | `meta:${string}`;
 
 export interface TextField extends BaseField {
   type: 'text' | 'email' | 'tel' | 'url';

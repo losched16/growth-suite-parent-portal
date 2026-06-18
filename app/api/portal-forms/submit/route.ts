@@ -1219,11 +1219,13 @@ async function buildPrefillContextForSubmit(
     first_name: string; last_name: string;
     preferred_name: string | null; date_of_birth: string | Date | null;
     date_of_admission: string | Date | null;
+    metadata: Record<string, unknown> | null;
   }>(
     `SELECT first_name, last_name,
             metadata->>'preferred_name' AS preferred_name,
             (metadata->>'birth_date')::date AS date_of_birth,
-            (metadata->>'date_of_admission')::date AS date_of_admission
+            (metadata->>'date_of_admission')::date AS date_of_admission,
+            metadata
        FROM students WHERE id = $1 LIMIT 1`,
     [studentId],
   );
@@ -1235,6 +1237,8 @@ async function buildPrefillContextForSubmit(
       preferred_name: s.preferred_name,
       date_of_birth: s.date_of_birth instanceof Date ? s.date_of_birth.toISOString().slice(0, 10) : s.date_of_birth,
       date_of_admission: s.date_of_admission instanceof Date ? s.date_of_admission.toISOString().slice(0, 10) : s.date_of_admission,
+      // Powers `meta:<key>` prefill sources when re-resolving readOnly fields.
+      metadata: s.metadata ?? null,
     };
   }
 

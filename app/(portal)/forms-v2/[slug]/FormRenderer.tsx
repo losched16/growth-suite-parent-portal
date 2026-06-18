@@ -1553,52 +1553,33 @@ function FileInput({ block, legacyResponses }: { block: Extract<FormFieldBlock, 
   );
 }
 
-// Typed e-signature. The block type is still 'signature_drawn' for
-// schema compatibility, but the UX is pure type-your-name. The drawing
-// canvas approach hit too many device-specific quirks (ink wiping on
-// layout shifts, touch math drifting on phones, signatures
-// disappearing on iOS Safari) — every fix landed another report. A
-// typed signature with a script-font preview gives parents the same
-// "looks like a signature" feel with zero canvas-related bugs.
+// Plain text input. No state, no preview, no canvas, no hidden inputs,
+// no React anything. Just a dumb HTML <input name={block.key}> that
+// submits whatever the parent types as the signature value. The
+// renderers downstream (parent print + admin submission view) detect
+// plain text and display in script font on read.
 //
-// Existing PNG dataUrl signatures from before still render correctly
-// on the parent print page + admin submission view — the renderers
-// detect format and switch.
+// Why this minimal: previous typed-with-preview implementation had
+// parents reporting they couldn't submit. Stripped to bare HTML so
+// nothing about React state or hidden inputs can fail. If the parent
+// can type into a text box, the form will submit.
 function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'signature_drawn' }> }) {
-  const [typedName, setTypedName] = useState<string>('');
-  const trimmed = typedName.trim();
-  const signedAt = trimmed ? new Date().toISOString() : '';
-
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       <input
         type="text"
-        value={typedName}
-        onChange={(e) => setTypedName(e.target.value)}
+        name={block.key}
+        required={block.required}
         placeholder="Type your full legal name"
         autoComplete="off"
         autoCapitalize="words"
         spellCheck={false}
         className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-200"
       />
-      {trimmed ? (
-        <div
-          className="rounded-md border-2 border-emerald-400 bg-white px-4 py-3 text-3xl text-gray-900 leading-none"
-          style={{ fontFamily: 'var(--font-signature), "Dancing Script", "Brush Script MT", "Lucida Handwriting", cursive' }}
-        >
-          {trimmed}
-        </div>
-      ) : (
-        <div className="rounded-md border-2 border-dashed border-gray-300 bg-white px-4 py-6 text-sm text-gray-400 italic text-center">
-          Your signature will appear here as you type.
-        </div>
-      )}
       <p className="text-[11px] text-gray-500">
         By typing your name above, you are signing this form electronically.
         This e-signature has the same legal effect as a handwritten one.
       </p>
-      <input type="hidden" name={block.key} value={trimmed} required={block.required} />
-      <input type="hidden" name={`${block.key}_signed_at`} value={signedAt} />
     </div>
   );
 }

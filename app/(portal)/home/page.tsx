@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { Users, FileText, MessageSquare, ChevronRight, AlertCircle, ArrowRight } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
+import { PinnedNotices } from './PinnedNotices';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,6 +103,9 @@ export default async function HomePage() {
           {students.length > 0 ? ` · ${students.length} student${students.length === 1 ? '' : 's'}: ${studentNames}` : ''}
         </p>
       </header>
+
+      {/* Pinned notifications from the school — unmissable, dismissible. */}
+      <PinnedNotices />
 
       {/* PENDING ENROLLMENT FORMS BANNER — top priority. Only renders
           when there's something to do. */}

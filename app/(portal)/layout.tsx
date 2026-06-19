@@ -3,13 +3,15 @@
 // CSS custom properties so every page picks it up automatically.
 
 import Link from 'next/link';
-import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt, HelpCircle } from 'lucide-react';
+import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt, HelpCircle, Bell } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
+import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 const NAV_ITEMS = [
   { href: '/home', label: 'Home', icon: Home },
+  { href: '/notifications', label: 'Notifications', icon: Bell },
   { href: '/attendance', label: 'Attendance', icon: UserCheck },
   { href: '/family', label: 'Family', icon: Users },
   { href: '/forms-v2', label: 'Forms', icon: FilePen },
@@ -42,6 +44,14 @@ export default async function PortalLayout({ children }: { children: React.React
   const id = await requireParent();
   const b = id.branding;
   const navItems = NAV_ITEMS.filter((item) => !(HIDDEN_NAV_BY_SCHOOL[id.school.id]?.has(item.href)));
+
+  // Unread in-portal notification count → badge on the Notifications nav item.
+  const { rows: unreadRows } = await query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM portal_notification_recipients
+      WHERE school_id = $1 AND parent_id = $2 AND read_at IS NULL`,
+    [id.parent.school_id, id.parent.id],
+  );
+  const unreadCount = Number(unreadRows[0]?.n ?? 0);
 
   return (
     <div
@@ -98,6 +108,9 @@ export default async function PortalLayout({ children }: { children: React.React
                 className="flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm text-gray-700 hover:bg-white hover:text-gray-900"
               >
                 <Icon className="h-4 w-4" /> {item.label}
+                {item.href === '/notifications' && unreadCount > 0 ? (
+                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{unreadCount}</span>
+                ) : null}
               </Link>
             );
           })}
@@ -116,6 +129,9 @@ export default async function PortalLayout({ children }: { children: React.React
                 className="flex items-center gap-2 rounded px-3 py-2 text-sm text-gray-700 hover:bg-white hover:text-gray-900"
               >
                 <Icon className="h-4 w-4 shrink-0" /> {item.label}
+                {item.href === '/notifications' && unreadCount > 0 ? (
+                  <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">{unreadCount}</span>
+                ) : null}
               </Link>
             );
           })}

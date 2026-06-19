@@ -92,6 +92,14 @@ interface Props {
     prefill: Record<string, string>;
     studentId: string | null;
   } | null;
+  // Students who already have an active tuition plan. For these the
+  // agreement is review-and-sign (locked fields, no calculator/billing);
+  // students NOT in this list are brand-new families who get editable
+  // fields + the live tuition calculator. Mirrors the submit guardrail.
+  existingPlanStudentIds?: string[];
+  // Whether the school's billing is live. In dry-run the new-family
+  // calculator still shows, but the submit button doesn't promise payment.
+  billingActive?: boolean;
 }
 
 export function FormRenderer({
@@ -101,6 +109,8 @@ export function FormRenderer({
   flagsByStudentId, familyFlags,
   familyEmergencyContact,
   inviteContext,
+  existingPlanStudentIds,
+  billingActive,
 }: Props) {
   const router = useRouter();
   // If we have an operator invite that targets a specific student, the
@@ -165,16 +175,28 @@ export function FormRenderer({
     }, 0);
   }, [definition.field_schema]);
 
-  const paymentRequired = definition.payment_config?.mode === 'required';
-  const paymentConfigured = !!definition.payment_config;
-  const liveEval = useMemo(
-    () => paymentConfigured ? evaluatePayment(definition, responses) : null,
-    [definition, responses, paymentConfigured],
-  );
-
   const selectedStudent = useMemo(
     () => students.find((s) => s.id === studentId),
     [students, studentId],
+  );
+
+  // Existing/imported family (already has a tuition plan) → review-and-sign:
+  // fields stay locked, no calculator, no billing. A brand-new family (no
+  // plan) gets editable fields + the live tuition calculator. Matches the
+  // server-side guardrail exactly so display and billing never disagree.
+  const isExistingFamily = !!selectedStudent
+    && (existingPlanStudentIds ?? []).includes(selectedStudent.id);
+
+  // Only NEW families see the payment engine. The button only promises
+  // payment when billing is actually live (in dry-run a new family's plan
+  // is created as drafts with no charge).
+  const paymentConfigured = !!definition.payment_config && !isExistingFamily;
+  const paymentRequired = paymentConfigured
+    && definition.payment_config?.mode === 'required'
+    && (billingActive ?? false);
+  const liveEval = useMemo(
+    () => paymentConfigured ? evaluatePayment(definition, responses) : null,
+    [definition, responses, paymentConfigured],
   );
 
   const prefillCtx: PrefillContext = useMemo(() => ({
@@ -686,6 +708,14 @@ export function FormRenderer({
             </div>
           ) : null}
           {definition.field_schema
+            // New families fill the form fresh — strip the review-only lock
+            // so their pricing/plan fields are editable. Existing families
+            // keep the locked, pre-filled review.
+            .map((block) =>
+              (!isExistingFamily && 'readOnly' in block && block.readOnly)
+                ? { ...block, readOnly: false }
+                : block,
+            )
             .filter((block) => {
               if (addendumMode !== 'editing') return true;
               // Keep display-only blocks visible for context.

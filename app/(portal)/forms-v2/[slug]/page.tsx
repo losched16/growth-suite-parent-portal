@@ -442,6 +442,27 @@ export default async function FormPage({
     }
   }
 
+  // 4d) Which of this family's students already have a tuition plan? Those
+  //     are existing/imported families → the agreement is review-and-sign
+  //     (locked, no billing). Students WITHOUT a plan are brand-new families
+  //     → editable form + live calculator + billing on submit. Plus whether
+  //     billing is live (drives charge vs. draft for new families).
+  const existingPlanStudentIds: string[] = [];
+  if (students.length > 0) {
+    const sIds = students.map((s) => s.id);
+    const { rows: planRows } = await query<{ student_id: string }>(
+      `SELECT DISTINCT student_id FROM family_tuition_enrollments
+        WHERE school_id = $1 AND student_id = ANY($2::uuid[]) AND status = 'active'`,
+      [id.parent.school_id, sIds],
+    );
+    for (const r of planRows) existingPlanStudentIds.push(r.student_id);
+  }
+  const { rows: baRows } = await query<{ billing_active: boolean | null }>(
+    `SELECT billing_active FROM school_payment_config WHERE school_id = $1`,
+    [id.parent.school_id],
+  );
+  const billingActive = baRows[0]?.billing_active === true;
+
   // 5) Build definition object for the renderer (typed).
   const definition: FormDefinition = {
     id: def.id,
@@ -561,6 +582,8 @@ export default async function FormPage({
               familyFlags={familyFlags}
               familyEmergencyContact={familyEmergencyContact}
               inviteContext={inviteContext}
+              existingPlanStudentIds={existingPlanStudentIds}
+              billingActive={billingActive}
             />
           )}
         </>

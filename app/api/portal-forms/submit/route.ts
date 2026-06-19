@@ -425,6 +425,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'validation_failed', detail: validationErrors }, { status: 400 });
   }
 
+  // ── Existing-family guardrail ────────────────────────────────────────
+  // A returning/imported family already has a tuition plan. For them the
+  // agreement is strictly REVIEW-AND-SIGN: we must NOT recalculate or
+  // create any billing, because createEnrollmentInvoices upserts the plan
+  // and deletes unpaid invoices — that would clobber their reconciled
+  // amounts. The calculator + billing run ONLY for a brand-new family
+  // (no active plan yet). This is the hard guardrail that keeps every
+  // imported family untouched.
+  let isExistingFamily = false;
+  if (studentId) {
+    const { rows: planRows } = await query<{ id: string }>(
+      `SELECT id FROM family_tuition_enrollments
+        WHERE school_id = $1 AND student_id = $2 AND status = 'active'
+        LIMIT 1`,
+      [session.school_id, studentId],
+    );
+    isExistingFamily = planRows.length > 0;
+  }
+  // Billing live? In dry-run (billing_active not true) a new-family
+  // submission creates a DRAFT plan + invoices and does NOT force payment,
+  // so admins can test the calculation end-to-end without a charge.
+  const { rows: baRows } = await query<{ billing_active: boolean | null }>(
+    `SELECT billing_active FROM school_payment_config WHERE school_id = $1`,
+    [session.school_id],
+  );
+  const billingActive = baRows[0]?.billing_active === true;
+
   // 4a. Server-side override for readOnly fields. Any block flagged
   //     `readOnly: true` MUST have its response value come from the
   //     server-resolved prefill — never trust the client, because a
@@ -435,7 +462,11 @@ export async function POST(request: NextRequest) {
     .filter((b): b is FormFieldBlock & { key: string; readOnly?: boolean; prefill?: string } =>
       'key' in b && 'readOnly' in b && b.readOnly === true)
     .map((b) => b.key);
-  if (readOnlyKeys.length > 0) {
+  // Only re-resolve locked fields for EXISTING families (whose fields the
+  // form renders read-only/pre-filled). For a brand-new family the same
+  // fields render editable with no prefill, so overriding here would wipe
+  // their typed selections — skip it.
+  if (readOnlyKeys.length > 0 && isExistingFamily) {
     const ctx = await buildPrefillContextForSubmit(session.parent_id, studentId, session.school_id);
     for (const block of def.field_schema) {
       if (!('key' in block)) continue;
@@ -465,20 +496,35 @@ export async function POST(request: NextRequest) {
     payment_config: def.payment_config,
     allow_addendum: def.allow_addendum,
   };
-  const paymentEval = def.payment_config
+  // Existing families never bill (review-and-sign), so skip the whole
+  // payment path for them even when the form carries a payment_config.
+  const paymentEval = (def.payment_config && !isExistingFamily)
     ? evaluatePayment(formDefForEval, responses)
     : null;
-  const paymentRequired = def.payment_config?.mode === 'required'
+  // Force payment only for a NEW family when billing is live. In dry-run we
+  // still build their plan, but as drafts and without a forced charge.
+  const paymentRequired = !isExistingFamily
+    && billingActive
+    && def.payment_config?.mode === 'required'
     && paymentEval !== null
     && paymentEval.subtotal_cents > 0;
-  // If the form requires payment but the lines came out empty,
-  // reject — the parent didn't make a paid selection.
-  if (def.payment_config?.mode === 'required' && (!paymentEval || paymentEval.subtotal_cents <= 0)) {
+  // Require a paid selection only for a new family (existing ones are
+  // review-only; their amounts are already on file).
+  if (!isExistingFamily && def.payment_config?.mode === 'required'
+      && (!paymentEval || paymentEval.subtotal_cents <= 0)) {
     return NextResponse.json(
       { error: 'no_paid_selection', detail: 'This form requires a paid selection.' },
       { status: 400 },
     );
   }
+  // Build the new family's plan + invoices when they've made a paid
+  // selection — regardless of dry-run vs live. createEnrollmentInvoices
+  // emits DRAFT invoices in dry-run (no charge); go-live promotes them.
+  const createNewFamilyBilling = !isExistingFamily
+    && !!def.payment_config
+    && paymentEval !== null
+    && paymentEval.lines.length > 0
+    && paymentEval.subtotal_cents > 0;
 
   // 5. Periodic-review diff. For forms like Emergency Contact that the
   // parent re-submits every 6 months, compute exactly which fields
@@ -694,7 +740,7 @@ export async function POST(request: NextRequest) {
   //      flips it to 'paid' (and the form's "submitted" status) when
   //      the parent finishes paying.
   let redirectInvoiceId: string | null = null;
-  if (paymentRequired && paymentEval && paymentEval.lines.length > 0) {
+  if (createNewFamilyBilling && paymentEval) {
     try {
       // Best-effort: resolve a student display name for the title template.
       let studentDisplayName: string | undefined;
@@ -731,10 +777,12 @@ export async function POST(request: NextRequest) {
           createdByEmail: 'form-submission@growthsuite.local',
           redemptionCode: redemptionCode || undefined,
         });
-        // Send the parent first to the enrollment-fee invoice (due now).
-        redirectInvoiceId = created.enrollment_fee_invoice_id
-          ?? created.installment_invoice_ids[0]
-          ?? null;
+        // Only push the parent to a payment screen when billing is LIVE.
+        // In dry-run the plan + invoices are drafts — the admin reviews
+        // them on the Tuition Plans page; no charge, no redirect.
+        redirectInvoiceId = billingActive
+          ? (created.enrollment_fee_invoice_id ?? created.installment_invoice_ids[0] ?? null)
+          : null;
       } else {
         const created = await createInvoiceForFormSubmission({
           schoolId: session.school_id,
@@ -748,7 +796,7 @@ export async function POST(request: NextRequest) {
           createdByEmail: 'form-submission@growthsuite.local',
           redemptionCode: redemptionCode || undefined,
         });
-        redirectInvoiceId = created.invoice_id;
+        redirectInvoiceId = billingActive ? created.invoice_id : null;
       }
     } catch (err) {
       console.error('[portal-forms/submit] invoice creation failed:', err);

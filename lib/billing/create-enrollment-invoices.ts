@@ -161,7 +161,16 @@ export async function createEnrollmentInvoices(opts: CreateOpts): Promise<Create
     return base + remainder;
   });
 
-  const initialStatus: 'open' | 'draft' = 'open';
+  // Draft-mode safety: while the school is in dry-run (billing_active not
+  // true), emit DRAFT invoices so a test enrollment — or a brand-new family
+  // the admins are piloting — never attempts to charge a card. Go-live
+  // promotes drafts → open. Once billing is live, new enrollments emit
+  // 'open' and collect normally.
+  const { rows: baRows } = await query<{ billing_active: boolean | null }>(
+    `SELECT billing_active FROM school_payment_config WHERE school_id = $1`,
+    [opts.schoolId],
+  );
+  const initialStatus: 'open' | 'draft' = baRows[0]?.billing_active === true ? 'open' : 'draft';
 
   // ── Generate everything in one transaction ────────────────────────
   const result = await withTransaction(async (q) => {

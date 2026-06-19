@@ -501,16 +501,20 @@ async function handlePaymentMethodAttached(
   );
 
   // Autopay-by-default: the moment a family saves a card, wire it into
-  // their open autopay tuition installments that don't yet have a
-  // method — so the schedule drafts automatically and the school never
-  // hand-sends a tuition invoice.
+  // their autopay tuition installments that don't yet have a method — so
+  // the schedule drafts automatically and the school never hand-sends a
+  // tuition invoice. We include 'draft' installments (pre-go-live, e.g.
+  // a family who adds their card right after signing while the school is
+  // still in draft mode) so the method is already attached when those
+  // drafts are promoted to 'open' at go-live. Nothing is charged here —
+  // the charge step below is gated on billing_active.
   const methodRowId = pmIns[0]?.id;
   if (methodRowId) {
     await query(
       `UPDATE invoices
           SET autopay_payment_method_id = $1, updated_at = now()
         WHERE school_id = $2 AND family_id = $3
-          AND status IN ('open', 'partially_paid')
+          AND status IN ('open', 'partially_paid', 'draft')
           AND autopay_enabled = true
           AND autopay_payment_method_id IS NULL`,
       [methodRowId, m.school_id, m.family_id],

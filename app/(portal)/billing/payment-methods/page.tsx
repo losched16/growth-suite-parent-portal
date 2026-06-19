@@ -11,13 +11,13 @@
 // autopay before any invoices are due.
 
 import Link from 'next/link';
-import { ArrowLeft, CreditCard, Landmark, CheckCircle2, Trash2, Star } from 'lucide-react';
+import { ArrowLeft, CreditCard, Landmark, CheckCircle2, Trash2, Star, Plus } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-type SearchParams = Promise<{ msg?: string; err?: string }>;
+type SearchParams = Promise<{ msg?: string; err?: string; added?: string }>;
 
 interface PaymentMethodRow {
   id: string;
@@ -48,13 +48,27 @@ export default async function PaymentMethodsPage({ searchParams }: { searchParam
         <ArrowLeft className="h-3 w-3" /> Back to billing
       </Link>
 
-      <header>
-        <h1 className="text-2xl font-semibold text-gray-900">Payment methods</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Saved cards and bank accounts. Set one as the default for autopay.
-        </p>
+      <header className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">Payment methods</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            Saved cards and bank accounts. Set one as the default for autopay.
+          </p>
+        </div>
+        <Link
+          href="/billing/payment-methods/add"
+          className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+          style={{ background: 'var(--brand)' }}
+        >
+          <Plus className="h-4 w-4" /> Add method
+        </Link>
       </header>
 
+      {sp.added ? (
+        <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Payment method saved. It may take a moment to appear below — refresh if you don&rsquo;t see it yet.
+        </div>
+      ) : null}
       {sp.msg ? (
         <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{sp.msg}</div>
       ) : null}
@@ -67,10 +81,16 @@ export default async function PaymentMethodsPage({ searchParams }: { searchParam
           <CreditCard className="mx-auto mb-3 h-10 w-10 text-gray-300" />
           <h2 className="text-base font-semibold text-gray-900">No saved payment methods yet</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-gray-600">
-            The next time you pay an invoice, check the &ldquo;Save for future autopay&rdquo;
-            box and it&rsquo;ll appear here. You can also add one now if you want autopay
-            ready to go before invoices are due.
+            Add a card or bank account so your tuition payments draft automatically on each due date.
+            You won&rsquo;t be charged just for adding one.
           </p>
+          <Link
+            href="/billing/payment-methods/add"
+            className="mt-4 inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+            style={{ background: 'var(--brand)' }}
+          >
+            <Plus className="h-4 w-4" /> Add a payment method
+          </Link>
         </div>
       ) : (
         <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">

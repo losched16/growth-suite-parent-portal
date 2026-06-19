@@ -76,16 +76,36 @@ export default async function PlanPage() {
     );
   }
 
+  // Is the school live yet? Before go-live (billing_active=false) the
+  // installments exist as DRAFTS — we still show them to the family as a
+  // read-only SCHEDULE PREVIEW so they can see exactly what they'll pay
+  // and when, and get their payment method on file ahead of time. Nothing
+  // is charged while in draft mode.
+  const { rows: cfgRows } = await query<{ billing_active: boolean }>(
+    `SELECT COALESCE(billing_active, false) AS billing_active
+       FROM school_payment_config WHERE school_id = $1`,
+    [me.parent.school_id],
+  );
+  const billingActive = cfgRows[0]?.billing_active === true;
+
+  // Does the family already have a payment method on file? Drives the
+  // "add a payment method" prompt — the key step so installments draft
+  // automatically.
+  const { rows: pmRows } = await query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM payment_methods
+      WHERE school_id = $1 AND family_id = $2 AND active = true`,
+    [me.parent.school_id, me.parent.family_id],
+  );
+  const hasPaymentMethod = Number(pmRows[0]?.n ?? 0) > 0;
+
   // Fetch installments for all active enrollments in one batch.
   // Split-billing filter: same rule as /billing — show joint invoices
   // (responsible_parent_id IS NULL) AND my own split invoices
   // (responsible_parent_id = me). Co-parent's invoices stay hidden.
+  // We INCLUDE drafts here (unlike /billing) so the schedule preview
+  // renders pre-go-live; draft rows are shown as "Scheduled", never payable.
   const enrollmentIds = enrollments.map((e) => e.id);
   const { rows: installments } = await query<InstallmentRow & { enrollment_id: string }>(
-    // Dry-run gate: never show 'draft' invoices to parents. Drafts only
-    // exist when the school is in pre-billing dry-run mode (migration 046
-    // billing_active=false) — parents should see nothing at all until the
-    // operator clicks "Go live" and drafts get promoted to open.
     `SELECT (i.source_ref->>'enrollment_id') AS enrollment_id,
             i.id AS invoice_id, i.invoice_number,
             (i.source_ref->>'installment_number')::int AS installment_number,
@@ -95,7 +115,7 @@ export default async function PlanPage() {
       WHERE i.school_id = $1
         AND i.family_id = $2
         AND i.source = 'tuition_plan'
-        AND i.status <> 'draft'
+        AND i.status <> 'voided'
         AND (i.source_ref->>'enrollment_id') = ANY($3::text[])
         AND (i.responsible_parent_id IS NULL OR i.responsible_parent_id = $4)
       ORDER BY i.due_at ASC`,
@@ -124,11 +144,48 @@ export default async function PlanPage() {
         </p>
       </header>
 
+      {/* Add-a-payment-method prompt — the one step a family needs to do so
+          their installments draft automatically. Shown until a method is
+          on file, in both draft mode and live. */}
+      {!hasPaymentMethod ? (
+        <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <CreditCard className="h-6 w-6 text-emerald-700 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <h2 className="text-base font-semibold text-emerald-900">Add your payment method</h2>
+              <p className="mt-0.5 text-sm text-emerald-800">
+                Add a card or bank account once, and every payment below drafts automatically on its
+                date — you&rsquo;ll get a receipt each time. {billingActive ? '' : 'Nothing is charged until the school starts billing.'}
+              </p>
+              <Link
+                href="/billing/payment-methods/add?return_to=/billing/plan"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+              >
+                <CreditCard className="h-4 w-4" /> Add a payment method
+              </Link>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Pre-go-live note: the schedule below is real but not yet charging. */}
+      {!billingActive ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 flex items-start gap-2">
+          <Calendar className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            This is your payment schedule for the year. <strong>Payments haven&rsquo;t started yet</strong> — nothing
+            will be drawn until {enrollments[0]?.academic_year ? `the ${enrollments[0].academic_year} school year billing` : 'the school'} begins.
+            Add your payment method now so you&rsquo;re all set.
+          </span>
+        </div>
+      ) : null}
+
       {enrollments.map((e) => (
         <EnrollmentCard
           key={e.id}
           enrollment={e}
           installments={byEnrollment.get(e.id) ?? []}
+          billingActive={billingActive}
         />
       ))}
     </div>
@@ -136,8 +193,8 @@ export default async function PlanPage() {
 }
 
 function EnrollmentCard({
-  enrollment, installments,
-}: { enrollment: EnrollmentRow; installments: InstallmentRow[] }) {
+  enrollment, installments, billingActive,
+}: { enrollment: EnrollmentRow; installments: InstallmentRow[]; billingActive: boolean }) {
   const totalPaidCents = installments.reduce((s, i) => s + i.amount_paid_cents, 0);
   const remainingCents = enrollment.total_annual_cents - totalPaidCents;
   const pct = enrollment.total_annual_cents > 0
@@ -147,6 +204,9 @@ function EnrollmentCard({
   const nextInstallment = installments.find(
     (i) => i.status === 'open' || i.status === 'partially_paid',
   );
+  // Pre-go-live: the earliest scheduled (draft) installment, to preview
+  // when the first draw will happen.
+  const firstScheduled = installments.find((i) => i.status === 'draft');
   const autopayCount = installments.filter((i) => i.autopay_enabled).length;
 
   return (
@@ -181,8 +241,9 @@ function EnrollmentCard({
         </div>
       </div>
 
-      {/* Next-up callout */}
-      {nextInstallment ? (
+      {/* Next-up callout. Live: the next open invoice with a Pay button.
+          Pre-go-live: a read-only preview of the first scheduled draw. */}
+      {billingActive && nextInstallment ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 flex items-center justify-between">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Next due</div>
@@ -196,6 +257,14 @@ function EnrollmentCard({
           >
             <CreditCard className="h-3 w-3" /> Pay now
           </Link>
+        </div>
+      ) : !billingActive && firstScheduled ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">First payment scheduled</div>
+          <div className="mt-0.5 text-sm text-blue-900">
+            {fmtDate(firstScheduled.due_at)} · <strong>{fmtCents(firstScheduled.total_cents)}</strong>
+            <span className="text-blue-700"> — drafts automatically once your payment method is on file.</span>
+          </div>
         </div>
       ) : null}
 
@@ -243,6 +312,9 @@ function EnrollmentCard({
 
 function InstallmentRowItem({ inst }: { inst: InstallmentRow }) {
   const dueDate = new Date(inst.due_at);
+  // Draft installments exist before the school goes live — they're a
+  // scheduled preview, never payable yet.
+  const isScheduledPreview = inst.status === 'draft';
   const overdue = (inst.status === 'open' || inst.status === 'partially_paid')
     && dueDate < new Date();
 
@@ -254,6 +326,10 @@ function InstallmentRowItem({ inst }: { inst: InstallmentRow }) {
     <span className="text-[10px] font-semibold text-amber-700">Partial</span>
   ) : inst.status === 'voided' ? (
     <span className="text-[10px] font-semibold text-gray-500">Voided</span>
+  ) : isScheduledPreview ? (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600">
+      <Calendar className="h-3 w-3" /> Scheduled
+    </span>
   ) : overdue ? (
     <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700">
       <AlertTriangle className="h-3 w-3" /> Overdue

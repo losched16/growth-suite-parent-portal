@@ -111,6 +111,21 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
       if (dob instanceof Date) return dob.toISOString().slice(0, 10);
       return String(dob).slice(0, 10);
     }
+    case 'student.age': {
+      // Whole-years age from the student's DOB, computed at render/submit
+      // time. Read-only display so parents see the age on file (set during
+      // the application) rather than typing it.
+      const dob: unknown = ctx.student?.date_of_birth;
+      if (!dob) return '';
+      const iso = dob instanceof Date ? dob.toISOString().slice(0, 10) : String(dob).slice(0, 10);
+      const d = new Date(`${iso}T00:00:00`);
+      if (Number.isNaN(d.getTime())) return '';
+      const now = new Date();
+      let age = now.getFullYear() - d.getFullYear();
+      const m = now.getMonth() - d.getMonth();
+      if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+      return age >= 0 && age < 130 ? String(age) : '';
+    }
     case 'health.emergency_contact_name': return ctx.health?.emergency_contact_name ?? '';
     case 'health.emergency_contact_phone': return ctx.health?.emergency_contact_phone ?? '';
     case 'health.emergency_contact_relationship': return ctx.health?.emergency_contact_relationship ?? '';

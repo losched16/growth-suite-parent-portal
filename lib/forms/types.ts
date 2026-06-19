@@ -75,6 +75,7 @@ export type PrefillSource =
   | 'student.last_name'
   | 'student.full_name'
   | 'student.date_of_birth'
+  | 'student.age'   // whole-years age computed from date_of_birth
   // Per-student admission date. Set by school staff via the family
   // hub (or synced from GHL custom field student_date_of_admission /
   // student_N_date_of_admission). Used by DHS Agreement + Summer Camp

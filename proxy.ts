@@ -49,6 +49,13 @@ export const config = {
     // mints the parent session cookie, and redirects to /home. If the
     // proxy fires first, it sees no cookie yet and bounces the admin
     // to /login — exactly what View as parent is designed to avoid.
-    '/((?!login|api/auth|api/admin-impersonate|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|_next/static|_next/image|favicon.ico|robots.txt).*)',
+    //
+    // `api/demo-login` is excluded for the same reason: it's a zero-login
+    // bypass that mints a parent session for a "(DEMO)"-guarded family and
+    // redirects to /. Without this exclusion the proxy sees no cookie yet
+    // and bounces to /login, defeating the whole point of the link. The
+    // route's own "(DEMO)" display-name guard is the security boundary —
+    // it can only ever resolve a demo family, never a real one.
+    '/((?!login|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|_next/static|_next/image|favicon.ico|robots.txt).*)',
   ],
 };

@@ -36,6 +36,11 @@ export async function GET(request: NextRequest) {
   if (!location) {
     return new NextResponse('Missing ?school=<location id>', { status: 400 });
   }
+  // Optional: target a SPECIFIC demo family (so several admins can each have
+  // their own one-click test login). Still bounded by the "(DEMO)" guard
+  // below, so it can only ever resolve a demo family. Invalid → ignored.
+  const familyRaw = (request.nextUrl.searchParams.get('family') ?? '').trim();
+  const familyId = /^[0-9a-fA-F-]{36}$/.test(familyRaw) ? familyRaw : null;
 
   // Resolve the school's DEMO family's primary parent. The "(DEMO)"
   // display-name guard is the security boundary — this route cannot
@@ -48,9 +53,10 @@ export async function GET(request: NextRequest) {
       WHERE s.ghl_location_id = $1
         AND f.display_name ILIKE '%(demo)%'
         AND p.status = 'active'
+        AND ($2::uuid IS NULL OR f.id = $2::uuid)
       ORDER BY p.is_primary DESC, p.created_at ASC
       LIMIT 1`,
-    [location],
+    [location, familyId],
   );
   if (rows.length === 0) {
     return new NextResponse(

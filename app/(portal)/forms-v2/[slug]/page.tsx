@@ -450,9 +450,17 @@ export default async function FormPage({
   const existingPlanStudentIds: string[] = [];
   if (students.length > 0) {
     const sIds = students.map((s) => s.id);
+    // Demo/test students (metadata.is_demo) are NEVER treated as existing —
+    // so a test family always gets the editable calculator and can re-test
+    // different payment plans over and over (each submit replaces their
+    // draft plan). Real/imported families are protected as before.
     const { rows: planRows } = await query<{ student_id: string }>(
-      `SELECT DISTINCT student_id FROM family_tuition_enrollments
-        WHERE school_id = $1 AND student_id = ANY($2::uuid[]) AND status = 'active'`,
+      `SELECT DISTINCT fte.student_id
+         FROM family_tuition_enrollments fte
+         JOIN students s ON s.id = fte.student_id
+        WHERE fte.school_id = $1 AND fte.student_id = ANY($2::uuid[])
+          AND fte.status = 'active'
+          AND (s.metadata->>'is_demo') IS DISTINCT FROM 'true'`,
       [id.parent.school_id, sIds],
     );
     for (const r of planRows) existingPlanStudentIds.push(r.student_id);

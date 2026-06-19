@@ -433,11 +433,16 @@ export async function POST(request: NextRequest) {
   // amounts. The calculator + billing run ONLY for a brand-new family
   // (no active plan yet). This is the hard guardrail that keeps every
   // imported family untouched.
+  // Demo/test students (metadata.is_demo) are NEVER treated as existing, so a
+  // test family always runs the new-family calculator + billing and can
+  // re-test plans repeatedly (each submit replaces their draft plan).
   let isExistingFamily = false;
   if (studentId) {
     const { rows: planRows } = await query<{ id: string }>(
-      `SELECT id FROM family_tuition_enrollments
-        WHERE school_id = $1 AND student_id = $2 AND status = 'active'
+      `SELECT fte.id FROM family_tuition_enrollments fte
+         JOIN students s ON s.id = fte.student_id
+        WHERE fte.school_id = $1 AND fte.student_id = $2 AND fte.status = 'active'
+          AND (s.metadata->>'is_demo') IS DISTINCT FROM 'true'
         LIMIT 1`,
       [session.school_id, studentId],
     );

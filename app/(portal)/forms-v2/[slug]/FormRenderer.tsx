@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, AlertCircle, CheckCircle2, FileText, Edit3, CreditCard, Minus, Plus } from 'lucide-react';
 import type { FormDefinition, FormFieldBlock, PrefillSource } from '@/lib/forms/types';
-import { resolvePrefill, type PrefillContext } from '@/lib/forms/prefill';
+import { resolvePrefill, isBlockVisible, type PrefillContext } from '@/lib/forms/prefill';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { fmtCents } from '@/lib/billing/fee-math';
 
@@ -725,6 +725,12 @@ export function FormRenderer({
               if (block.type === 'signature_drawn' || block.type === 'signature_typed') return true;
               return addendumFields.has(block.key);
             })
+            // Conditional visibility: drop blocks whose `visible_when` rule
+            // isn't satisfied by the live form values. Hidden → not rendered,
+            // not submitted, not required (the submit route skips them too).
+            .filter((block) =>
+              isBlockVisible(('visible_when' in block ? block.visible_when : undefined), responses),
+            )
             .map((block, i) => (
               <BlockRenderer
                 key={i}

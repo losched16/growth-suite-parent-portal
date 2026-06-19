@@ -47,6 +47,13 @@ interface BaseField {
   // can't edit it. Schools using readOnly should also set `prefill` so
   // there's something to display (an empty readOnly input is useless).
   readOnly?: boolean;
+  // Conditional visibility. When set, the field only renders (and is only
+  // required / validated) when the live value of `field` is one of
+  // `equals`. e.g. show the "Other" explanation box only when the
+  // physical-custody dropdown is set to "other". Hidden fields aren't
+  // submitted, so they're skipped server-side too. Same shape as the
+  // option-level `visible_when` used by pricing fields.
+  visible_when?: { field: string; equals: string[] };
   // When true on a per-family form (`per_student: false`), the input
   // renders ONE COPY PER STUDENT in the family instead of a single
   // family-wide input. Each per-student copy submits its value under

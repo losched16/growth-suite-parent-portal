@@ -26,7 +26,7 @@ import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
-import { resolvePrefill, todayString, type PrefillContext } from '@/lib/forms/prefill';
+import { resolvePrefill, todayString, isBlockVisible, type PrefillContext } from '@/lib/forms/prefill';
 import {
   studentMatchesAppliesTo,
   type FormAppliesTo,
@@ -266,6 +266,13 @@ export async function POST(request: NextRequest) {
 
   const addendumKeySet = isAddendum ? new Set(addendumFields) : null;
 
+  // Snapshot of submitted values — used to evaluate conditional visibility
+  // (visible_when) so a field the client correctly hid is skipped here too
+  // (never validated, never required, never stored).
+  const fdValues: Record<string, unknown> = Object.fromEntries(
+    [...fd.keys()].map((k) => [k, fd.get(k)]),
+  );
+
   for (const block of def.field_schema) {
     if (!('key' in block)) continue;
     // Skip non-picked fields when in addendum mode. Signatures stay so
@@ -276,6 +283,9 @@ export async function POST(request: NextRequest) {
       && block.type !== 'signature_typed') {
       continue;
     }
+    // Conditional visibility — hidden fields weren't submitted, so don't
+    // validate, require, or store them.
+    if (!isBlockVisible(('visible_when' in block ? block.visible_when : undefined), fdValues)) continue;
     const key = block.key;
 
     switch (block.type) {

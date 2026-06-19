@@ -187,6 +187,20 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
   return '';
 }
 
+// Conditional-visibility check, shared by the renderer (to hide the field)
+// and the submit route (to skip its required-validation). A field with no
+// `visible_when` is always visible. Otherwise it's visible only when the
+// current value of the referenced field is one of `equals`.
+export function isBlockVisible(
+  visibleWhen: { field: string; equals: string[] } | undefined | null,
+  values: Record<string, unknown>,
+): boolean {
+  if (!visibleWhen || !visibleWhen.field) return true;
+  const cur = values[visibleWhen.field];
+  const curStr = cur == null ? '' : String(cur);
+  return (visibleWhen.equals ?? []).map(String).includes(curStr);
+}
+
 // Today's date (YYYY-MM-DD) in the school's timezone. The single source of
 // truth for the `today` prefill AND the server-side stamping of signature /
 // submission dates, so a signed date can never be back-dated.

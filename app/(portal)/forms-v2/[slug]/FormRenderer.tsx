@@ -1371,22 +1371,42 @@ function NumberInput({ block, prefillCtx, legacyResponses }: { block: Extract<Fo
 }
 
 function DateInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'date' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = (legacyVal(legacyResponses, block.key)
-    ?? resolvePrefill(block.prefill, prefillCtx))
-    || (typeof block.default === 'string' ? block.default : '');
-  const locked = block.readOnly === true;
+  // A `prefill: "today"` date is a SIGNING / SUBMISSION date — it's always
+  // auto-stamped to today and locked, for EVERY family. Two reasons we
+  // can't just rely on `readOnly`: (1) HTML `readOnly` is a no-op on a
+  // native <input type="date"> (the picker still changes it), and (2) for
+  // new families the renderer strips `readOnly`. So we key off the prefill
+  // itself and render a locked display + hidden input — no back-dating.
+  const lockToday = block.prefill === 'today';
+  const defaultValue = lockToday
+    ? resolvePrefill('today', prefillCtx)
+    : ((legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx))
+        || (typeof block.default === 'string' ? block.default : ''));
+  const locked = lockToday || block.readOnly === true;
+  if (locked) {
+    return <LockedChoice name={block.key} value={defaultValue} label={fmtDateDisplay(defaultValue)} />;
+  }
   return (
     <input
       type="date"
       name={block.key}
       required={block.required}
       defaultValue={defaultValue}
-      readOnly={locked}
       min={block.min}
       max={block.max}
-      className={locked ? inputClsReadOnly : inputCls}
+      className={inputCls}
     />
   );
+}
+
+// Format a YYYY-MM-DD value for the locked display, avoiding the UTC
+// off-by-one you get from new Date("YYYY-MM-DD").
+function fmtDateDisplay(v: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v ?? '');
+  if (!m) return v || '—';
+  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(dt.getTime())) return v;
+  return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'select' }>; prefillCtx: PrefillContext } & LegacyProp) {

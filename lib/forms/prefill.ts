@@ -180,11 +180,18 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
       return ctx.enrollment?.arrival_time ?? '';
     case 'enrollment.departure_time':
       return ctx.enrollment?.departure_time ?? '';
-    case 'today': return new Intl.DateTimeFormat('en-CA', {
-      timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-    }).format(new Date());
+    case 'today': return todayString();
   }
   // `meta:<key>` sources are handled above the switch; any unrecognized
   // source falls through to an empty string.
   return '';
+}
+
+// Today's date (YYYY-MM-DD) in the school's timezone. The single source of
+// truth for the `today` prefill AND the server-side stamping of signature /
+// submission dates, so a signed date can never be back-dated.
+export function todayString(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
 }

@@ -26,7 +26,7 @@ import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
-import { resolvePrefill, type PrefillContext } from '@/lib/forms/prefill';
+import { resolvePrefill, todayString, type PrefillContext } from '@/lib/forms/prefill';
 import {
   studentMatchesAppliesTo,
   type FormAppliesTo,
@@ -488,6 +488,21 @@ export async function POST(request: NextRequest) {
       if (!block.prefill) continue; // readOnly with no prefill = nothing to lock to
       const truth = resolvePrefill(block.prefill, ctx);
       responses[block.key] = truth;
+    }
+  }
+
+  // 4a-bis. Signature / submission dates (prefill: "today") are ALWAYS
+  //     stamped to the server's date for EVERY family — new or existing,
+  //     no matter what the client posts. A signed date can never be back-
+  //     dated or forward-dated. Runs unconditionally (the block above is
+  //     gated on existing families and skips new ones).
+  {
+    const today = todayString();
+    for (const block of def.field_schema) {
+      if (!('key' in block)) continue;
+      if ((block as { prefill?: string }).prefill === 'today') {
+        responses[block.key] = today;
+      }
     }
   }
 

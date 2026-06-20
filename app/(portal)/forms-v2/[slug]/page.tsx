@@ -468,11 +468,23 @@ export default async function FormPage({
     );
     for (const r of planRows) existingPlanStudentIds.push(r.student_id);
   }
-  const { rows: baRows } = await query<{ billing_active: boolean | null }>(
-    `SELECT billing_active FROM school_payment_config WHERE school_id = $1`,
+  const { rows: baRows } = await query<{ billing_active: boolean | null; card_enabled: boolean | null; ach_enabled: boolean | null }>(
+    `SELECT billing_active, card_enabled, ach_enabled FROM school_payment_config WHERE school_id = $1`,
     [id.parent.school_id],
   );
   const billingActive = baRows[0]?.billing_active === true;
+  const cardEnabled = baRows[0]?.card_enabled !== false;
+  const achEnabled = baRows[0]?.ach_enabled !== false;
+
+  // Does the family already have a saved payment method? Seeds the enrollment
+  // form's card-on-file gate so returning parents aren't asked to re-enter;
+  // new families have none and save one inline before they can submit.
+  const { rows: pmRows } = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM payment_methods
+      WHERE school_id = $1 AND family_id = $2 AND active = true`,
+    [id.parent.school_id, id.parent.family_id],
+  );
+  const hasPaymentMethodOnFile = (pmRows[0]?.n ?? 0) > 0;
 
   // 5) Build definition object for the renderer (typed).
   const definition: FormDefinition = {
@@ -620,6 +632,9 @@ export default async function FormPage({
               inviteContext={inviteContext}
               existingPlanStudentIds={existingPlanStudentIds}
               billingActive={billingActive}
+              hasPaymentMethodOnFile={hasPaymentMethodOnFile}
+              cardEnabled={cardEnabled}
+              achEnabled={achEnabled}
             />
           )}
         </>

@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { Check, AlertCircle, CheckCircle2, FileText, Edit3, CreditCard, Minus, Plus } from 'lucide-react';
 import type { FormDefinition, FormFieldBlock, PrefillSource } from '@/lib/forms/types';
 import { resolvePrefill, isBlockVisible, type PrefillContext } from '@/lib/forms/prefill';
+import { PaymentMethodGate } from './PaymentMethodGate';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { fmtCents } from '@/lib/billing/fee-math';
 
@@ -103,6 +104,12 @@ interface Props {
   // Whether the school's billing is live. In dry-run the new-family
   // calculator still shows, but the submit button doesn't promise payment.
   billingActive?: boolean;
+  // Card-on-file gate (enrollment agreement). When the form's payment_config
+  // sets require_payment_method_on_file, submission is blocked until a card is
+  // saved. These seed/enable that gate.
+  hasPaymentMethodOnFile?: boolean;
+  cardEnabled?: boolean;
+  achEnabled?: boolean;
 }
 
 export function FormRenderer({
@@ -114,6 +121,9 @@ export function FormRenderer({
   inviteContext,
   existingPlanStudentIds,
   billingActive,
+  hasPaymentMethodOnFile,
+  cardEnabled,
+  achEnabled,
 }: Props) {
   const router = useRouter();
   // If we have an operator invite that targets a specific student, the
@@ -220,6 +230,19 @@ export function FormRenderer({
       .catch(() => { /* schedule simply won't render */ });
   }, [hasPayCfg]);
   const scheduleYear = definition.slug.match(/(\d{4}-\d{2})/)?.[1] ?? currentAcademicYear();
+
+  // Card-on-file gate: when the form requires a saved payment method, block
+  // submit until one exists. Seeded from the server check; flipped true when
+  // the parent saves a card inline, or returns from a 3-D Secure redirect
+  // (?pm_added=1). Keyed off the client confirm — never the webhook — so a
+  // broken webhook can't trap a parent who has saved a card.
+  const requireMethod = definition.payment_config?.require_payment_method_on_file === true;
+  const [methodOnFile, setMethodOnFile] = useState<boolean>(!!hasPaymentMethodOnFile);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pm_added') === '1') {
+      setMethodOnFile(true);
+    }
+  }, []);
 
   const prefillCtx: PrefillContext = useMemo(() => ({
     parent,
@@ -835,6 +858,17 @@ export function FormRenderer({
         />
       ) : null}
 
+      {/* Card-on-file gate — required before submit when the form opts in.
+          Saving a card does NOT charge (SetupIntent). */}
+      {!showLockState && requireMethod && addendumMode !== 'picking' ? (
+        <PaymentMethodGate
+          hasMethodOnFile={methodOnFile}
+          cardEnabled={cardEnabled ?? true}
+          achEnabled={achEnabled ?? true}
+          onSaved={() => setMethodOnFile(true)}
+        />
+      ) : null}
+
       {err ? (
         <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5" /> {err}
@@ -849,6 +883,7 @@ export function FormRenderer({
               busy
               || (definition.per_student && !studentId)
               || (paymentRequired && (liveEval?.subtotal_cents ?? 0) <= 0)
+              || (requireMethod && !methodOnFile)
             }
             className="rounded-md px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2"
             style={{ background: addendumMode === 'editing' ? '#6d28d9' : 'var(--brand)' }}
@@ -864,7 +899,11 @@ export function FormRenderer({
                       : 'Continue to payment')
                   : (hasLegacy && inUpdateMode ? 'Update submission' : 'Submit form')}
           </button>
-          {paymentRequired ? (
+          {requireMethod && !methodOnFile ? (
+            <span className="text-[11px] text-amber-700">
+              Add a payment method above to submit — you won&rsquo;t be charged today.
+            </span>
+          ) : paymentRequired ? (
             <span className="text-[11px] text-gray-500">
               You&rsquo;ll review fees and choose a payment method on the next screen.
             </span>

@@ -289,6 +289,11 @@ export interface FormPaymentConfig {
   due_days_from_submission?: number;
   // Optional: explicit override (defaults to auto — true if family hasn't paid yet)
   includes_platform_setup_fee?: boolean;
+  // When true, the parent MUST have a saved payment method on file before the
+  // form can be submitted. Saving the card does NOT charge — it's stored
+  // (SetupIntent) for the scheduled installments. Used by the enrollment
+  // agreement so every new family leaves a card on file at signing.
+  require_payment_method_on_file?: boolean;
 }
 
 // Optional proration directive on a tuition-style line. When set, the

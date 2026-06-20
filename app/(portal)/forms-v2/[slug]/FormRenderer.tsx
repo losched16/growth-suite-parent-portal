@@ -1058,9 +1058,11 @@ function PaymentSchedule({
   const plan = matchPlanTemplate(planValue, plans);
   // One-time fees (enrollment fee) are billed separately, not spread across
   // installments — pull them out so the recurring schedule is just tuition.
-  const feeCents = result.lines
-    .filter((l) => l.category && ONE_TIME_CATEGORIES.has(l.category))
-    .reduce((s, l) => s + l.amount_cents, 0);
+  // Everything else (tuition, admin fee, add-ons, discounts) is the recurring
+  // breakdown we show so the parent sees exactly what makes up each payment.
+  const oneTimeLines = result.lines.filter((l) => l.category && ONE_TIME_CATEGORIES.has(l.category));
+  const recurringLines = result.lines.filter((l) => !(l.category && ONE_TIME_CATEGORIES.has(l.category)));
+  const feeCents = oneTimeLines.reduce((s, l) => s + l.amount_cents, 0);
   const recurringCents = result.subtotal_cents - feeCents;
   if (!plan || recurringCents <= 0) return null;
   const sched = computeSchedule(recurringCents, plan, academicYear);
@@ -1075,12 +1077,37 @@ function PaymentSchedule({
         You will <span className="underline">not</span> be charged today. We save your payment method and
         automatically collect each payment on its due date below.
       </p>
-      {feeCents > 0 ? (
-        <div className="flex items-center justify-between text-sm text-gray-800 border-b border-blue-100 pb-1 mb-1">
-          <span>Enrollment fee{first?.date ? ` — due ${fmtSchedDate(first.date)}` : ''}</span>
-          <span className="tabular-nums font-medium">{fmtCents(feeCents)}</span>
+
+      {/* Breakdown of what makes up the annual total — tuition, admin fee,
+          add-ons, discounts — so parents see exactly what they're paying. */}
+      <div className="rounded-md bg-white/70 border border-blue-100 px-3 py-2 mb-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+          What you&rsquo;re paying{sched.length > 1 ? ` (per year, split into ${sched.length} payments)` : ''}
         </div>
-      ) : null}
+        <ul className="space-y-0.5">
+          {recurringLines.map((l, i) => {
+            const isCredit = l.amount_cents < 0;
+            return (
+              <li key={i} className={`flex items-center justify-between text-sm ${isCredit ? 'text-blue-700' : 'text-gray-800'}`}>
+                <span>{l.description}{l.quantity > 1 ? <span className="text-xs text-gray-500"> × {l.quantity}</span> : null}</span>
+                <span className="tabular-nums">{isCredit ? '−' : ''}{fmtCents(Math.abs(l.amount_cents))}</span>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="mt-1 flex items-center justify-between border-t border-gray-200 pt-1 text-sm font-semibold text-gray-900">
+          <span>Annual total</span>
+          <span className="tabular-nums">{fmtCents(recurringCents)}</span>
+        </div>
+        {feeCents > 0 ? (
+          <div className="mt-1 flex items-center justify-between text-xs text-gray-600">
+            <span>+ Enrollment fee (one-time{first?.date ? `, due ${fmtSchedDate(first.date)}` : ''})</span>
+            <span className="tabular-nums">{fmtCents(feeCents)}</span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-800 mb-1">Payment schedule</div>
       <ul className="space-y-1">
         {sched.map((s) => (
           <li key={s.n} className="flex items-center justify-between text-sm text-gray-800">

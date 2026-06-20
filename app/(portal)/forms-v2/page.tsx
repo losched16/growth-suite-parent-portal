@@ -71,6 +71,9 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
               resubmission_allowed, needs_review, applies_to
        FROM portal_form_definitions
        WHERE school_id = $1 AND is_active = true
+         -- Parents never see staff-facing forms (supply/labor/incident
+         -- requests). IS DISTINCT FROM keeps legacy null-audience forms visible.
+         AND audience IS DISTINCT FROM 'staff'
        ORDER BY
          CASE category
            WHEN 'registration' THEN 1

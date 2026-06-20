@@ -328,6 +328,9 @@ async function loadPendingForms({
      FROM portal_form_definitions d
     WHERE d.school_id = $2
       AND d.is_active = true
+      -- Staff-facing forms (supply/labor/incident requests) never surface
+      -- to parents. IS DISTINCT FROM keeps legacy null-audience forms visible.
+      AND d.audience IS DISTINCT FROM 'staff'
     ORDER BY
       CASE d.category
         WHEN 'registration' THEN 1

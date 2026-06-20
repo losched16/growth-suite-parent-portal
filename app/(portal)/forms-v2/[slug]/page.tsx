@@ -37,6 +37,7 @@ interface FormDefRow {
   resubmission_allowed: boolean;
   needs_review: boolean;
   is_active: boolean;
+  audience: string | null;
   payment_config: FormPaymentConfig | null;
   allow_addendum: boolean;
   applies_to: FormAppliesTo | null;
@@ -90,14 +91,16 @@ export default async function FormPage({
   const defRows = (await query<FormDefRow>(
     `SELECT id, slug, display_name, description, category, per_student,
             required_for, field_schema, fee_amount, one_submission_per_year,
-            resubmission_allowed, needs_review, is_active, payment_config,
+            resubmission_allowed, needs_review, is_active, audience, payment_config,
             allow_addendum, applies_to
      FROM portal_form_definitions
      WHERE school_id = $1 AND slug = $2`,
     [id.parent.school_id, slug],
   )).rows;
   const def = defRows[0];
-  if (!def || !def.is_active) notFound();
+  // Staff-facing forms (supply/labor/incident requests) are never accessible
+  // to parents — block direct-URL access too, not just the list.
+  if (!def || !def.is_active || def.audience === 'staff') notFound();
 
   // 2) Load students + their health profiles (for per-student forms).
   // For per-student forms with an applies_to rule, restrict the picker

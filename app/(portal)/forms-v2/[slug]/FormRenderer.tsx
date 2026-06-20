@@ -66,6 +66,9 @@ interface Props {
   definition: FormDefinition;
   students: StudentOption[];                          // per-student forms only
   parent: PrefillContext['parent'];
+  // Family guardians (primary + co-parent), GHL-synced. Powers live ea_pg1_*/
+  // ea_pg2_* prefill for brand-new families with no frozen ea_* snapshot.
+  guardians?: PrefillContext['guardians'];
   // Logged-in parent's id, used to detect "the OTHER parent in my
   // family submitted this last" → show a co-parent-overwrite warning.
   currentParentId: string;
@@ -103,7 +106,7 @@ interface Props {
 }
 
 export function FormRenderer({
-  definition, students, parent, currentParentId, healthByStudentId,
+  definition, students, parent, guardians, currentParentId, healthByStudentId,
   enrollmentByStudentId,
   existingByStudentId, familyExisting,
   flagsByStudentId, familyFlags,
@@ -201,6 +204,7 @@ export function FormRenderer({
 
   const prefillCtx: PrefillContext = useMemo(() => ({
     parent,
+    guardians,
     student: selectedStudent
       ? {
           first_name: selectedStudent.first_name,
@@ -213,7 +217,7 @@ export function FormRenderer({
       : undefined,
     health: selectedStudent ? healthByStudentId[selectedStudent.id] : undefined,
     enrollment: selectedStudent ? enrollmentByStudentId?.[selectedStudent.id] : undefined,
-  }), [parent, selectedStudent, healthByStudentId, enrollmentByStudentId]);
+  }), [parent, guardians, selectedStudent, healthByStudentId, enrollmentByStudentId]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

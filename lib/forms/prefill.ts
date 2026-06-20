@@ -11,6 +11,14 @@ export interface PrefillContext {
     email: string | null;
     phone: string | null;
   };
+  // The family's guardians, GHL-synced from the parent contacts. Guardian 1
+  // is the primary parent, guardian 2 the co-parent. Used to derive the
+  // enrollment-agreement ea_pg1_*/ea_pg2_* prefills live from GHL when a
+  // brand-new family has no frozen ea_* snapshot yet.
+  guardians?: {
+    primary?: { first_name: string; last_name: string; email: string | null; phone: string | null } | null;
+    secondary?: { first_name: string; last_name: string; email: string | null; phone: string | null } | null;
+  };
   student?: {
     first_name: string;
     last_name: string;
@@ -69,6 +77,44 @@ export interface PrefillContext {
 
 const TZ = 'America/Phoenix';
 
+// Live-GHL fallback for the enrollment-agreement `ea_*` snapshot keys. The
+// original bulk import froze a clean `ea_*` snapshot into each student's
+// metadata; brand-new families never get that snapshot, so their forms used
+// to render blank. This derives each ea_* value from data we already hold
+// live from GHL — the family's parents (guardian 1 = primary, 2 = co-parent)
+// and the student's GHL-synced metadata base keys (program_tuition,
+// grade_level, … mirrored from the contact's student_<slot>_* fields) — so
+// GHL stays the single source for every new family with zero per-family prep.
+function deriveEaFallback(eaKey: string, ctx: PrefillContext): string {
+  const g1 = ctx.guardians?.primary ?? null;
+  const g2 = ctx.guardians?.secondary ?? null;
+  const md = ctx.student?.metadata ?? {};
+  const m = (k: string): string => { const v = md[k]; return v == null ? '' : String(v).trim(); };
+  switch (eaKey) {
+    case 'ea_pg1_first_name':   return g1?.first_name ?? '';
+    case 'ea_pg1_last_name':    return g1?.last_name ?? '';
+    case 'ea_pg1_home_email':   return g1?.email ?? '';
+    case 'ea_pg1_home_phone':
+    case 'ea_pg1_mobile_phone': return g1?.phone ?? '';
+    case 'ea_pg2_first_name':   return g2?.first_name ?? '';
+    case 'ea_pg2_last_name':    return g2?.last_name ?? '';
+    case 'ea_pg2_home_email':   return g2?.email ?? '';
+    case 'ea_pg2_home_phone':
+    case 'ea_pg2_mobile_phone': return g2?.phone ?? '';
+    case 'ea_pg1_street': return m('street') || m('student_street');
+    case 'ea_pg1_city':   return m('city')   || m('student_city');
+    case 'ea_pg1_state':  return m('state')  || m('student_state');
+    case 'ea_pg1_zip':    return m('zip')    || m('student_zip');
+  }
+  // Generic: ea_<base> → the GHL-synced metadata base key (drop the ea_).
+  const base = eaKey.slice(3);
+  const direct = m(base);
+  if (direct) return direct;
+  if (base === 'enrollment_start_date') return m('current_year_enrollment_start_date');
+  if (base === 'ldma') return m('legal_authority');
+  return '';
+}
+
 export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillContext): string {
   if (!source) return '';
   // Generic metadata passthrough: `meta:<key>` reads students.metadata[key]
@@ -77,8 +123,15 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
   // dates, etc.) — keeps this resolver free of per-field mapping logic.
   if (source.startsWith('meta:')) {
     const key = source.slice('meta:'.length);
-    const v = ctx.student?.metadata?.[key];
-    return v == null ? '' : String(v);
+    const raw = ctx.student?.metadata?.[key];
+    const v = raw == null ? '' : String(raw);
+    // The frozen ea_* snapshot wins when present. When it's empty (a brand-new
+    // family that came straight from their GHL contact, with no import
+    // snapshot), fall back to the live GHL-synced data so the form still
+    // prefills — keeping GHL the single source of truth.
+    if (v.trim() !== '') return v;
+    if (key.startsWith('ea_')) return deriveEaFallback(key, ctx);
+    return v;
   }
   switch (source) {
     case 'parent.first_name': return ctx.parent.first_name ?? '';

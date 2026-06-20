@@ -496,6 +496,30 @@ export default async function FormPage({
     phone: id.parent.phone ?? null,
   };
 
+  // Family guardians (GHL-synced) for live form prefill. Guardian 1 = the
+  // primary parent, guardian 2 = the co-parent. Powers the enrollment
+  // agreement's ea_pg1_*/ea_pg2_* prefills straight from the GHL contact for
+  // brand-new families that have no frozen ea_* snapshot yet — so GHL is the
+  // single source and no per-family prep is ever needed.
+  const { rows: guardianRows } = await query<{
+    first_name: string; last_name: string; email: string | null; phone: string | null; is_primary: boolean;
+  }>(
+    `SELECT first_name, last_name, email, phone, is_primary
+       FROM parents WHERE family_id = $1 AND status = 'active'
+       ORDER BY is_primary DESC, created_at ASC`,
+    [id.parent.family_id],
+  );
+  const primaryGuardian = guardianRows.find((g) => g.is_primary) ?? guardianRows[0] ?? null;
+  const secondaryGuardian = guardianRows.find((g) => g !== primaryGuardian) ?? null;
+  const guardians: PrefillContext['guardians'] = {
+    primary: primaryGuardian
+      ? { first_name: primaryGuardian.first_name, last_name: primaryGuardian.last_name, email: primaryGuardian.email, phone: primaryGuardian.phone }
+      : null,
+    secondary: secondaryGuardian
+      ? { first_name: secondaryGuardian.first_name, last_name: secondaryGuardian.last_name, email: secondaryGuardian.email, phone: secondaryGuardian.phone }
+      : null,
+  };
+
   return (
     <div className="space-y-5 max-w-3xl">
       <div>
@@ -581,6 +605,7 @@ export default async function FormPage({
                 metadata: (s.metadata ?? null) as Record<string, unknown> | null,
               }))}
               parent={parentCtx}
+              guardians={guardians}
               currentParentId={id.parent.id}
               enrollmentByStudentId={enrollmentByStudentId}
               healthByStudentId={healthByStudentId}

@@ -202,6 +202,25 @@ export function FormRenderer({
     [definition, responses, paymentConfigured],
   );
 
+  // Payment schedule — computed whenever the form has a payment config,
+  // INDEPENDENT of whether billing is live, because showing the schedule does
+  // not charge anyone. Lets parents see exactly when each installment is due
+  // before they leave a card on file.
+  const hasPayCfg = !!(definition.payment_config && definition.payment_config.lines?.length);
+  const scheduleEval = useMemo(
+    () => (hasPayCfg ? evaluatePayment(definition, responses) : null),
+    [definition, responses, hasPayCfg],
+  );
+  const [planTemplates, setPlanTemplates] = useState<PlanTemplate[]>([]);
+  useEffect(() => {
+    if (!hasPayCfg) return;
+    fetch('/api/billing/tuition-grids?include_plans=1')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.plans) setPlanTemplates(d.plans as PlanTemplate[]); })
+      .catch(() => { /* schedule simply won't render */ });
+  }, [hasPayCfg]);
+  const scheduleYear = definition.slug.match(/(\d{4}-\d{2})/)?.[1] ?? currentAcademicYear();
+
   const prefillCtx: PrefillContext = useMemo(() => ({
     parent,
     guardians,
@@ -805,6 +824,17 @@ export function FormRenderer({
         />
       ) : null}
 
+      {/* Dated payment schedule — shows after a plan is chosen / prefilled,
+          even in dry-run. Explicitly states it does NOT bill today. */}
+      {!showLockState && scheduleEval && addendumMode !== 'picking' ? (
+        <PaymentSchedule
+          eval={scheduleEval}
+          planValue={String(responses['payment_plan'] ?? '')}
+          plans={planTemplates}
+          academicYear={scheduleYear}
+        />
+      ) : null}
+
       {err ? (
         <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5" /> {err}
@@ -904,6 +934,130 @@ function PaymentSummary({
       <p className="mt-2 text-[11px] text-gray-500">
         Processing fees (if applicable) will be shown on the payment screen.
       </p>
+    </div>
+  );
+}
+
+// ─── Payment schedule panel ──────────────────────────────────────────
+// Shown once a payment plan is chosen (or prefilled). Splits the recurring
+// total across the chosen plan's installment dates so parents see exactly
+// when each payment is due — and makes crystal clear NOTHING is charged on
+// submit. One-time fees (enrollment fee) are pulled out of the split since
+// they're billed separately, not spread across installments.
+interface PlanTemplate {
+  id: string;
+  slug: string;
+  display_name: string;
+  installments: number;
+  cadence: string;
+  discount_bp: number;
+  schedule_months: string[] | null;
+  first_due_month_day: string | null;
+}
+interface ScheduleRow { n: number; date: Date | null; amount_cents: number }
+
+function currentAcademicYear(): string {
+  // June onward rolls into the next school year (matches enrollment cadence).
+  const now = new Date();
+  const y = now.getFullYear();
+  const sy = now.getMonth() + 1 >= 6 ? y : y - 1;
+  return `${sy}-${String((sy + 1) % 100).padStart(2, '0')}`;
+}
+
+function matchPlanTemplate(value: string, plans: PlanTemplate[]): PlanTemplate | null {
+  const v = value.trim().toLowerCase();
+  if (!v || plans.length === 0) return null;
+  return plans.find((p) => p.slug.toLowerCase() === v)
+    ?? plans.find((p) => p.display_name.toLowerCase() === v)
+    ?? plans.find((p) => v.includes('month') && p.slug === 'monthly')
+    ?? plans.find((p) => v.includes('annual') && p.slug === 'annual')
+    ?? plans.find((p) => v.includes('semi') && p.slug.startsWith('semi'))
+    ?? null;
+}
+
+function computeSchedule(recurringCents: number, plan: PlanTemplate, academicYear: string): ScheduleRow[] {
+  if (recurringCents <= 0) return [];
+  const months = plan.schedule_months && plan.schedule_months.length ? plan.schedule_months : null;
+  const startYear = parseInt((academicYear || '').split('-')[0], 10);
+  const day = plan.first_due_month_day ? parseInt(plan.first_due_month_day.split('-')[1] || '1', 10) : 1;
+  const dates: Date[] = [];
+  if (Number.isFinite(startYear) && months) {
+    let year = startYear;
+    let prev: number | null = null;
+    for (const mm of months) {
+      const m = parseInt(mm, 10);
+      if (!Number.isFinite(m) || m < 1 || m > 12) continue;
+      if (prev !== null && m < prev) year++; // wrapped into the next calendar year
+      prev = m;
+      const lastDom = new Date(Date.UTC(year, m, 0)).getUTCDate();
+      dates.push(new Date(Date.UTC(year, m - 1, Math.min(day, lastDom))));
+    }
+  }
+  const n = dates.length || Math.max(1, plan.installments || 1);
+  const per = Math.floor(recurringCents / n);
+  const out: ScheduleRow[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push({ n: i + 1, date: dates[i] ?? null, amount_cents: i === n - 1 ? recurringCents - per * (n - 1) : per });
+  }
+  return out;
+}
+
+function fmtSchedDate(d: Date): string {
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+const ONE_TIME_CATEGORIES = new Set(['enrollment_fee']);
+
+function PaymentSchedule({
+  eval: result, planValue, plans, academicYear,
+}: {
+  eval: ReturnType<typeof evaluatePayment>;
+  planValue: string;
+  plans: PlanTemplate[];
+  academicYear: string;
+}) {
+  const plan = matchPlanTemplate(planValue, plans);
+  // One-time fees (enrollment fee) are billed separately, not spread across
+  // installments — pull them out so the recurring schedule is just tuition.
+  const feeCents = result.lines
+    .filter((l) => l.category && ONE_TIME_CATEGORIES.has(l.category))
+    .reduce((s, l) => s + l.amount_cents, 0);
+  const recurringCents = result.subtotal_cents - feeCents;
+  if (!plan || recurringCents <= 0) return null;
+  const sched = computeSchedule(recurringCents, plan, academicYear);
+  if (sched.length === 0) return null;
+  const first = sched[0];
+  return (
+    <div className="rounded-lg border border-blue-200 bg-blue-50/50 px-4 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-800 mb-1">
+        Your payment schedule — {plan.display_name}
+      </div>
+      <p className="text-xs font-medium text-blue-900 mb-2">
+        You will <span className="underline">not</span> be charged today. We save your payment method and
+        automatically collect each payment on its due date below.
+      </p>
+      {feeCents > 0 ? (
+        <div className="flex items-center justify-between text-sm text-gray-800 border-b border-blue-100 pb-1 mb-1">
+          <span>Enrollment fee{first?.date ? ` — due ${fmtSchedDate(first.date)}` : ''}</span>
+          <span className="tabular-nums font-medium">{fmtCents(feeCents)}</span>
+        </div>
+      ) : null}
+      <ul className="space-y-1">
+        {sched.map((s) => (
+          <li key={s.n} className="flex items-center justify-between text-sm text-gray-800">
+            <span>
+              Payment {s.n}{sched.length > 1 ? ` of ${sched.length}` : ''}
+              {s.date ? ` — due ${fmtSchedDate(s.date)}` : ''}
+            </span>
+            <span className="tabular-nums font-medium">{fmtCents(s.amount_cents)}</span>
+          </li>
+        ))}
+      </ul>
+      {first?.date ? (
+        <p className="mt-2 text-[11px] text-gray-600">
+          First payment of {fmtCents(first.amount_cents)} is due {fmtSchedDate(first.date)}. Nothing is charged when you submit this form.
+        </p>
+      ) : null}
     </div>
   );
 }

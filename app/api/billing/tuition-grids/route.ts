@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
   let plans: Array<{
     id: string; slug: string; display_name: string;
     installments: number; cadence: string; discount_bp: number;
+    schedule_months: string[] | null; first_due_month_day: string | null;
   }> = [];
 
   if (includePlans) {
@@ -85,9 +86,11 @@ export async function GET(request: NextRequest) {
       display_name: string;
       installment_count: number;
       discount_basis_points: number;
-      schedule_template: { kind?: string } | null;
+      schedule_template: { kind?: string; months?: string[] } | null;
+      first_due_month_day: string | null;
     }>(
-      `SELECT id, slug, display_name, installment_count, discount_basis_points, schedule_template
+      `SELECT id, slug, display_name, installment_count, discount_basis_points,
+              schedule_template, first_due_month_day
          FROM payment_plans
         WHERE school_id = $1 AND is_active = true
         ORDER BY position ASC, display_name ASC`,
@@ -100,6 +103,10 @@ export async function GET(request: NextRequest) {
       installments: p.installment_count,
       cadence: p.schedule_template?.kind ?? 'single',
       discount_bp: p.discount_basis_points,
+      // Schedule months (e.g. ['08','09',...]) + optional MM-DD anchor let the
+      // form compute each installment's due date for the payment-schedule UI.
+      schedule_months: Array.isArray(p.schedule_template?.months) ? p.schedule_template!.months! : null,
+      first_due_month_day: p.first_due_month_day ?? null,
     }));
   }
 

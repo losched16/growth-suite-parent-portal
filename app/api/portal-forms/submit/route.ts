@@ -612,6 +612,39 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // 5b. Amendment diff. When a parent AMENDS a previously-signed form
+  // (addendum mode), compute the before→after for exactly the fields they
+  // chose to amend, against the parent submission. We stash it under
+  // `_`-prefixed markers (same convention as the periodic-review diff) so:
+  //   • the office-notification email renders a "Previous → New" table and
+  //     an "AMENDED" subject, and
+  //   • the dashboard submissions inbox can show the same diff inline
+  //     without re-joining the parent row.
+  // The parent's fresh signature on this addendum row is the attestation
+  // (their initials) that they made these specific changes.
+  if (isAddendum && validParentSubmissionId) {
+    const { rows: parentRows } = await query<{ responses: Record<string, unknown> }>(
+      `SELECT responses FROM portal_form_submissions WHERE id = $1`,
+      [validParentSubmissionId],
+    );
+    const parentResp = parentRows[0]?.responses ?? {};
+    // Restrict the comparison to the amended fields only. Signatures (which
+    // always re-render and therefore always "change") and untouched fields
+    // are intentionally excluded so the diff shows just what the parent changed.
+    const oldSubset: Record<string, unknown> = {};
+    const newSubset: Record<string, unknown> = {};
+    for (const k of addendumFields) {
+      oldSubset[k] = (parentResp as Record<string, unknown>)[k];
+      newSubset[k] = (responses as Record<string, unknown>)[k];
+    }
+    const diff = diffResponses(oldSubset, newSubset);
+    (responses as Record<string, unknown>)._is_amendment = true;
+    (responses as Record<string, unknown>)._amended_from_submission_id = validParentSubmissionId;
+    if (diff && Object.keys(diff).length > 0) {
+      (responses as Record<string, unknown>)._amendment_diff = capDiff(diff);
+    }
+  }
+
   // 6. Insert submission row.
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
   const userAgent = request.headers.get('user-agent') ?? null;

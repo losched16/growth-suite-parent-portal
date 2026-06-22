@@ -103,22 +103,31 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
     parent_phone: null, student_label: null,
   };
 
-  // Pull the periodic-review markers, if any. These live under `_`-prefixed
-  // keys in the responses jsonb (see app/api/portal-forms/submit/route.ts).
+  // Pull the periodic-review AND amendment markers, if any. Both live under
+  // `_`-prefixed keys in the responses jsonb (see app/api/portal-forms/submit/route.ts).
+  // A periodic review is the 6-month re-confirm prompt; an amendment is a
+  // parent re-opening a previously-signed form, changing specific fields,
+  // and re-signing ("addendum mode"). Both surface the same Previous→New diff.
   const isPeriodicReview = opts.responses._is_periodic_review === true;
+  const isAmendment = opts.responses._is_amendment === true;
   const reviewMode = typeof opts.responses.review_mode === 'string'
     ? opts.responses.review_mode
     : null;
   const reviewDiff = (opts.responses._review_diff && typeof opts.responses._review_diff === 'object')
     ? (opts.responses._review_diff as Record<string, { old: unknown; new: unknown }>)
     : null;
-  const diffEntries = reviewDiff ? Object.entries(reviewDiff) : [];
+  const amendmentDiff = (opts.responses._amendment_diff && typeof opts.responses._amendment_diff === 'object')
+    ? (opts.responses._amendment_diff as Record<string, { old: unknown; new: unknown }>)
+    : null;
+  // Amendment diff takes precedence — it's an explicit, parent-driven change.
+  const diff = amendmentDiff ?? reviewDiff;
+  const diffEntries = diff ? Object.entries(diff) : [];
 
-  // Subject line is one of three flavors based on the periodic-review
-  // flow. Makes the inbox readable at a glance — staff can skim the
-  // subject and immediately know whether they need to act.
+  // Subject line tells staff at a glance whether they need to act.
   let subject: string;
-  if (isPeriodicReview && reviewMode === 'no_changes') {
+  if (isAmendment) {
+    subject = `AMENDED & re-signed — ${opts.formDisplayName} — ${meta.family_label} (${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed)`;
+  } else if (isPeriodicReview && reviewMode === 'no_changes') {
     subject = `Periodic re-review (no changes) — ${opts.formDisplayName} — ${meta.family_label}`;
   } else if (isPeriodicReview && diffEntries.length > 0) {
     subject = `UPDATED — ${opts.formDisplayName} — ${meta.family_label} (${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed)`;
@@ -126,30 +135,9 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
     subject = `New ${opts.formDisplayName} submission — ${meta.family_label}`;
   }
 
-  // Build the diff banner. Lives at the top of the email body so the
-  // office sees the changes before the full response dump.
-  let diffBannerHtml = '';
-  let diffBannerText = '';
-  if (isPeriodicReview && reviewMode === 'no_changes') {
-    diffBannerHtml = `
-  <div style="margin:0 0 16px;padding:12px 16px;border-radius:6px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;">
-    <div style="font-weight:600;font-size:13px;">✓ Periodic re-review — no changes</div>
-    <div style="margin-top:4px;font-size:12px;">The parent confirmed all information on file is still accurate. No updates needed.</div>
-  </div>`;
-    diffBannerText = '*** Periodic re-review: NO CHANGES ***\nThe parent confirmed all information on file is still accurate.\n\n';
-  } else if (isPeriodicReview && diffEntries.length > 0) {
-    const rowsHtml = diffEntries.map(([k, change]) =>
-      `<tr>
-        <td style="padding:6px 10px;font-family:monospace;color:#7f1d1d;font-size:11px;border-bottom:1px solid #fecaca;background:#fef2f2;">${escape(k)}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #fecaca;font-size:12px;"><span style="color:#9ca3af;text-decoration:line-through;">${escape(formatValue(change.old))}</span></td>
-        <td style="padding:6px 10px;border-bottom:1px solid #fecaca;font-size:12px;color:#065f46;font-weight:600;">${escape(formatValue(change.new))}</td>
-      </tr>`,
-    ).join('');
-    diffBannerHtml = `
-  <div style="margin:0 0 16px;padding:12px 16px;border-radius:6px;background:#fef3c7;border:1px solid #fcd34d;color:#78350f;">
-    <div style="font-weight:600;font-size:13px;">⚠ Updated submission — ${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed</div>
-    <div style="margin-top:4px;font-size:12px;">Please update your records. The parent has flagged the following changes:</div>
-  </div>
+  // Shared Previous→New table, reused by both the amendment and the
+  // periodic-review "changed" banners.
+  const diffTableHtml = diffEntries.length > 0 ? `
   <h3 style="margin:16px 0 4px;font-size:13px;color:#0f172a;">Changes</h3>
   <table style="font-size:12px;color:#0f172a;border-collapse:collapse;width:100%;border:1px solid #fecaca;border-radius:4px;margin-bottom:12px;">
     <thead><tr style="background:#fef2f2;">
@@ -157,11 +145,42 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
       <th style="text-align:left;padding:6px 10px;font-size:11px;color:#7f1d1d;">Previous value</th>
       <th style="text-align:left;padding:6px 10px;font-size:11px;color:#7f1d1d;">New value</th>
     </tr></thead>
-    <tbody>${rowsHtml}</tbody>
-  </table>`;
-    diffBannerText = `*** UPDATED SUBMISSION — ${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed ***\n\nChanges:\n` +
-      diffEntries.map(([k, c]) => `  ${k}: ${formatValue(c.old)}  →  ${formatValue(c.new)}`).join('\n') +
-      '\n\n';
+    <tbody>${diffEntries.map(([k, change]) =>
+      `<tr>
+        <td style="padding:6px 10px;font-family:monospace;color:#7f1d1d;font-size:11px;border-bottom:1px solid #fecaca;background:#fef2f2;">${escape(k)}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #fecaca;font-size:12px;"><span style="color:#9ca3af;text-decoration:line-through;">${escape(formatValue(change.old))}</span></td>
+        <td style="padding:6px 10px;border-bottom:1px solid #fecaca;font-size:12px;color:#065f46;font-weight:600;">${escape(formatValue(change.new))}</td>
+      </tr>`).join('')}</tbody>
+  </table>` : '';
+  const diffTableText = diffEntries.length > 0
+    ? 'Changes:\n' + diffEntries.map(([k, c]) => `  ${k}: ${formatValue(c.old)}  →  ${formatValue(c.new)}`).join('\n') + '\n\n'
+    : '';
+
+  // Build the diff banner. Lives at the top of the email body so the
+  // office sees the changes before the full response dump.
+  let diffBannerHtml = '';
+  let diffBannerText = '';
+  if (isAmendment) {
+    diffBannerHtml = `
+  <div style="margin:0 0 16px;padding:12px 16px;border-radius:6px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">
+    <div style="font-weight:600;font-size:13px;">✎ Amendment — parent changed ${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} and re-signed</div>
+    <div style="margin-top:4px;font-size:12px;">A parent re-opened a previously-signed form, updated the fields below, and re-signed to attest to the change. Please update your records.</div>
+  </div>${diffTableHtml}`;
+    diffBannerText = `*** AMENDMENT — ${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed & re-signed ***\n\n` + diffTableText;
+  } else if (isPeriodicReview && reviewMode === 'no_changes') {
+    diffBannerHtml = `
+  <div style="margin:0 0 16px;padding:12px 16px;border-radius:6px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;">
+    <div style="font-weight:600;font-size:13px;">✓ Periodic re-review — no changes</div>
+    <div style="margin-top:4px;font-size:12px;">The parent confirmed all information on file is still accurate. No updates needed.</div>
+  </div>`;
+    diffBannerText = '*** Periodic re-review: NO CHANGES ***\nThe parent confirmed all information on file is still accurate.\n\n';
+  } else if (isPeriodicReview && diffEntries.length > 0) {
+    diffBannerHtml = `
+  <div style="margin:0 0 16px;padding:12px 16px;border-radius:6px;background:#fef3c7;border:1px solid #fcd34d;color:#78350f;">
+    <div style="font-weight:600;font-size:13px;">⚠ Updated submission — ${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed</div>
+    <div style="margin-top:4px;font-size:12px;">Please update your records. The parent has flagged the following changes:</div>
+  </div>${diffTableHtml}`;
+    diffBannerText = `*** UPDATED SUBMISSION — ${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed ***\n\n` + diffTableText;
   }
 
   const responsePairs = Object.entries(opts.responses)

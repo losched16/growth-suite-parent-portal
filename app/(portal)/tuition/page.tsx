@@ -149,9 +149,13 @@ export default async function TuitionPage() {
               <h3 className="text-base font-semibold text-gray-800">
                 {s.preferred_name || s.first_name} {s.last_name}
               </h3>
-              <p className="mt-1 text-sm text-gray-600">
-                Your school hasn&rsquo;t finalized this student&rsquo;s {ACADEMIC_YEAR} tuition yet.
-                You&rsquo;ll be notified when it&rsquo;s ready to review.
+              <p className="mt-1 text-sm font-semibold text-gray-700">No Tuition Plan Set Up Yet</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Complete your{' '}
+                <Link href="/forms-v2" className="underline" style={{ color: 'var(--brand)' }}>
+                  enrollment agreement
+                </Link>{' '}
+                to set up tuition, or email the office with any questions.
               </p>
             </div>
           </div>

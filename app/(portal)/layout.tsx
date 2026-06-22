@@ -3,7 +3,7 @@
 // CSS custom properties so every page picks it up automatically.
 
 import Link from 'next/link';
-import { Home, Users, FileText, FilePen, MessageSquare, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt, HelpCircle, Bell } from 'lucide-react';
+import { Home, Users, FileText, FilePen, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt, HelpCircle, Bell } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 
@@ -17,7 +17,6 @@ const NAV_ITEMS = [
   { href: '/forms-v2', label: 'Forms', icon: FilePen },
   { href: '/resources', label: 'Important Documents', icon: BookOpen },
   { href: '/forms', label: 'Documents', icon: FileText },
-  { href: '/messages', label: 'Messages', icon: MessageSquare },
   { href: '/tuition', label: 'Tuition', icon: CreditCard },
   { href: '/billing', label: 'Invoices', icon: Receipt },
   { href: '/financial-aid', label: 'Financial Aid', icon: HandCoins },

@@ -6,7 +6,7 @@
 // scan section headers and only open what they need. No client JS.
 
 import Link from 'next/link';
-import { BookOpen, HelpCircle, Mail, Phone, Users, FileText, Heart, ShieldCheck, MessageCircle, Lock } from 'lucide-react';
+import { BookOpen, HelpCircle, Mail, Phone, Users, FileText, Heart, ShieldCheck, Lock } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 
 export const dynamic = 'force-dynamic';
@@ -92,12 +92,6 @@ export default async function HelpPage() {
             title="Important Documents"
             description="Things the school wants you to be able to download — handbook, calendar, etc."
             href="/resources"
-          />
-          <MapCard
-            icon={MessageCircle}
-            title="Messages"
-            description="Coming soon. School messages will land here in addition to your inbox."
-            href="/messages"
           />
         </div>
       </section>

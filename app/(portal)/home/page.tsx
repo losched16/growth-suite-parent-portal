@@ -3,11 +3,11 @@
 //   - "Pending enrollment forms" banner (when applicable) — top priority
 //   - student summary (count + first names)
 //   - parents on file
-//   - quick links to other sections (Family edit, Forms, Messages)
+//   - quick links to other sections (Forms, email the office)
 // Each section deeper-dives in its own page.
 
 import Link from 'next/link';
-import { Users, FileText, MessageSquare, ChevronRight, AlertCircle, ArrowRight } from 'lucide-react';
+import { Users, FileText, Mail, ChevronRight, AlertCircle, ArrowRight } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { PinnedNotices } from './PinnedNotices';
@@ -234,12 +234,27 @@ export default async function HomePage() {
           title="Forms & Documents"
           description="See what's pending and submit re-enrollment, emergency cards, and more."
         />
-        <QuickLink
-          href="/messages"
-          icon={<MessageSquare className="h-5 w-5" />}
-          title="Messages"
-          description="Direct line to the school office. Replies usually within one business day."
-        />
+        {id.branding.support_email ? (
+          <a
+            href={`mailto:${id.branding.support_email}`}
+            className="group flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 hover:border-gray-300 hover:bg-gray-50"
+          >
+            <div
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
+              style={{ background: 'var(--brand-soft)', color: 'var(--brand-fg)' }}
+            >
+              <Mail className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1 text-sm font-medium text-gray-900">
+                Questions? <ChevronRight className="h-3 w-3 text-gray-400 group-hover:text-gray-600" />
+              </div>
+              <p className="mt-0.5 text-xs text-gray-600">
+                Email the school office at {id.branding.support_email} — we&rsquo;re happy to help.
+              </p>
+            </div>
+          </a>
+        ) : null}
       </section>
     </div>
   );

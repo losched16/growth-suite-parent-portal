@@ -226,6 +226,11 @@ export function FormRenderer({
     () => (hasPayCfg ? evaluatePayment(definition, responses) : null),
     [definition, responses, hasPayCfg],
   );
+  // Installment (enrollment) flow — a payment plan is chosen, so NOTHING is
+  // charged at submit; tuition autopays per the schedule. Drives the submit
+  // button copy so it never implies a lump-sum payment now.
+  const hasInstallmentPlan = ['monthly', 'semi_annual', 'annual']
+    .includes(String(responses['payment_plan'] ?? ''));
   const [planTemplates, setPlanTemplates] = useState<PlanTemplate[]>([]);
   useEffect(() => {
     if (!hasPayCfg) return;
@@ -471,6 +476,11 @@ export function FormRenderer({
       ref={formRef}
       onSubmit={onSubmit}
       onChange={refreshResponses}
+      // Disable the browser's native one-field-at-a-time validation so our
+      // own comprehensive check runs: it understands custom components
+      // (pricing selects, signatures) and conditional visibility, lists
+      // EVERY missing required field at once, and scrolls to the first.
+      noValidate
       className="space-y-5"
     >
       {/* Operator-invite banner — surfaces when the parent landed here
@@ -824,7 +834,13 @@ export function FormRenderer({
             )
             .map((block, i) => (
               <BlockRenderer
-                key={i}
+                // STABLE key per block (its field key), NOT the filtered
+                // array index. With uncontrolled inputs + conditional
+                // visibility, an index key makes React reconcile a field
+                // against whatever block now sits at that index when
+                // something above it hides — so toggling a selection left
+                // the downstream fields stale until a full refresh.
+                key={'key' in block && block.key ? String(block.key) : `pos-${i}`}
                 block={block}
                 prefillCtx={prefillCtx}
                 formResponses={responses}
@@ -944,9 +960,13 @@ export function FormRenderer({
               : addendumMode === 'editing'
                 ? `Submit update (${addendumFields.size} field${addendumFields.size === 1 ? '' : 's'})`
                 : paymentRequired
-                  ? (liveEval && liveEval.subtotal_cents > 0
-                      ? `Continue to payment — ${fmtCents(liveEval.subtotal_cents)}`
-                      : 'Continue to payment')
+                  ? (hasInstallmentPlan
+                      // Enrollment / installment flow: nothing is charged at
+                      // submit — the saved card autopays per the schedule.
+                      ? 'Submit enrollment'
+                      : (liveEval && liveEval.subtotal_cents > 0
+                          ? `Continue to payment — ${fmtCents(liveEval.subtotal_cents)}`
+                          : 'Continue to payment'))
                   : (hasLegacy && inUpdateMode ? 'Update submission' : 'Submit form')}
           </button>
           {requireMethod && !methodOnFile ? (
@@ -955,7 +975,9 @@ export function FormRenderer({
             </span>
           ) : paymentRequired ? (
             <span className="text-[11px] text-gray-500">
-              You&rsquo;ll review fees and choose a payment method on the next screen.
+              {hasInstallmentPlan
+                ? 'No charge today — your saved payment method is billed automatically per the schedule above.'
+                : 'You’ll review fees and choose a payment method on the next screen.'}
             </span>
           ) : definition.fee_amount ? (
             <span className="text-[11px] text-gray-500">

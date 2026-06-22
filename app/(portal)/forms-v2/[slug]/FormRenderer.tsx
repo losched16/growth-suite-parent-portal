@@ -820,7 +820,7 @@ export function FormRenderer({
           payment_config. The server validates the code against the
           school's discount_policies at invoice creation; an invalid
           code is silently ignored (no error, no discount). */}
-      {!showLockState && paymentConfigured && addendumMode !== 'picking' ? (
+      {!showLockState && paymentConfigured && addendumMode !== 'picking' && !definition.payment_config?.hide_discount_code ? (
         <details className="rounded-md border border-gray-200 bg-white px-3 py-2">
           <summary className="cursor-pointer text-xs font-medium text-gray-700">
             Have a discount code?

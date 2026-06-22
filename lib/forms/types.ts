@@ -294,6 +294,9 @@ export interface FormPaymentConfig {
   // (SetupIntent) for the scheduled installments. Used by the enrollment
   // agreement so every new family leaves a card on file at signing.
   require_payment_method_on_file?: boolean;
+  // When true, the built-in "Have a discount code?" input is hidden on this
+  // form (DGM doesn't use redemption codes — it only confused parents).
+  hide_discount_code?: boolean;
 }
 
 // Optional proration directive on a tuition-style line. When set, the

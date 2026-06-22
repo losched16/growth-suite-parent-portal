@@ -1150,22 +1150,31 @@ function PaymentSchedule({
           <span>Annual total</span>
           <span className="tabular-nums">{fmtCents(recurringCents)}</span>
         </div>
-        {feeCents > 0 ? (
-          enrollmentFeePaid ? (
-            <div className="mt-1 flex items-center justify-between text-xs text-emerald-700">
-              <span className="inline-flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Enrollment fee (one-time) — Paid ✓
-              </span>
-              <span className="tabular-nums line-through text-gray-400">{fmtCents(feeCents)}</span>
-            </div>
-          ) : (
-            <div className="mt-1 flex items-center justify-between text-xs text-amber-800">
-              <span>+ Enrollment fee (one-time) — due at enrollment, not yet paid</span>
-              <span className="tabular-nums font-medium">{fmtCents(feeCents)}</span>
-            </div>
-          )
-        ) : null}
       </div>
+
+      {/* Enrollment fee — a one-time fee shown SEPARATELY from the recurring
+          plan, with an explicit paid/unpaid status so a family that already
+          paid it isn't confused into thinking they'll be charged it again. */}
+      {feeCents > 0 ? (
+        enrollmentFeePaid ? (
+          <div className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 flex items-start gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
+            <span>
+              <strong>Enrollment fee — already paid.</strong> Your one-time {fmtCents(feeCents)} enrollment fee
+              is on file as paid. It is <span className="underline">not</span> in the schedule below, and you
+              will not be charged it again.
+            </span>
+          </div>
+        ) : (
+          <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 flex items-start justify-between gap-2">
+            <span>
+              <strong>Enrollment fee — due.</strong> A one-time {fmtCents(feeCents)} enrollment fee is due at
+              enrollment (separate from the schedule below).
+            </span>
+            <span className="tabular-nums font-semibold shrink-0">{fmtCents(feeCents)}</span>
+          </div>
+        )
+      ) : null}
 
       <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-800 mb-1">Payment schedule</div>
       <ul className="space-y-1">

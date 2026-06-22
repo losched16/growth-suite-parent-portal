@@ -833,6 +833,33 @@ export async function POST(request: NextRequest) {
       const isEnrollmentFlow =
         rawPlan === 'monthly' || rawPlan === 'semi_annual' || rawPlan === 'annual';
 
+      // Don't bill the enrollment fee again if this student already paid it
+      // (FACTS ledger import, or a paid Growth Suite enrollment-fee invoice).
+      // Drop the enrollment_fee line + reduce the subtotal so no fee invoice
+      // is generated — matches the "Paid" status shown on the schedule.
+      let billingLines = paymentEval.lines;
+      let billingSubtotal = paymentEval.subtotal_cents;
+      if (studentId) {
+        const { rows: paidRows } = await query<{ paid: boolean }>(
+          `SELECT (
+             EXISTS (SELECT 1 FROM facts_account_ledger
+                      WHERE school_id = $1 AND student_id = $2
+                        AND account = 'Enrollment Fee' AND payments_cents > 0)
+             OR EXISTS (SELECT 1 FROM invoices
+                      WHERE school_id = $1 AND student_id = $2 AND source = 'enrollment_fee'
+                        AND (status = 'paid' OR amount_paid_cents > 0))
+           ) AS paid`,
+          [session.school_id, studentId],
+        );
+        if (paidRows[0]?.paid) {
+          const feeCents = paymentEval.lines
+            .filter((l) => l.category === 'enrollment_fee')
+            .reduce((s, l) => s + l.amount_cents, 0);
+          billingLines = paymentEval.lines.filter((l) => l.category !== 'enrollment_fee');
+          billingSubtotal = paymentEval.subtotal_cents - feeCents;
+        }
+      }
+
       if (isEnrollmentFlow) {
         const startDateRaw = String(responses.enrollment_start_date ?? '').trim();
         const created = await createEnrollmentInvoices({
@@ -841,8 +868,8 @@ export async function POST(request: NextRequest) {
           studentId,
           submissionId,
           formDefinition: formDefForEval,
-          lines: paymentEval.lines,
-          subtotalCents: paymentEval.subtotal_cents,
+          lines: billingLines,
+          subtotalCents: billingSubtotal,
           paymentPlan: rawPlan as 'monthly' | 'semi_annual' | 'annual',
           enrollmentStartDate: startDateRaw || null,
           studentDisplayName,
@@ -862,8 +889,8 @@ export async function POST(request: NextRequest) {
           studentId,
           submissionId,
           formDefinition: formDefForEval,
-          lines: paymentEval.lines,
-          subtotalCents: paymentEval.subtotal_cents,
+          lines: billingLines,
+          subtotalCents: billingSubtotal,
           studentDisplayName,
           createdByEmail: 'form-submission@growthsuite.local',
           redemptionCode: redemptionCode || undefined,

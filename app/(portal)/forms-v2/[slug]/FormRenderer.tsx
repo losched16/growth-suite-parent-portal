@@ -1677,10 +1677,18 @@ function DateInput({ block, prefillCtx, legacyResponses }: { block: Extract<Form
   // new families the renderer strips `readOnly`. So we key off the prefill
   // itself and render a locked display + hidden input — no back-dating.
   const lockToday = block.prefill === 'today';
-  const defaultValue = lockToday
+  const rawValue = lockToday
     ? resolvePrefill('today', prefillCtx)
     : ((legacyVal(legacyResponses, block.key) ?? resolvePrefill(block.prefill, prefillCtx))
         || (typeof block.default === 'string' ? block.default : ''));
+  // A native <input type="date"> (and our locked display) needs a bare
+  // YYYY-MM-DD. A prefilled date sourced from synced metadata can arrive as a
+  // full ISO timestamp (e.g. "2026-08-03T00:00:00.000Z") — which the input
+  // rejects, rendering blank. A blank + locked + required field is a dead end
+  // (can't edit, can't submit), so take just the date part. Non-ISO values
+  // (already YYYY-MM-DD, or empty) pass through untouched.
+  const isoDate = /^(\d{4}-\d{2}-\d{2})/.exec(rawValue);
+  const defaultValue = isoDate ? isoDate[1] : rawValue;
   const locked = lockToday || block.readOnly === true;
   if (locked) {
     return <LockedChoice name={block.key} value={defaultValue} label={fmtDateDisplay(defaultValue)} />;

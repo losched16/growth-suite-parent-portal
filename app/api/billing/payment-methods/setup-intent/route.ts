@@ -94,7 +94,9 @@ export async function POST(request: NextRequest) {
   if (rail === 'us_bank_account') {
     params.payment_method_options = {
       us_bank_account: {
-        financial_connections: { permissions: ['payment_method', 'balances'] },
+        // Only payment_method — 'balances' needs Stripe's Financial
+        // Connections balances product (not activated / not needed here).
+        financial_connections: { permissions: ['payment_method'] },
         verification_method: 'automatic',
       },
     };

@@ -173,7 +173,10 @@ export async function POST(request: NextRequest) {
     piParams.payment_method_options = {
       us_bank_account: {
         financial_connections: {
-          permissions: ['payment_method', 'balances'],
+          // Only request payment_method — collecting a bank account to charge
+          // later. 'balances' requires activating Stripe's Financial
+          // Connections balances product, which we don't use.
+          permissions: ['payment_method'],
         },
         verification_method: 'automatic',
       },

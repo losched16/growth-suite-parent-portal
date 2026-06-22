@@ -787,11 +787,21 @@ export function FormRenderer({
             // New families fill the form fresh — strip the review-only lock
             // so their pricing/plan fields are editable. Existing families
             // keep the locked, pre-filled review.
-            .map((block) =>
-              (!isExistingFamily && 'readOnly' in block && block.readOnly)
-                ? { ...block, readOnly: false }
-                : block,
-            )
+            .map((block) => {
+              if (isExistingFamily) return block; // existing families: all locks stay
+              if (!('readOnly' in block) || !block.readOnly) return block;
+              // New families get editable fields — EXCEPT a field flagged
+              // `lock_when_prefilled` (e.g. enrollment_start_date) stays
+              // locked when the contact record already provides a value. If
+              // the contact has no value, we leave it editable so the parent
+              // can supply it (and billing/proration isn't left date-less).
+              const lockWhenPrefilled = (block as { lock_when_prefilled?: boolean }).lock_when_prefilled === true;
+              if (lockWhenPrefilled && 'prefill' in block && block.prefill) {
+                const v = resolvePrefill(block.prefill, prefillCtx);
+                if (v && String(v).trim() !== '') return block; // contact set it → keep locked
+              }
+              return { ...block, readOnly: false };
+            })
             .filter((block) => {
               if (addendumMode !== 'editing') return true;
               // Keep display-only blocks visible for context.

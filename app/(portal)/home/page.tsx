@@ -156,7 +156,7 @@ export default async function HomePage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <SummaryCard label="Students" value={String(students.length)} href="/family" icon={<Users className="h-4 w-4" />} />
         <SummaryCard label="Parents on file" value={String(parents.length)} href="/family" icon={<Users className="h-4 w-4" />} />
-        <SummaryCard label="Forms" value="View status" href="/forms" icon={<FileText className="h-4 w-4" />} />
+        <SummaryCard label="Forms" value="View status" href="/forms-v2" icon={<FileText className="h-4 w-4" />} />
       </div>
 
       {/* Students card */}

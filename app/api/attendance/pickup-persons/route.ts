@@ -14,6 +14,7 @@ import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { PARENT_SESSION_COOKIE, verifySession } from '@/lib/auth/session';
 import { query } from '@/lib/db';
+import { notifyAdminOfPickupPersonChange } from '@/lib/attendance/pickup-person-notification';
 
 export const dynamic = 'force-dynamic';
 
@@ -146,6 +147,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Notify the office (admissions@ for DGM) that the authorized pickup
+  // list changed. Awaited so the email actually flushes on serverless;
+  // the helper never throws, so it can't break the parent's submit.
+  await notifyAdminOfPickupPersonChange({
+    schoolId: session.school_id,
+    parentId: session.parent_id,
+    action: 'added',
+    person: { name, relationship, phone, notes },
+    authorizedStudentIds: persistIds,
+  });
+
   return redirectBack(request);
 }
 
@@ -173,6 +185,9 @@ async function handlePatch(
 
   const visible = await listFamilyPickupPersons(session.parent_id, session.school_id, true);
   if (!visible.some((p) => p.id === id)) return new NextResponse('forbidden', { status: 403 });
+  const current = visible.find((p) => p.id === id);
+  // Authorized-student scope, only known if the edit touched it.
+  let updatedScope: string[] | undefined;
 
   const name = strOrNull(fd.get('name'));
   const relationship = strOrNull(fd.get('relationship'));
@@ -217,6 +232,7 @@ async function handlePatch(
         ? []
         : scopedIds;
 
+      updatedScope = persistIds;
       await query(`DELETE FROM pickup_person_students WHERE pickup_person_id = $1`, [id]);
       for (const sid of persistIds) {
         await query(
@@ -229,6 +245,21 @@ async function handlePatch(
     }
   }
 
+  // Notify the office that the authorized pickup list changed. Setting
+  // active=false here is effectively a removal.
+  await notifyAdminOfPickupPersonChange({
+    schoolId: session.school_id,
+    parentId: session.parent_id,
+    action: active === false ? 'removed' : 'updated',
+    person: {
+      name: name ?? current?.name ?? 'Pickup person',
+      relationship: relationship ?? current?.relationship ?? null,
+      phone: phone ?? current?.phone ?? null,
+      notes: notes ?? current?.notes ?? null,
+    },
+    authorizedStudentIds: updatedScope,
+  });
+
   return redirectBack(request);
 }
 
@@ -240,8 +271,23 @@ async function handleDelete(
   const id = (fd.get('id') ?? '').toString().trim();
   if (!id) return new NextResponse('id required', { status: 400 });
   const visible = await listFamilyPickupPersons(session.parent_id, session.school_id, true);
-  if (!visible.some((p) => p.id === id)) return new NextResponse('forbidden', { status: 403 });
+  const removed = visible.find((p) => p.id === id);
+  if (!removed) return new NextResponse('forbidden', { status: 403 });
   await query(`UPDATE pickup_persons SET active = false WHERE id = $1`, [id]);
+
+  // Notify the office that an authorized pickup person was removed.
+  await notifyAdminOfPickupPersonChange({
+    schoolId: session.school_id,
+    parentId: session.parent_id,
+    action: 'removed',
+    person: {
+      name: removed.name,
+      relationship: removed.relationship,
+      phone: removed.phone,
+      notes: removed.notes,
+    },
+  });
+
   return redirectBack(request);
 }
 

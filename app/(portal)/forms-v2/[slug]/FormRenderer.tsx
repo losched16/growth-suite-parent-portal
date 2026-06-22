@@ -291,33 +291,60 @@ export function FormRenderer({
       fd.set('form_definition_id', definition.id);
       if (definition.per_student && studentId) fd.set('student_id', studentId);
 
-      // Client-side pre-check for required signature_drawn blocks.
-      // <input type="hidden" required> doesn't participate in HTML
-      // constraint validation, so a parent who forgets to sign would
-      // get a server-side 400 with no friendly explanation. Catch it
-      // here, scroll to the signature, and show a clear message.
+      // Comprehensive client-side required-field validation. Native HTML
+      // validation doesn't cover our custom components (pricing selects,
+      // signatures, multi-checkbox) or conditionally-shown fields, which
+      // let a parent submit an incomplete form — and an incomplete payment
+      // form makes the server's billing/proration choke and the request
+      // hang. We check every VISIBLE required block against the submitted
+      // FormData and stop with a clear, named notification.
       const blocksToShow = definition.field_schema.filter((block) => {
         if (addendumMode !== 'editing') return true;
         if (!('key' in block)) return true;
         if (block.type === 'signature_drawn' || block.type === 'signature_typed') return true;
         return addendumFields.has(block.key);
       });
+      // Snapshot of submitted values for conditional-visibility checks
+      // (so we never flag a field that's hidden by visible_when).
+      const fdValues: Record<string, unknown> = {};
+      for (const k of new Set([...fd.keys()])) {
+        fdValues[k.endsWith('[]') ? k.slice(0, -2) : k] = k.endsWith('[]') ? fd.getAll(k) : fd.get(k);
+      }
+      const missing: Array<{ key: string; label: string }> = [];
       for (const block of blocksToShow) {
-        if (block.type === 'signature_drawn' && block.required) {
-          const sigVal = String(fd.get(block.key) ?? '').trim();
-          if (!sigVal) {
-            setErr(`Please sign below before submitting (${block.label}). Draw your signature and tap "Lock signature", OR switch to "Type instead" and key your name.`);
-            setBusy(false);
-            // Scroll the signature pad into view so they don't have
-            // to hunt.
-            const el = formRef.current?.querySelector(`input[name="${block.key}"]`)?.closest('label, fieldset, div');
-            if (el && 'scrollIntoView' in el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
-            return;
-          }
+        if (!('key' in block) || !('required' in block) || !block.required) continue;
+        const vw = 'visible_when' in block ? block.visible_when : undefined;
+        if (!isBlockVisible(vw, fdValues)) continue; // hidden → not required
+        const key = block.key;
+        const single = fd.get(key);
+        const hasSingle = typeof single === 'string' ? single.trim() !== '' : single != null;
+        const hasMulti = fd.getAll(`${key}[]`).length > 0;
+        if (!hasSingle && !hasMulti) {
+          missing.push({ key, label: ('label' in block && block.label) ? String(block.label) : key });
         }
       }
+      if (missing.length > 0) {
+        setErr(`Please complete the following before submitting: ${missing.map((m) => m.label).join(', ')}.`);
+        setBusy(false);
+        const first = missing[0].key;
+        const el = formRef.current
+          ?.querySelector(`[name="${first}"], [name="${first}[]"]`)
+          ?.closest('label, fieldset, div');
+        if (el && 'scrollIntoView' in el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
 
-      const r = await fetch('/api/portal-forms/submit', { method: 'POST', body: fd });
+      // Hard timeout so a slow/stuck server can never leave the parent
+      // staring at an infinite "Submitting…" spinner. 90s is far longer
+      // than a healthy submit (incl. invoice generation) ever needs.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 90_000);
+      let r: Response;
+      try {
+        r = await fetch('/api/portal-forms/submit', { method: 'POST', body: fd, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       if (!r.ok) {
         // Try to read a structured JSON error so we can show the
         // server's validation detail to the parent — much more useful
@@ -362,7 +389,10 @@ export function FormRenderer({
       }
       router.push('/forms-v2/history?submitted=' + encodeURIComponent(definition.slug));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Submission failed');
+      const msg = e instanceof Error && e.name === 'AbortError'
+        ? 'The server took too long to respond, so your form was NOT submitted. Please check your connection and try again.'
+        : (e instanceof Error ? e.message : 'Submission failed');
+      setErr(msg);
       setBusy(false);
     }
   }

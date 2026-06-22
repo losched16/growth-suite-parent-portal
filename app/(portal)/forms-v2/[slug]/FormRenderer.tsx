@@ -110,6 +110,10 @@ interface Props {
   hasPaymentMethodOnFile?: boolean;
   cardEnabled?: boolean;
   achEnabled?: boolean;
+  // Student ids whose enrollment fee is already paid (FACTS ledger import or
+  // a paid Growth Suite invoice). The payment schedule shows "Paid" for these
+  // instead of a future charge.
+  enrollmentFeePaidStudentIds?: string[];
 }
 
 export function FormRenderer({
@@ -124,6 +128,7 @@ export function FormRenderer({
   hasPaymentMethodOnFile,
   cardEnabled,
   achEnabled,
+  enrollmentFeePaidStudentIds,
 }: Props) {
   const router = useRouter();
   // If we have an operator invite that targets a specific student, the
@@ -895,6 +900,11 @@ export function FormRenderer({
           planValue={String(responses['payment_plan'] ?? '')}
           plans={planTemplates}
           academicYear={scheduleYear}
+          enrollmentFeePaid={
+            definition.per_student
+              ? (enrollmentFeePaidStudentIds ?? []).includes(studentId)
+              : (enrollmentFeePaidStudentIds ?? []).length > 0
+          }
         />
       ) : null}
 
@@ -1088,12 +1098,13 @@ function fmtSchedDate(d: Date): string {
 const ONE_TIME_CATEGORIES = new Set(['enrollment_fee']);
 
 function PaymentSchedule({
-  eval: result, planValue, plans, academicYear,
+  eval: result, planValue, plans, academicYear, enrollmentFeePaid,
 }: {
   eval: ReturnType<typeof evaluatePayment>;
   planValue: string;
   plans: PlanTemplate[];
   academicYear: string;
+  enrollmentFeePaid: boolean;
 }) {
   const plan = matchPlanTemplate(planValue, plans);
   // One-time fees (enrollment fee) are billed separately, not spread across
@@ -1140,10 +1151,19 @@ function PaymentSchedule({
           <span className="tabular-nums">{fmtCents(recurringCents)}</span>
         </div>
         {feeCents > 0 ? (
-          <div className="mt-1 flex items-center justify-between text-xs text-gray-600">
-            <span>+ Enrollment fee (one-time{first?.date ? `, due ${fmtSchedDate(first.date)}` : ''})</span>
-            <span className="tabular-nums">{fmtCents(feeCents)}</span>
-          </div>
+          enrollmentFeePaid ? (
+            <div className="mt-1 flex items-center justify-between text-xs text-emerald-700">
+              <span className="inline-flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Enrollment fee (one-time) — Paid ✓
+              </span>
+              <span className="tabular-nums line-through text-gray-400">{fmtCents(feeCents)}</span>
+            </div>
+          ) : (
+            <div className="mt-1 flex items-center justify-between text-xs text-amber-800">
+              <span>+ Enrollment fee (one-time) — due at enrollment, not yet paid</span>
+              <span className="tabular-nums font-medium">{fmtCents(feeCents)}</span>
+            </div>
+          )
         ) : null}
       </div>
 

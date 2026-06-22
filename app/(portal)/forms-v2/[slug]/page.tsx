@@ -486,6 +486,28 @@ export default async function FormPage({
   );
   const hasPaymentMethodOnFile = (pmRows[0]?.n ?? 0) > 0;
 
+  // Which of the family's students have ALREADY paid the enrollment fee?
+  // Two sources of truth:
+  //   1. FACTS ledger import — the "Enrollment Fee" account with a payment
+  //      (covers current families who paid before go-live).
+  //   2. A paid enrollment-fee invoice in Growth Suite (covers everyone who
+  //      pays through the portal going forward).
+  // The schedule reads this so paid families see "Paid" instead of a charge.
+  const { rows: feePaidRows } = await query<{ student_id: string }>(
+    `SELECT DISTINCT al.student_id
+       FROM facts_account_ledger al
+       JOIN students s ON s.id = al.student_id AND s.family_id = $2
+      WHERE al.school_id = $1 AND al.account = 'Enrollment Fee' AND al.payments_cents > 0
+     UNION
+     SELECT DISTINCT i.student_id
+       FROM invoices i
+      WHERE i.school_id = $1 AND i.family_id = $2 AND i.source = 'enrollment_fee'
+        AND i.student_id IS NOT NULL
+        AND (i.status = 'paid' OR i.amount_paid_cents > 0)`,
+    [id.parent.school_id, id.parent.family_id],
+  );
+  const enrollmentFeePaidStudentIds = feePaidRows.map((r) => r.student_id);
+
   // 5) Build definition object for the renderer (typed).
   const definition: FormDefinition = {
     id: def.id,
@@ -635,6 +657,7 @@ export default async function FormPage({
               hasPaymentMethodOnFile={hasPaymentMethodOnFile}
               cardEnabled={cardEnabled}
               achEnabled={achEnabled}
+              enrollmentFeePaidStudentIds={enrollmentFeePaidStudentIds}
             />
           )}
         </>

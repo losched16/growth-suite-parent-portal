@@ -66,6 +66,7 @@ export interface PrefillContext {
     deposit_cents: number | null;          // the paid deposit credit
     sibling_discount_cents: number | null;
     prompt_pay_discount_cents: number | null;  // 3% paid-in-full discount
+    semi_annual_discount_cents: number | null; // 2% semi-annual discount
     scholarship_cents: number | null;
     // Attendance schedule — from students.metadata (set from the
     // enrollment sheet). Surfaced on the tuition contract + DHS form.
@@ -239,6 +240,9 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
     case 'enrollment.prompt_pay_discount_dollars':
       return ctx.enrollment?.prompt_pay_discount_cents != null
         ? (ctx.enrollment.prompt_pay_discount_cents / 100).toFixed(2) : '';
+    case 'enrollment.semi_annual_discount_dollars':
+      return ctx.enrollment?.semi_annual_discount_cents != null
+        ? (ctx.enrollment.semi_annual_discount_cents / 100).toFixed(2) : '';
     case 'enrollment.scholarship_dollars':
       return ctx.enrollment?.scholarship_cents != null
         ? (ctx.enrollment.scholarship_cents / 100).toFixed(2) : '';

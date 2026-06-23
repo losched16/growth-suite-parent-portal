@@ -832,6 +832,17 @@ export function FormRenderer({
             .filter((block) =>
               isBlockVisible(('visible_when' in block ? block.visible_when : undefined), responses),
             )
+            // `hide_when_empty`: drop opt-in line items whose resolved prefill
+            // is empty, so e.g. a "Scholarship — credit" row only appears for
+            // families that actually have one — not as a blank row on every
+            // contract. Opt-in per field, so no other form is affected.
+            .filter((block) => {
+              if (!('hide_when_empty' in block) || !block.hide_when_empty) return true;
+              const src = 'prefill' in block ? block.prefill : undefined;
+              if (!src) return true;
+              const v = resolvePrefill(src, prefillCtx);
+              return !(v == null || String(v).trim() === '');
+            })
             .map((block, i) => (
               <BlockRenderer
                 // STABLE key per block (its field key), NOT the filtered

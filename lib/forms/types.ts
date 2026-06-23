@@ -47,6 +47,13 @@ interface BaseField {
   // can't edit it. Schools using readOnly should also set `prefill` so
   // there's something to display (an empty readOnly input is useless).
   readOnly?: boolean;
+  // When true, the field is DROPPED entirely if its resolved prefill value
+  // is empty — instead of rendering a blank box. Use on optional, locked
+  // line items that only apply to some students (e.g. a "Scholarship —
+  // credit" line that should appear ONLY for the handful of families who
+  // actually have one, not as an empty row on every contract). Opt-in per
+  // field so it never silently hides fields on forms that don't expect it.
+  hide_when_empty?: boolean;
   // Conditional visibility. When set, the field only renders (and is only
   // required / validated) when the live value of `field` is one of
   // `equals`. e.g. show the "Other" explanation box only when the
@@ -114,6 +121,7 @@ export type PrefillSource =
   | 'enrollment.deposit_dollars'         // deposit already paid (credit)
   | 'enrollment.sibling_discount_dollars'
   | 'enrollment.prompt_pay_discount_dollars'  // 3% paid-in-full discount
+  | 'enrollment.semi_annual_discount_dollars' // 2% semi-annual (July & Jan)
   | 'enrollment.scholarship_dollars'
   // Attendance schedule (from students.metadata, surfaced per-enrollment).
   | 'enrollment.schedule_days'

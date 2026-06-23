@@ -277,6 +277,7 @@ export default async function FormPage({
         deposit_cents: cents('deposit'),
         sibling_discount_cents: cents('sibling_discount'),
         prompt_pay_discount_cents: cents('prompt_pay_discount'),
+        semi_annual_discount_cents: cents('semi_annual_discount'),
         scholarship_cents: cents('scholarship'),
         schedule_days: e.schedule_days,
         arrival_time: e.arrival_time,

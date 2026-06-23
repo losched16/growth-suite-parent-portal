@@ -207,8 +207,12 @@ export function FormRenderer({
 
   // Only NEW families see the payment engine. The button only promises
   // payment when billing is actually live (in dry-run a new family's plan
-  // is created as drafts with no charge).
-  const paymentConfigured = !!definition.payment_config && !isExistingFamily;
+  // is created as drafts with no charge). `display_only` forms collect NO
+  // payment at all — they still show the schedule (below) but submit like a
+  // normal form, so they're excluded from the payment engine here.
+  const paymentConfigured = !!definition.payment_config
+    && !isExistingFamily
+    && definition.payment_config?.display_only !== true;
   const paymentRequired = paymentConfigured
     && definition.payment_config?.mode === 'required'
     && (billingActive ?? false);
@@ -246,7 +250,8 @@ export function FormRenderer({
   // the parent saves a card inline, or returns from a 3-D Secure redirect
   // (?pm_added=1). Keyed off the client confirm — never the webhook — so a
   // broken webhook can't trap a parent who has saved a card.
-  const requireMethod = definition.payment_config?.require_payment_method_on_file === true;
+  const requireMethod = definition.payment_config?.require_payment_method_on_file === true
+    && definition.payment_config?.display_only !== true;
   const [methodOnFile, setMethodOnFile] = useState<boolean>(!!hasPaymentMethodOnFile);
   useEffect(() => {
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pm_added') === '1') {

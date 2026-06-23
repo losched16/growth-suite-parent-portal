@@ -537,7 +537,9 @@ export async function POST(request: NextRequest) {
   };
   // Existing families never bill (review-and-sign), so skip the whole
   // payment path for them even when the form carries a payment_config.
-  const paymentEval = (def.payment_config && !isExistingFamily)
+  // `display_only` forms never bill anyone — the payment_config is for the
+  // schedule DISPLAY only; the form submits like a normal form.
+  const paymentEval = (def.payment_config && !isExistingFamily && def.payment_config.display_only !== true)
     ? evaluatePayment(formDefForEval, responses)
     : null;
   // Force payment only for a NEW family when billing is live. In dry-run we
@@ -548,8 +550,10 @@ export async function POST(request: NextRequest) {
     && paymentEval !== null
     && paymentEval.subtotal_cents > 0;
   // Require a paid selection only for a new family (existing ones are
-  // review-only; their amounts are already on file).
+  // review-only; their amounts are already on file). display_only forms
+  // never require payment.
   if (!isExistingFamily && def.payment_config?.mode === 'required'
+      && def.payment_config?.display_only !== true
       && (!paymentEval || paymentEval.subtotal_cents <= 0)) {
     return NextResponse.json(
       { error: 'no_paid_selection', detail: 'This form requires a paid selection.' },

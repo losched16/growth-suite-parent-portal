@@ -305,6 +305,12 @@ export interface FormPaymentConfig {
   // When true, the built-in "Have a discount code?" input is hidden on this
   // form (DGM doesn't use redemption codes — it only confused parents).
   hide_discount_code?: boolean;
+  // When true, the payment_config drives ONLY the schedule DISPLAY. The form
+  // collects NO payment: no payment-method gate, no invoices, no "continue to
+  // payment" — it submits like any normal form. The parent still sees the
+  // dated payment schedule for reference. Used when a school shows tuition
+  // terms on the agreement but bills outside Growth Suite.
+  display_only?: boolean;
 }
 
 // Optional proration directive on a tuition-style line. When set, the

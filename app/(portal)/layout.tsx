@@ -37,6 +37,11 @@ const HIDDEN_NAV_BY_SCHOOL: Record<string, Set<string>> = {
   '2c944223-b2ad-45e1-8ba4-a4b616e4c29a': new Set([
     '/attendance', '/messages', '/tuition', '/billing', '/financial-aid', '/products',
   ]),
+  // Media Children's House — hide Financial Aid, Attendance, and School
+  // Store (not used at launch).
+  'a6c4b2dd-050c-4bf9-893b-67106f0f20e8': new Set([
+    '/financial-aid', '/attendance', '/products',
+  ]),
 };
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {

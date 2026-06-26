@@ -25,6 +25,13 @@ interface ResultRow {
   form_slug: string;
   confirmation_message: string | null;
   confirmation_redirect_url: string | null;
+  // The submission's student — surfaced so the confirmation can show the
+  // grade + student ID the parent needs for FACTS account setup.
+  student_first: string | null;
+  student_last: string | null;
+  student_preferred: string | null;
+  student_grade: string | null;
+  student_sid: string | null;
 }
 
 export default async function FormThanksPage({ params }: { params: Params }) {
@@ -38,9 +45,15 @@ export default async function FormThanksPage({ params }: { params: Params }) {
             d.display_name AS form_display_name,
             d.slug AS form_slug,
             d.confirmation_message,
-            d.confirmation_redirect_url
+            d.confirmation_redirect_url,
+            st.first_name AS student_first,
+            st.last_name AS student_last,
+            st.preferred_name AS student_preferred,
+            st.metadata->>'grade_level' AS student_grade,
+            st.metadata->>'student_id' AS student_sid
        FROM portal_form_submissions s
        JOIN portal_form_definitions d ON d.id = s.form_definition_id
+       LEFT JOIN students st ON st.id = s.student_id AND st.school_id = s.school_id
       WHERE s.id = $1 AND s.school_id = $2`,
     [id, session.school_id],
   );
@@ -75,6 +88,34 @@ export default async function FormThanksPage({ params }: { params: Params }) {
             Your <strong>{r.form_display_name}</strong> submission was received. The office will be in touch if anything additional is needed.
           </p>
         )}
+
+        {/* The grade + student ID the parent needs to set up FACTS — shown
+            only when we have them on file for this submission's student. */}
+        {(r.student_grade || r.student_sid) ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <div className="font-semibold mb-1.5">For your FACTS account setup:</div>
+            <dl className="grid grid-cols-1 sm:grid-cols-3 gap-y-1 gap-x-4">
+              {(r.student_preferred || r.student_first) ? (
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-emerald-700">Student</dt>
+                  <dd className="font-semibold">{[(r.student_preferred || r.student_first), r.student_last].filter(Boolean).join(' ')}</dd>
+                </div>
+              ) : null}
+              {r.student_grade ? (
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-emerald-700">Grade</dt>
+                  <dd className="font-semibold">{r.student_grade}</dd>
+                </div>
+              ) : null}
+              {r.student_sid ? (
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-emerald-700">Student ID</dt>
+                  <dd className="font-semibold font-mono">{r.student_sid}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
+        ) : null}
 
         {r.confirmation_redirect_url ? (
           <>

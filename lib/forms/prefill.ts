@@ -125,13 +125,16 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
   if (source.startsWith('meta:')) {
     const key = source.slice('meta:'.length);
     const raw = ctx.student?.metadata?.[key];
-    const v = raw == null ? '' : String(raw);
+    let v = raw == null ? '' : String(raw);
     // The frozen ea_* snapshot wins when present. When it's empty (a brand-new
     // family that came straight from their GHL contact, with no import
     // snapshot), fall back to the live GHL-synced data so the form still
     // prefills — keeping GHL the single source of truth.
-    if (v.trim() !== '') return v;
-    if (key.startsWith('ea_')) return deriveEaFallback(key, ctx);
+    if (v.trim() === '' && key.startsWith('ea_')) v = deriveEaFallback(key, ctx);
+    // Normalize ISO datetimes (e.g. GHL DATE fields synced as
+    // "2026-08-03T00:00:00.000Z") to YYYY-MM-DD so <input type="date"> prefills
+    // instead of rendering blank. Only touches ISO-datetime-shaped strings.
+    if (/^\d{4}-\d{2}-\d{2}T/.test(v)) v = v.slice(0, 10);
     return v;
   }
   switch (source) {

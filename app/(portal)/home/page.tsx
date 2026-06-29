@@ -403,6 +403,9 @@ async function loadPendingForms({
       -- Staff-facing forms (supply/labor/incident requests) never surface
       -- to parents. IS DISTINCT FROM keeps legacy null-audience forms visible.
       AND d.audience IS DISTINCT FROM 'staff'
+      -- On-demand forms (e.g. the Enrollment Amendment) are reachable by link
+      -- but are NOT part of the completion checklist.
+      AND COALESCE(d.list_in_checklist, true) = true
     ORDER BY
       CASE d.category
         WHEN 'registration' THEN 1

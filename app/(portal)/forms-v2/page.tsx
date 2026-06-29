@@ -65,7 +65,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
   const id = await requireParent();
   const { submitted } = await searchParams;
 
-  const [defs, students, subs, flagCounts] = await Promise.all([
+  const [defs, students, subs, flagCounts, amendSlug] = await Promise.all([
     query<DefRow>(
       `SELECT id, slug, display_name, description, category, per_student,
               required_for, fee_amount, one_submission_per_year,
@@ -75,6 +75,9 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
          -- Parents never see staff-facing forms (supply/labor/incident
          -- requests). IS DISTINCT FROM keeps legacy null-audience forms visible.
          AND audience IS DISTINCT FROM 'staff'
+         -- On-demand forms (e.g. the Enrollment Amendment) are reachable by a
+         -- direct link/button but excluded from the forms checklist.
+         AND COALESCE(list_in_checklist, true) = true
        ORDER BY
          CASE category
            WHEN 'registration' THEN 1
@@ -108,6 +111,16 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
        GROUP BY form_definition_id`,
       [id.parent.school_id, id.parent.family_id],
     ).then((r) => r.rows),
+    // On-demand amendment form (excluded from the checklist above) — surfaced
+    // as a separate "Amend a selection" link once the family has submitted
+    // something to amend.
+    query<{ slug: string }>(
+      `SELECT slug FROM portal_form_definitions
+        WHERE school_id = $1 AND is_active = true AND COALESCE(list_in_checklist, true) = false
+          AND audience IS DISTINCT FROM 'staff' AND slug ILIKE '%amend%'
+        ORDER BY updated_at DESC LIMIT 1`,
+      [id.parent.school_id],
+    ).then((r) => r.rows[0]?.slug ?? null),
   ]);
 
   // Build the AppliesToContext per student so each form's applies_to
@@ -268,12 +281,22 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
               : `${complete} of ${total} complete (${pct}%) for the ${CURRENT_YEAR} year.`}
           </p>
         </div>
-        <Link
-          href="/forms-v2/history"
-          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-        >
-          <History className="h-3.5 w-3.5" /> Submission history
-        </Link>
+        <div className="flex items-center gap-2">
+          {amendSlug && subs.length > 0 ? (
+            <Link
+              href={`/forms-v2/${amendSlug}`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Amend a selection
+            </Link>
+          ) : null}
+          <Link
+            href="/forms-v2/history"
+            className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <History className="h-3.5 w-3.5" /> Submission history
+          </Link>
+        </div>
       </header>
 
       {submitted ? (

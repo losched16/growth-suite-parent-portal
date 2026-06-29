@@ -73,6 +73,17 @@ export default async function FormThanksPage({ params }: { params: Params }) {
     notFound();
   }
 
+  // Offer an "amend" link when the school has an on-demand amendment form —
+  // but not on the amendment's OWN thanks page.
+  const { rows: amendRows } = await query<{ slug: string; display_name: string }>(
+    `SELECT slug, display_name FROM portal_form_definitions
+      WHERE school_id = $1 AND is_active = true AND COALESCE(list_in_checklist, true) = false
+        AND audience IS DISTINCT FROM 'staff' AND slug ILIKE '%amend%'
+      ORDER BY updated_at DESC LIMIT 1`,
+    [session.school_id],
+  );
+  const amendForm = amendRows[0] && amendRows[0].slug !== r.form_slug ? amendRows[0] : null;
+
   return (
     <main className="min-h-screen bg-zinc-50 flex items-start justify-center px-4 py-10 sm:py-16">
       <div className="w-full max-w-xl rounded-xl border border-zinc-200 bg-white shadow-sm p-6 sm:p-8 space-y-5">
@@ -152,6 +163,15 @@ export default async function FormThanksPage({ params }: { params: Params }) {
               </a>
             </div>
           </>
+        ) : null}
+
+        {amendForm ? (
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+            Need to change a selection later (schedule, extended day, lunch, payment plan)?{' '}
+            <Link href={`/forms-v2/${amendForm.slug}`} className="font-medium text-emerald-700 hover:underline">
+              Amend your enrollment →
+            </Link>
+          </div>
         ) : null}
 
         <div className="flex items-center gap-3 pt-2 border-t border-zinc-100 text-sm">

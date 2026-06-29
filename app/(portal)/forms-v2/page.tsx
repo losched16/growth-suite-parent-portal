@@ -38,6 +38,7 @@ interface SubRow {
   status: string;
   submitted_at: string;
   is_legacy: boolean;
+  cosign_status: string | null;
 }
 
 interface FlagCountRow {
@@ -93,7 +94,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     // stamped with) still count.
     query<SubRow>(
       `SELECT form_definition_id, student_id, status, submitted_at,
-              (legacy_source IS NOT NULL) AS is_legacy
+              (legacy_source IS NOT NULL) AS is_legacy, cosign_status
        FROM portal_form_submissions
        WHERE family_id = $1
          AND status IN ('submitted', 'paid', 'pending_payment', 'legacy_imported')`,
@@ -200,7 +201,11 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
   // Group submissions by form for fast lookup.
   const submittedByForm = new Map<string, Set<string>>(); // formId → studentIds (or empty set for per-family done)
   const familyDone = new Set<string>();
+  // Forms with a submission still waiting on a second guardian's signature —
+  // they're "submitted" (Parent 1 done) but NOT fully executed.
+  const awaitingCosignForm = new Set<string>();
   for (const s of subs) {
+    if (s.cosign_status === 'awaiting') awaitingCosignForm.add(s.form_definition_id);
     if (s.student_id) {
       const ex = submittedByForm.get(s.form_definition_id) ?? new Set();
       ex.add(s.student_id);
@@ -324,6 +329,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
                     key={def.id}
                     def={def}
                     complete={isFormComplete(def)}
+                    awaitingCosign={awaitingCosignForm.has(def.id)}
                     studentsDone={studentsDone(def)}
                     totalStudents={def.per_student ? applicableStudents(def).length : students.length}
                     flagCount={flagCountByDefId.get(def.id) ?? 0}
@@ -339,25 +345,33 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
 }
 
 function FormRow({
-  def, complete, studentsDone, totalStudents, flagCount,
+  def, complete, awaitingCosign, studentsDone, totalStudents, flagCount,
 }: {
   def: DefRow;
   complete: boolean;
+  awaitingCosign: boolean;
   studentsDone: string[];
   totalStudents: number;
   flagCount: number;
 }) {
+  // A form waiting on the second guardian's signature is submitted but not
+  // fully executed — show it as in-progress, not green "Complete".
+  const fullyComplete = complete && !awaitingCosign;
   return (
     <li>
       <Link
         href={`/forms-v2/${def.slug}`}
         className={`flex items-start gap-3 rounded-lg border px-4 py-3 transition ${
-          complete ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+          fullyComplete ? 'border-emerald-200 bg-emerald-50/40'
+            : awaitingCosign ? 'border-amber-200 bg-amber-50/40'
+            : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
         }`}
       >
         <div className="mt-0.5">
-          {complete ? (
+          {fullyComplete ? (
             <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+          ) : awaitingCosign ? (
+            <Clock className="h-5 w-5 text-amber-500" />
           ) : (
             <Circle className="h-5 w-5 text-gray-300" />
           )}
@@ -376,7 +390,11 @@ function FormRow({
                   Draft
                 </span>
               ) : null}
-              {complete ? (
+              {awaitingCosign ? (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800">
+                  <Clock className="inline h-3 w-3 mr-0.5" /> Awaiting co-signer
+                </span>
+              ) : fullyComplete ? (
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
                   Complete
                 </span>

@@ -56,6 +56,10 @@ export const config = {
     // and bounces to /login, defeating the whole point of the link. The
     // route's own "(DEMO)" display-name guard is the security boundary —
     // it can only ever resolve a demo family, never a real one.
-    '/((?!login|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|_next/static|_next/image|favicon.ico|robots.txt).*)',
+    // `cosign` + `api/portal-forms/cosign` excluded: the counter-signature
+    // page is used by a second guardian who has no parent account — auth is
+    // the secure cosign_token emailed to them (same public-token model as
+    // /pay). The general api/portal-forms/submit route stays guarded.
+    '/((?!login|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|cosign|api/portal-forms/cosign|_next/static|_next/image|favicon.ico|robots.txt).*)',
   ],
 };

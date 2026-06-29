@@ -36,6 +36,12 @@ import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { createInvoiceForFormSubmission } from '@/lib/billing/create-form-invoice';
 import { diffResponses, capDiff } from '@/lib/forms/response-diff';
 import { createEnrollmentInvoices } from '@/lib/billing/create-enrollment-invoices';
+import crypto from 'node:crypto';
+import {
+  isCoSignRequired,
+  COSIGNER_NAME_FIELD,
+  COSIGNER_EMAIL_FIELD,
+} from '@/lib/forms/cosign';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -685,12 +691,29 @@ export async function POST(request: NextRequest) {
     ? 'pending_payment'
     : 'submitted';
 
+  // ── Co-sign (DocuSign-style counter-signature). When the agreement's
+  //    LDMA answer says the guardians share JOINT legal authority, Parent 1's
+  //    submission is saved but NOT fully executed: we mint a token, mark the
+  //    row 'awaiting', and email Parent 2 a link to add their signature. The
+  //    school-office notification + completion effects are deferred until the
+  //    co-signer signs. Addenda don't re-trigger routing.
+  const coSignRequired = !isAddendum && isCoSignRequired(responses);
+  const cosignEmail = String(responses[COSIGNER_EMAIL_FIELD] ?? '').trim().toLowerCase();
+  const cosignName = String(responses[COSIGNER_NAME_FIELD] ?? '').trim();
+  const cosignToken = (coSignRequired && cosignEmail)
+    ? crypto.randomBytes(24).toString('base64url')
+    : null;
+  const cosignStatus = cosignToken ? 'awaiting' : null;
+  const deferForCosign = cosignStatus === 'awaiting';
+
   const { rows: insRows } = await query<{ id: string }>(
     `INSERT INTO portal_form_submissions
        (school_id, form_definition_id, family_id, parent_id, student_id,
         academic_year, responses, status, fee_amount_charged, ip_address, user_agent,
-        is_addendum, parent_submission_id, addendum_fields)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
+        is_addendum, parent_submission_id, addendum_fields,
+        cosign_status, cosign_email, cosign_name, cosign_token, cosign_sent_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14,
+        $15, $16, $17, $18, ${cosignStatus ? 'now()' : 'NULL'})
      RETURNING id`,
     [
       session.school_id, def.id, session.family_id, session.parent_id, studentId,
@@ -699,9 +722,30 @@ export async function POST(request: NextRequest) {
       ip, userAgent,
       isAddendum, validParentSubmissionId,
       isAddendum && addendumFields.length > 0 ? addendumFields : null,
+      cosignStatus, cosignStatus ? cosignEmail : null, cosignStatus ? cosignName : null, cosignToken,
     ],
   );
   const submissionId = insRows[0].id;
+
+  // Fire the co-sign request email to Parent 2 (fire-and-forget). The link
+  // points at the SAME host the parent used (custom domain or vercel), so
+  // Parent 2 lands on the same branded portal.
+  if (deferForCosign) {
+    const proto = request.headers.get('x-forwarded-proto') ?? 'https';
+    const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? new URL(request.url).host;
+    const cosignUrl = `${proto}://${host}/cosign/${cosignToken}`;
+    import('@/lib/forms/cosign-email').then((m) =>
+      m.sendCoSignRequestEmail({
+        schoolId: session.school_id,
+        to: cosignEmail,
+        cosignerName: cosignName,
+        submitterParentId: session.parent_id,
+        studentId,
+        formDisplayName: def.display_name,
+        cosignUrl,
+      })
+    ).catch((e) => console.error('[portal-forms/submit] cosign request email failed:', e));
+  }
 
   // If this submission came in via an operator invite, mark the invite
   // consumed so it can't be re-used. Best-effort — never blocks submit.
@@ -970,37 +1014,45 @@ export async function POST(request: NextRequest) {
   //     - Office notification email → notify_emails
   //     - Webhook fan-out → webhook_urls
   // Both are fire-and-forget; they NEVER block the parent's redirect.
-  import('@/lib/forms/post-submit-effects').then((m) =>
-    m.firePostSubmitEffects({
-      submissionId,
-      schoolId: session.school_id,
-      formId: def.id,
-      formSlug: def.slug,
-      formDisplayName: def.display_name,
-      formCategory: def.category,
-      familyId: session.family_id,
-      parentId: session.parent_id,
-      studentId,
-      responses,
-      // Mute when notifications_enabled is explicitly false — preserves
-      // the notify_emails list for later re-enable without re-typing.
-      notifyEmails: def.notifications_enabled === false ? null : (def.notify_emails ?? null),
-      webhookUrls: def.webhook_urls ?? null,
-    })
-  ).catch((e) => console.error('[portal-forms/submit] post-submit effects scheduling failed:', e));
+  //
+  // DEFERRED for co-sign: when a second guardian still has to sign, the
+  // agreement isn't fully executed yet — so we hold the office notification
+  // and completion-tag effects until the co-signer signs (fired from the
+  // co-sign API instead). Otherwise the office would be pinged "complete"
+  // before it actually is.
+  if (!deferForCosign) {
+    import('@/lib/forms/post-submit-effects').then((m) =>
+      m.firePostSubmitEffects({
+        submissionId,
+        schoolId: session.school_id,
+        formId: def.id,
+        formSlug: def.slug,
+        formDisplayName: def.display_name,
+        formCategory: def.category,
+        familyId: session.family_id,
+        parentId: session.parent_id,
+        studentId,
+        responses,
+        // Mute when notifications_enabled is explicitly false — preserves
+        // the notify_emails list for later re-enable without re-typing.
+        notifyEmails: def.notifications_enabled === false ? null : (def.notify_emails ?? null),
+        webhookUrls: def.webhook_urls ?? null,
+      })
+    ).catch((e) => console.error('[portal-forms/submit] post-submit effects scheduling failed:', e));
 
-  // 14. If this submission brings the family to 100% completion, write
-  //     the school's configured "forms completed" tag to every active
-  //     parent's GHL contact. Wooster uses this to power their
-  //     "forms completed - 26/27" segmentation. Opt-in per school via
-  //     school_branding.completion_tag — empty → no-op. Fire-and-forget,
-  //     idempotent on the GHL side, never blocks the parent's redirect.
-  import('@/lib/forms/completion-tag').then((m) =>
-    m.maybeApplyCompletionTag({
-      schoolId: session.school_id,
-      familyId: session.family_id,
-    })
-  ).catch((e) => console.error('[portal-forms/submit] completion-tag effect failed:', e));
+    // 14. If this submission brings the family to 100% completion, write
+    //     the school's configured "forms completed" tag to every active
+    //     parent's GHL contact. Wooster uses this to power their
+    //     "forms completed - 26/27" segmentation. Opt-in per school via
+    //     school_branding.completion_tag — empty → no-op. Fire-and-forget,
+    //     idempotent on the GHL side, never blocks the parent's redirect.
+    import('@/lib/forms/completion-tag').then((m) =>
+      m.maybeApplyCompletionTag({
+        schoolId: session.school_id,
+        familyId: session.family_id,
+      })
+    ).catch((e) => console.error('[portal-forms/submit] completion-tag effect failed:', e));
+  }
 
   return NextResponse.json({
     id: submissionId,

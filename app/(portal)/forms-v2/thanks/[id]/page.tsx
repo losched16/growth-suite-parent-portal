@@ -32,6 +32,10 @@ interface ResultRow {
   student_preferred: string | null;
   student_grade: string | null;
   student_sid: string | null;
+  // Co-sign state: 'awaiting' until the second guardian signs.
+  cosign_status: string | null;
+  cosign_name: string | null;
+  cosign_email: string | null;
 }
 
 export default async function FormThanksPage({ params }: { params: Params }) {
@@ -50,7 +54,10 @@ export default async function FormThanksPage({ params }: { params: Params }) {
             st.last_name AS student_last,
             st.preferred_name AS student_preferred,
             st.metadata->>'grade_level' AS student_grade,
-            st.metadata->>'student_id' AS student_sid
+            st.metadata->>'student_id' AS student_sid,
+            s.cosign_status,
+            s.cosign_name,
+            s.cosign_email
        FROM portal_form_submissions s
        JOIN portal_form_definitions d ON d.id = s.form_definition_id
        LEFT JOIN students st ON st.id = s.student_id AND st.school_id = s.school_id
@@ -78,6 +85,16 @@ export default async function FormThanksPage({ params }: { params: Params }) {
             </p>
           </div>
         </div>
+
+        {r.cosign_status === 'awaiting' ? (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="font-semibold mb-1">One more signature needed</div>
+            We&rsquo;ve emailed{r.cosign_name ? <> <strong>{r.cosign_name}</strong></> : ' the second parent/guardian'}
+            {r.cosign_email ? <> at <span className="font-mono">{r.cosign_email}</span></> : null} a secure link to review
+            and add their signature. <strong>The enrollment isn&rsquo;t final until they sign.</strong> You&rsquo;ll get an
+            email once it&rsquo;s fully complete.
+          </div>
+        ) : null}
 
         {r.confirmation_message ? (
           <div className="rounded-md bg-zinc-50 border border-zinc-200 px-4 py-3 text-sm text-zinc-800 whitespace-pre-wrap">

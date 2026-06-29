@@ -9,8 +9,10 @@
 
 // LDMA select values (on the enrollment agreement) that mean BOTH guardians
 // share legal decision-making authority → both must sign. Anything else
-// ("sole" authority, "other") is a single signature.
+// ("sole" authority, "other") is a single signature. Keep this in sync with
+// the `ldma` field's option values on the enrollment form.
 export const JOINT_LDMA_VALUES: ReadonlySet<string> = new Set([
+  'Parents/Guardians share joint LDMA (divorced)',
   'Parents/Guardians share joint LDMA (married)',
   'Parents/Guardians share joint LDMA (unmarried)',
 ]);

@@ -24,30 +24,14 @@ const NAV_ITEMS = [
   { href: '/help', label: 'Help', icon: HelpCircle },
 ];
 
-// Per-school nav-item hide list. Keyed by school_id. Values are the
-// `href` values from NAV_ITEMS above. Eventually this moves into
-// school_branding (or a new school_portal_config) so operators can
-// toggle it without a code change. Hardcoded for now while Wooster is
-// still in migration: we only want them seeing Family + Forms +
-// Documents until the rest of the modules are ready for them.
-const HIDDEN_NAV_BY_SCHOOL: Record<string, Set<string>> = {
-  // Montessori School of Wooster — keep them on Family + Forms + Documents
-  // until other modules are migration-ready for them. Adding /products
-  // explicitly so it doesn't appear until Wooster opts in.
-  '2c944223-b2ad-45e1-8ba4-a4b616e4c29a': new Set([
-    '/attendance', '/messages', '/tuition', '/billing', '/financial-aid', '/products',
-  ]),
-  // Media Children's House — hide Financial Aid, Attendance, and School
-  // Store (not used at launch).
-  'a6c4b2dd-050c-4bf9-893b-67106f0f20e8': new Set([
-    '/financial-aid', '/attendance', '/products',
-  ]),
-};
-
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const id = await requireParent();
   const b = id.branding;
-  const navItems = NAV_ITEMS.filter((item) => !(HIDDEN_NAV_BY_SCHOOL[id.school.id]?.has(item.href)));
+  // Per-school nav visibility — the school toggles these in the admin
+  // "Portal menus" settings (school_branding.portal_hidden_nav). Empty =
+  // every menu shows. Source of truth is the DB, not code.
+  const hidden = new Set(b.hidden_nav ?? []);
+  const navItems = NAV_ITEMS.filter((item) => !hidden.has(item.href));
 
   // Unread in-portal notification count → badge on the Notifications nav item.
   const { rows: unreadRows } = await query<{ n: string }>(

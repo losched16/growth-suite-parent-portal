@@ -109,7 +109,20 @@ export default async function FormPage({
   // the "no applicable students" guard below.
   const allStudents = await loadStudentsForFamily(id.parent.family_id);
   let students = allStudents;
-  if (def.per_student && def.applies_to) {
+  // Family's GHL contact tags (for applies_to.tag_match).
+  const { rows: tagRows } = await query<{ tag: string }>(
+    `SELECT DISTINCT t.tag FROM ghl_contact_tags t
+       JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
+      WHERE t.school_id = $1 AND p.family_id = $2`,
+    [id.parent.school_id, id.parent.family_id],
+  );
+  const familyTags = tagRows.map((r) => r.tag).filter(Boolean);
+  if (def.applies_to && !def.per_student && def.applies_to.tag_match?.length) {
+    // Family-level form gated by tag — block the whole family if no match
+    // (the "no applicable students" guard below renders the not-eligible state).
+    const have = new Set(familyTags.map((t) => t.toLowerCase()));
+    if (!def.applies_to.tag_match.some((t) => have.has(t.toLowerCase()))) students = [];
+  } else if (def.per_student && def.applies_to) {
     const sIds = allStudents.map((s) => s.id);
     const enrolMap = new Map<string, { tuitionGridName: string | null; addonKeys: string[] }>();
     if (sIds.length > 0) {
@@ -139,6 +152,7 @@ export default async function FormPage({
         metadata: (s.metadata ?? {}) as Record<string, unknown>,
         tuitionGridName: en?.tuitionGridName ?? null,
         enrollmentAddonKeys: en?.addonKeys ?? [],
+        tags: familyTags,
       };
       return studentMatchesAppliesTo(ctx, def.applies_to);
     });

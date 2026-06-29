@@ -29,6 +29,14 @@ export interface FormAppliesTo {
   // legacy "young community 3-day" variant some imports produced.
   program_match?: string[];
 
+  // Match against the family's GHL contact TAGS (synced from GHL into
+  // ghl_contact_tags). Case-insensitive, exact-tag (not substring).
+  // e.g. ["kindergarten"] shows the form only to families whose contact
+  // carries a "kindergarten" tag. This is the most direct lever for a
+  // school: tag the contact in GHL, list the tag here. GHL stays the
+  // source of truth for who sees what.
+  tag_match?: string[];
+
   // For each key, the student matches if their metadata[key] value
   // (lowercased) is one of the listed values (also lowercased).
   // e.g. { aftercare: ["before","after","both","full"] } matches any
@@ -62,6 +70,10 @@ export interface AppliesToContext {
   // student's active enrollment. Empty when joint-billed family has no
   // addons, or when no enrollment exists.
   enrollmentAddonKeys: string[];
+  // The family's GHL contact tags (union across the family's parent
+  // contacts, from ghl_contact_tags). Empty when none synced. Matched
+  // against rule.tag_match.
+  tags: string[];
 }
 
 export function studentMatchesAppliesTo(
@@ -88,6 +100,11 @@ export function studentMatchesAppliesTo(
     }
   }
 
+  if (rule.tag_match?.length && ctx.tags.length) {
+    const have = new Set(ctx.tags.map((t) => t.toLowerCase()));
+    if (rule.tag_match.some((t) => have.has(t.toLowerCase()))) return true;
+  }
+
   if (rule.metadata_match) {
     for (const [k, vals] of Object.entries(rule.metadata_match)) {
       const v = stringField(ctx.metadata[k]).toLowerCase();
@@ -110,6 +127,7 @@ function isEmptyRule(r: FormAppliesTo): boolean {
     (r.student_ids && r.student_ids.length > 0) ||
     (r.tuition_grid_match && r.tuition_grid_match.length > 0) ||
     (r.program_match && r.program_match.length > 0) ||
+    (r.tag_match && r.tag_match.length > 0) ||
     (r.metadata_match && Object.keys(r.metadata_match).length > 0) ||
     (r.addon_keys && r.addon_keys.length > 0)
   );

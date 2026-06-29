@@ -142,12 +142,29 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     }
   }
 
+  // The family's GHL contact tags (synced) — powers applies_to.tag_match.
+  const { rows: tagRows } = await query<{ tag: string }>(
+    `SELECT DISTINCT t.tag FROM ghl_contact_tags t
+       JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
+      WHERE t.school_id = $1 AND p.family_id = $2`,
+    [id.parent.school_id, id.parent.family_id],
+  );
+  const familyTags = tagRows.map((r) => r.tag).filter(Boolean);
+
   // Returns the subset of students this form is visible to.
   // For non-per_student (family-level) forms, applies_to is ignored —
   // there's no per-student concept there. Family-level forms always show.
   function applicableStudents(def: DefRow) {
-    if (!def.per_student) return students;
     if (!def.applies_to) return students;
+    if (!def.per_student) {
+      // Family-level form: the only applies_to lever that makes sense is
+      // tag_match (program/grade are per-student). Gate the whole family on
+      // the tag; forms without tag_match are unaffected (shown to all).
+      const want = def.applies_to.tag_match;
+      if (!want?.length) return students;
+      const have = new Set(familyTags.map((t) => t.toLowerCase()));
+      return want.some((t) => have.has(t.toLowerCase())) ? students : [];
+    }
     return students.filter((s) => {
       const enr = enrollmentCtxByStudent.get(s.id);
       const ctx: AppliesToContext = {
@@ -155,6 +172,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
         metadata: (s.metadata ?? {}) as Record<string, unknown>,
         tuitionGridName: enr?.tuitionGridName ?? null,
         enrollmentAddonKeys: enr?.addonKeys ?? [],
+        tags: familyTags,
       };
       return studentMatchesAppliesTo(ctx, def.applies_to);
     });

@@ -163,11 +163,18 @@ export async function POST(request: NextRequest) {
         [session.school_id, studentId],
       );
       const addons = Array.isArray(enr[0]?.addons) ? enr[0]!.addons : [];
+      const { rows: tg } = await query<{ tag: string }>(
+        `SELECT DISTINCT t.tag FROM ghl_contact_tags t
+           JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
+          WHERE t.school_id = $1 AND p.family_id = $2`,
+        [session.school_id, session.family_id],
+      );
       const ctx: AppliesToContext = {
         studentId,
         metadata: (sRows[0].metadata ?? {}) as Record<string, unknown>,
         tuitionGridName: enr[0]?.tuition_grid_name ?? null,
         enrollmentAddonKeys: addons.map((a) => a?.key).filter((k): k is string => typeof k === 'string'),
+        tags: tg.map((r) => r.tag).filter(Boolean),
       };
       if (!studentMatchesAppliesTo(ctx, def.applies_to)) {
         return NextResponse.json(
@@ -176,6 +183,26 @@ export async function POST(request: NextRequest) {
           { status: 403 },
         );
       }
+    }
+  }
+
+  // 2b. Family-level tag gate for non-per-student forms (per-student forms
+  //     are validated above). Enforces applies_to.tag_match against a direct
+  //     POST for a family-level form.
+  if (!def.per_student && def.applies_to?.tag_match?.length) {
+    const { rows: tg } = await query<{ tag: string }>(
+      `SELECT DISTINCT t.tag FROM ghl_contact_tags t
+         JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
+        WHERE t.school_id = $1 AND p.family_id = $2`,
+      [session.school_id, session.family_id],
+    );
+    const have = new Set(tg.map((r) => r.tag.toLowerCase()));
+    if (!def.applies_to.tag_match.some((t) => have.has(t.toLowerCase()))) {
+      return NextResponse.json(
+        { error: 'form_not_applicable_to_student',
+          detail: 'This form is not available to your family. Contact the school office if you think this is wrong.' },
+        { status: 403 },
+      );
     }
   }
 

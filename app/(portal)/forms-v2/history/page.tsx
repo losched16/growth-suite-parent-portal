@@ -30,13 +30,16 @@ interface SubRow {
   is_addendum: boolean;
   parent_submission_id: string | null;
   addendum_fields: string[] | null;
+  cosign_status: string | null;
+  cosign_name: string | null;
+  cosign_email: string | null;
 }
 
-type SearchParams = Promise<{ submitted?: string }>;
+type SearchParams = Promise<{ submitted?: string; msg?: string; err?: string }>;
 
 export default async function FormsHistoryPage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
-  const { submitted } = await searchParams;
+  const { submitted, msg, err } = await searchParams;
 
   const rows = (await query<SubRow>(
     `SELECT
@@ -57,7 +60,10 @@ export default async function FormsHistoryPage({ searchParams }: { searchParams:
        s.payment_status,
        s.is_addendum,
        s.parent_submission_id,
-       s.addendum_fields
+       s.addendum_fields,
+       s.cosign_status,
+       s.cosign_name,
+       s.cosign_email
      FROM portal_form_submissions s
      JOIN portal_form_definitions d ON d.id = s.form_definition_id
      LEFT JOIN students st ON st.id = s.student_id
@@ -91,6 +97,15 @@ export default async function FormsHistoryPage({ searchParams }: { searchParams:
       {submitted ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           Submitted! Your latest entry is at the top.
+        </div>
+      ) : null}
+      {msg === 'cosign_resent' ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Signature request re-sent.
+        </div>
+      ) : err === 'cosign_resend_failed' ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          We couldn&rsquo;t resend the email just now. Please contact the school office.
         </div>
       ) : null}
 
@@ -135,7 +150,18 @@ function HistoryRow({ r }: { r: SubRow }) {
           >
             {r.is_addendum ? '↳ ' : ''}{r.form_name}
           </Link>
-          <StatusBadge status={r.status} paymentStatus={r.payment_status} />
+          {r.cosign_status === 'awaiting' ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800">
+              Awaiting co-signer
+            </span>
+          ) : (
+            <StatusBadge status={r.status} paymentStatus={r.payment_status} />
+          )}
+          {r.cosign_status === 'signed' ? (
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+              ✓ Both signatures
+            </span>
+          ) : null}
           {r.is_addendum ? (
             <span
               className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800"
@@ -161,13 +187,28 @@ function HistoryRow({ r }: { r: SubRow }) {
             <AlertTriangle className="h-3 w-3" /> Voided: {r.voided_reason}
           </div>
         ) : null}
+        {r.cosign_status === 'awaiting' ? (
+          <div className="mt-1 text-[11px] text-amber-700">
+            Waiting on {r.cosign_name || 'the second guardian'}{r.cosign_email ? <> (<span className="font-mono">{r.cosign_email}</span>)</> : null} to sign.
+          </div>
+        ) : null}
       </div>
-      <Link
-        href={`/forms-v2/print/${r.id}`}
-        className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50"
-      >
-        <Printer className="h-3 w-3" /> View / print
-      </Link>
+      <div className="flex items-center gap-2">
+        {r.cosign_status === 'awaiting' ? (
+          <form action="/api/portal-forms/cosign/resend" method="POST">
+            <input type="hidden" name="submission_id" value={r.id} />
+            <button type="submit" className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50">
+              Resend signature request
+            </button>
+          </form>
+        ) : null}
+        <Link
+          href={`/forms-v2/print/${r.id}`}
+          className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50"
+        >
+          <Printer className="h-3 w-3" /> View / print
+        </Link>
+      </div>
     </li>
   );
 }

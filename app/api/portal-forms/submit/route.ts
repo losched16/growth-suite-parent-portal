@@ -743,15 +743,19 @@ export async function POST(request: NextRequest) {
   );
   const submissionId = insRows[0].id;
 
-  // Fire the co-sign request email to Parent 2 (fire-and-forget). The link
-  // points at the SAME host the parent used (custom domain or vercel), so
-  // Parent 2 lands on the same branded portal.
+  // Send the co-sign request email to Parent 2. AWAITED (not fire-and-forget)
+  // so the serverless function can't be frozen before the email actually
+  // goes out — this is THE critical email of the flow. The link points at the
+  // same host the parent used (custom domain or vercel) so Parent 2 lands on
+  // the same branded portal. A failure is logged but never blocks the submit
+  // (the office can resend from the awaiting state).
   if (deferForCosign) {
     const proto = request.headers.get('x-forwarded-proto') ?? 'https';
     const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? new URL(request.url).host;
     const cosignUrl = `${proto}://${host}/cosign/${cosignToken}`;
-    import('@/lib/forms/cosign-email').then((m) =>
-      m.sendCoSignRequestEmail({
+    try {
+      const m = await import('@/lib/forms/cosign-email');
+      await m.sendCoSignRequestEmail({
         schoolId: session.school_id,
         to: cosignEmail,
         cosignerName: cosignName,
@@ -759,8 +763,10 @@ export async function POST(request: NextRequest) {
         studentId,
         formDisplayName: def.display_name,
         cosignUrl,
-      })
-    ).catch((e) => console.error('[portal-forms/submit] cosign request email failed:', e));
+      });
+    } catch (e) {
+      console.error('[portal-forms/submit] cosign request email failed:', e);
+    }
   }
 
   // If this submission came in via an operator invite, mark the invite

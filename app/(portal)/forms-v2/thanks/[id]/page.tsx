@@ -16,6 +16,7 @@ import { readSession } from '@/lib/identity';
 export const dynamic = 'force-dynamic';
 
 type Params = Promise<{ id: string }>;
+type SearchParams = Promise<{ msg?: string; err?: string }>;
 
 interface ResultRow {
   submission_id: string;
@@ -38,11 +39,21 @@ interface ResultRow {
   cosign_email: string | null;
 }
 
-export default async function FormThanksPage({ params }: { params: Params }) {
+export default async function FormThanksPage({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
   const session = await readSession();
   if (!session) redirect('/login');
 
   const { id } = await params;
+  const { msg, err } = await searchParams;
+  const msgBanner = msg === 'cosign_resent' ? (
+    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+      Signature request re-sent.
+    </div>
+  ) : err === 'cosign_resend_failed' ? (
+    <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      We couldn&rsquo;t resend the email just now. Please contact the school office.
+    </div>
+  ) : null;
 
   const { rows } = await query<ResultRow>(
     `SELECT s.id AS submission_id, s.is_test, s.family_id,
@@ -104,8 +115,16 @@ export default async function FormThanksPage({ params }: { params: Params }) {
             {r.cosign_email ? <> at <span className="font-mono">{r.cosign_email}</span></> : null} a secure link to review
             and add their signature. <strong>The enrollment isn&rsquo;t final until they sign.</strong> You&rsquo;ll get an
             email once it&rsquo;s fully complete.
+            <form action="/api/portal-forms/cosign/resend" method="POST" className="mt-2">
+              <input type="hidden" name="submission_id" value={r.submission_id} />
+              <button type="submit" className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100">
+                Didn&rsquo;t get it? Resend the email
+              </button>
+            </form>
           </div>
         ) : null}
+
+        {msgBanner}
 
         {r.confirmation_message ? (
           <div className="rounded-md bg-zinc-50 border border-zinc-200 px-4 py-3 text-sm text-zinc-800 whitespace-pre-wrap">

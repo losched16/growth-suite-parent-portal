@@ -21,6 +21,10 @@ interface StudentSummary {
   preferred_name: string | null;
   classroom_name: string | null;
   enrollment_status: string | null;
+  // Surfaced so the family can always re-find the grade + Student ID they
+  // need for FACTS tuition setup — not just on the post-submit thanks page.
+  grade_level: string | null;
+  student_id: string | null;
 }
 
 interface ParentSummary {
@@ -49,12 +53,14 @@ export default async function HomePage() {
   const familyId = id.family.id;
   const schoolId = id.parent.school_id;
 
-  const [studentRows, parentRows, pendingForms] = await Promise.all([
+  const [studentRows, parentRows, pendingForms, factsRows] = await Promise.all([
     query<StudentSummary>(
       `SELECT
          s.id, s.first_name, s.last_name, s.preferred_name,
          c.name AS classroom_name,
-         e.status AS enrollment_status
+         e.status AS enrollment_status,
+         s.metadata->>'grade_level' AS grade_level,
+         s.metadata->>'student_id' AS student_id
        FROM students s
        LEFT JOIN LATERAL (
          SELECT status, classroom_id FROM enrollments e2
@@ -77,10 +83,28 @@ export default async function HomePage() {
     // Categorize by per_student vs. per_family so the banner can show
     // which students still need to be covered.
     loadPendingForms({ schoolId, familyId }),
+    // The enrollment form's confirmation message doubles as the school's
+    // tuition-setup (FACTS) instructions. We re-show it on Home so a parent
+    // who already submitted can come back and find their grade, Student ID,
+    // and the payment-portal link any time — not just on the thanks page.
+    query<{ confirmation_message: string | null }>(
+      `SELECT confirmation_message
+         FROM portal_form_definitions
+        WHERE school_id = $1 AND is_active = true
+          AND confirmation_message IS NOT NULL AND confirmation_message <> ''
+        ORDER BY (category = 'enrollment') DESC, updated_at DESC
+        LIMIT 1`,
+      [schoolId],
+    ),
   ]);
 
   const students = studentRows.rows;
   const parents = parentRows.rows;
+  const factsInstructions = factsRows.rows[0]?.confirmation_message ?? null;
+  // Only show the FACTS card once the school has actually assigned Student
+  // IDs (DGM generates these). Avoids a confusing empty card elsewhere.
+  const studentsWithId = students.filter((s) => s.student_id && s.student_id.trim());
+  const showFactsCard = factsInstructions != null && studentsWithId.length > 0;
   const studentNames = students
     .map((s) => s.preferred_name || s.first_name)
     .join(', ');
@@ -152,6 +176,37 @@ export default async function HomePage() {
         </section>
       ) : null}
 
+      {/* Tuition / FACTS setup — persistent so a parent can always come
+          back for their child's grade, Student ID, and the payment link. */}
+      {showFactsCard ? (
+        <section className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+          <h2 className="text-sm font-semibold text-emerald-900">Setting up tuition payments</h2>
+          <div className="mt-2 overflow-hidden rounded-md border border-emerald-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-emerald-50 text-left text-[11px] uppercase tracking-wide text-emerald-700">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Student</th>
+                  <th className="px-3 py-2 font-medium">Grade</th>
+                  <th className="px-3 py-2 font-medium">Student ID</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-emerald-50">
+                {studentsWithId.map((s) => (
+                  <tr key={s.id}>
+                    <td className="px-3 py-2 font-medium text-gray-900">
+                      {s.preferred_name ? `${s.preferred_name} (${s.first_name})` : s.first_name} {s.last_name}
+                    </td>
+                    <td className="px-3 py-2 text-gray-700">{s.grade_level || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-gray-700">{s.student_id}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 whitespace-pre-wrap text-sm text-emerald-900">{factsInstructions}</p>
+        </section>
+      ) : null}
+
       {/* Quick stats grid */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <SummaryCard label="Students" value={String(students.length)} href="/family" icon={<Users className="h-4 w-4" />} />
@@ -182,7 +237,9 @@ export default async function HomePage() {
                   </div>
                   <div className="text-xs text-gray-500">
                     {s.classroom_name ?? 'Unassigned'}
+                    {s.grade_level ? ` · Grade ${s.grade_level}` : ''}
                     {s.enrollment_status ? ` · ${s.enrollment_status}` : ''}
+                    {s.student_id ? <> · ID <span className="font-mono">{s.student_id}</span></> : null}
                   </div>
                 </div>
                 <Link href={`/family#student-${s.id}`} className="text-gray-400 hover:text-gray-600">

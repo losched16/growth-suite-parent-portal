@@ -238,7 +238,10 @@ export default async function HomePage() {
                   <div className="text-xs text-gray-500">
                     {s.classroom_name ?? 'Unassigned'}
                     {s.grade_level ? ` · Grade ${s.grade_level}` : ''}
-                    {s.enrollment_status ? ` · ${s.enrollment_status}` : ''}
+                    {/* Internal enrollment status (often defaults to "enrolled"
+                        for brand-new contacts) is admin-facing — not shown to
+                        parents, where it would misleadingly label a new family
+                        "enrolled" before they've actually enrolled. */}
                     {s.student_id ? <> · ID <span className="font-mono">{s.student_id}</span></> : null}
                   </div>
                 </div>

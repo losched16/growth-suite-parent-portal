@@ -1758,7 +1758,11 @@ function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<Fo
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
-  if (block.readOnly === true) {
+  // Lock when explicitly readOnly, OR when lock_if_prefilled is set AND we
+  // actually have a value (existing families) — new families get the
+  // editable dropdown to fill it in.
+  const locked = block.readOnly === true || (block.lock_if_prefilled === true && !!defaultValue);
+  if (locked) {
     const opt = block.options.find((o) => o.value === defaultValue);
     return <LockedChoice name={block.key} value={defaultValue} label={opt?.label ?? ''} />;
   }
@@ -1776,7 +1780,8 @@ function RadioGroup({ block, prefillCtx, legacyResponses }: { block: Extract<For
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
-  if (block.readOnly === true) {
+  const locked = block.readOnly === true || (block.lock_if_prefilled === true && !!defaultValue);
+  if (locked) {
     const opt = block.options.find((o) => o.value === defaultValue);
     return <LockedChoice name={block.key} value={defaultValue} label={opt?.label ?? ''} />;
   }

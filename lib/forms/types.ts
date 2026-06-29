@@ -47,6 +47,13 @@ interface BaseField {
   // can't edit it. Schools using readOnly should also set `prefill` so
   // there's something to display (an empty readOnly input is useless).
   readOnly?: boolean;
+  // Like readOnly, but ONLY when we actually have a value to lock to. If the
+  // resolved prefill is non-empty the field renders LOCKED (and the server
+  // re-applies the prefill truth, same anti-tamper as readOnly); if the
+  // prefill is empty it renders EDITABLE so the parent can complete it. Use
+  // for fields we know for existing families (and lock) but must collect
+  // from new families — e.g. Legal Decision-Making Authority.
+  lock_if_prefilled?: boolean;
   // When true, the field is DROPPED entirely if its resolved prefill value
   // is empty — instead of rendering a blank box. Use on optional, locked
   // line items that only apply to some students (e.g. a "Scholarship —

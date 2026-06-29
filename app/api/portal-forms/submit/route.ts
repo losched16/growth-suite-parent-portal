@@ -519,18 +519,34 @@ export async function POST(request: NextRequest) {
     .filter((b): b is FormFieldBlock & { key: string; readOnly?: boolean; prefill?: string } =>
       'key' in b && 'readOnly' in b && b.readOnly === true)
     .map((b) => b.key);
+  // `lock_if_prefilled` fields are locked ONLY when we have a value, so they
+  // need the truth re-applied too — but ONLY when the prefill resolves to
+  // something (existing families). When it's empty the field rendered
+  // editable (new families) and we must keep the parent's typed selection.
+  const hasLockIfPrefilled = def.field_schema.some(
+    (b) => 'key' in b
+      && (b as { lock_if_prefilled?: boolean }).lock_if_prefilled === true
+      && !!(b as { prefill?: string }).prefill,
+  );
   // Only re-resolve locked fields for EXISTING families (whose fields the
   // form renders read-only/pre-filled). For a brand-new family the same
   // fields render editable with no prefill, so overriding here would wipe
   // their typed selections — skip it.
-  if (readOnlyKeys.length > 0 && isExistingFamily) {
+  if ((readOnlyKeys.length > 0 && isExistingFamily) || hasLockIfPrefilled) {
     const ctx = await buildPrefillContextForSubmit(session.parent_id, studentId, session.school_id);
     for (const block of def.field_schema) {
-      if (!('key' in block)) continue;
-      if (!('readOnly' in block) || block.readOnly !== true) continue;
-      if (!block.prefill) continue; // readOnly with no prefill = nothing to lock to
-      const truth = resolvePrefill(block.prefill, ctx);
-      responses[block.key] = truth;
+      if (!('key' in block) || !('prefill' in block) || !block.prefill) continue;
+      const isReadOnly = 'readOnly' in block && block.readOnly === true;
+      const isLockIfPrefilled = (block as { lock_if_prefilled?: boolean }).lock_if_prefilled === true;
+      // readOnly → always re-apply (existing families only).
+      // lock_if_prefilled → re-apply ONLY when the truth is non-empty (it was
+      //   locked); a blank truth means the parent filled it in — keep theirs.
+      if (isReadOnly && isExistingFamily) {
+        responses[block.key] = resolvePrefill(block.prefill, ctx);
+      } else if (isLockIfPrefilled) {
+        const truth = resolvePrefill(block.prefill, ctx);
+        if (truth && String(truth).trim()) responses[block.key] = truth;
+      }
     }
   }
 

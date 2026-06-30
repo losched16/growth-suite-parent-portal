@@ -63,7 +63,11 @@ export async function POST(request: NextRequest) {
   // event.account to payment_accounts.stripe_account_id (NULL if no
   // match — typically only on the FIRST account.updated for a fresh
   // OAuth connect, before payment_accounts has been touched).
-  const stripeAccountId = event.account ?? null;
+  // event.account holds the connected-account id on classic Connect
+  // webhooks; Stripe's newer event destinations may instead convey it via
+  // the Stripe-Account header (or not at all). Fall back to the header so
+  // school resolution + logging keep working with both delivery styles.
+  const stripeAccountId = event.account ?? request.headers.get('stripe-account') ?? null;
   let resolvedSchoolId: string | null = null;
   if (stripeAccountId) {
     const r = await query<{ id: string }>(
@@ -444,28 +448,28 @@ async function handleChargeRefunded(ch: Stripe.Charge): Promise<void> {
 // our payment_methods table so the autopay engine + the parent's UI
 // can see it.
 //
-// `event.account` is the connected-account id (the school's Stripe
-// account). We use it to scope the lookup to the right school.
+// We resolve the (school, family) from the Stripe customer id, which we
+// cache in families.stripe_customer_ids — this is independent of whether the
+// event carries a connected-account id.
 async function handlePaymentMethodAttached(
   pm: Stripe.PaymentMethod,
   stripeAccountId: string | undefined,
 ): Promise<void> {
   if (!pm.customer || typeof pm.customer !== 'string') return; // unattached
-  if (!stripeAccountId) {
-    console.warn('[stripe/webhook] payment_method.attached without connected account id; skipping');
-    return;
-  }
+  void stripeAccountId; // resolution is by customer id (see below)
 
-  // Look up which (school, family) this Customer maps to. We stored the
-  // mapping in families.stripe_customer_ids as { school_id: cus_... }.
+  // Resolve which (school, family) this Customer maps to. We cache the
+  // mapping in families.stripe_customer_ids as { school_id: cus_... }. Match
+  // on the customer id alone — it is globally unique — so the save works even
+  // when the event doesn't carry a connected-account id (Stripe's newer event
+  // destinations don't always populate event.account).
   const { rows } = await query<{ school_id: string; family_id: string }>(
-    `SELECT s.id AS school_id, f.id AS family_id
+    `SELECT f.school_id AS school_id, f.id AS family_id
        FROM families f
-       JOIN payment_accounts pa ON pa.school_id = f.school_id
-       JOIN schools s ON s.id = f.school_id
-      WHERE pa.stripe_account_id = $1
-        AND f.stripe_customer_ids ->> s.id::text = $2`,
-    [stripeAccountId, pm.customer],
+       JOIN LATERAL jsonb_each_text(coalesce(f.stripe_customer_ids, '{}'::jsonb)) kv ON true
+      WHERE kv.value = $1
+      LIMIT 1`,
+    [pm.customer],
   );
   const m = rows[0];
   if (!m) {

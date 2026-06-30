@@ -143,12 +143,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
           // ── Sign-in mode ───────────────────────────────────────
           <form action="/api/auth/password-signin" method="POST" className="space-y-3">
             <input type="hidden" name="email" value={email} />
-            <div>
-              <div className="text-xs text-gray-500 mb-1 font-mono">{email}</div>
-              <Link href="/login" className="text-[11px] underline" style={{ color: 'var(--brand-fg)' }}>
-                use a different email
-              </Link>
-            </div>
+            <div className="text-xs text-gray-500 font-mono">{email}</div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mt-2">
               Password
             </label>
@@ -163,12 +158,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
           // ── First-time / set-password mode ─────────────────────
           <form action="/api/auth/password-set" method="POST" className="space-y-3">
             <input type="hidden" name="email" value={email} />
-            <div>
-              <div className="text-xs text-gray-500 mb-1 font-mono">{email}</div>
-              <Link href="/login" className="text-[11px] underline" style={{ color: 'var(--brand-fg)' }}>
-                use a different email
-              </Link>
-            </div>
+            <div className="text-xs text-gray-500 font-mono">{email}</div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mt-2">
               Create a password
             </label>

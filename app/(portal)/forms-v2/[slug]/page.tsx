@@ -574,6 +574,15 @@ export default async function FormPage({
       : null,
   };
 
+  // Change-request email shown on a locked (resubmission_allowed=false) form's
+  // lock state — the parent emails this for an amendment rather than self-editing.
+  const { rows: changeEmailRows } = await query<{ change_email: string | null }>(
+    `SELECT COALESCE(NULLIF(btrim(admin_change_notification_email), ''), NULLIF(btrim(support_email), '')) AS change_email
+       FROM school_branding WHERE school_id = $1`,
+    [id.parent.school_id],
+  );
+  const changeRequestEmail = changeEmailRows[0]?.change_email ?? null;
+
   return (
     <div className="space-y-5 max-w-3xl">
       <div>
@@ -675,6 +684,7 @@ export default async function FormPage({
               cardEnabled={cardEnabled}
               achEnabled={achEnabled}
               enrollmentFeePaidStudentIds={enrollmentFeePaidStudentIds}
+              changeRequestEmail={changeRequestEmail}
             />
           )}
         </>

@@ -114,6 +114,11 @@ interface Props {
   // a paid Growth Suite invoice). The payment schedule shows "Paid" for these
   // instead of a future charge.
   enrollmentFeePaidStudentIds?: string[];
+  // When set, a SUBMITTED form that can't be re-edited (resubmission_allowed
+  // = false) tells the parent to email this address for a change instead of
+  // showing an "Update my answers" button. DGM: admissions@ — the school
+  // pushes an amendment rather than letting parents self-edit the enrollment.
+  changeRequestEmail?: string | null;
 }
 
 export function FormRenderer({
@@ -129,6 +134,7 @@ export function FormRenderer({
   cardEnabled,
   achEnabled,
   enrollmentFeePaidStudentIds,
+  changeRequestEmail,
 }: Props) {
   const router = useRouter();
   // If we have an operator invite that targets a specific student, the
@@ -648,6 +654,10 @@ export function FormRenderer({
           && latest.submitter_parent_id !== currentParentId
         );
         if (!showLockState || !latest) return null;
+        // Re-editable forms keep the "Update my answers" flow. Forms locked
+        // after submission (resubmission_allowed=false, e.g. the enrollment
+        // agreement) instead tell the parent to email the office for a change.
+        const canUpdate = definition.resubmission_allowed !== false;
         return (
         <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-5">
           <div className="flex items-start gap-3">
@@ -664,21 +674,27 @@ export function FormRenderer({
                 {definition.per_student && selectedStudent
                   ? `${selectedStudent.preferred_name || selectedStudent.first_name}'s submission is on file with the school. `
                   : 'Your submission is on file with the school. '}
-                {latest.is_legacy
+                {!canUpdate
+                  ? <>This is final and can&rsquo;t be changed here. To request a change, {changeRequestEmail
+                      ? <>email <a href={`mailto:${changeRequestEmail}`} className="font-semibold underline">{changeRequestEmail}</a></>
+                      : <>contact the school office</>} and they&rsquo;ll send you an amendment form.</>
+                  : latest.is_legacy
                   ? <>Your previous answers aren&rsquo;t viewable here, but you can update them in the new portal if anything has changed.</>
                   : submittedByCoParent
                     ? <>Click <strong>Update my answers</strong> to make changes &mdash; the form below will be pre-filled with {latest.submitter_name ?? 'their'} answers. <strong>Anything you change will overwrite their entry.</strong></>
                     : <>Click <strong>Update my answers</strong> to review and change anything &mdash; your previous answers will be pre-filled.</>}
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={startUpdateMode}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800"
-                >
-                  <Edit3 className="h-3.5 w-3.5" /> Update my answers
-                </button>
-              </div>
+              {canUpdate ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={startUpdateMode}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" /> Update my answers
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

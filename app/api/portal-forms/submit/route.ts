@@ -583,6 +583,9 @@ export async function POST(request: NextRequest) {
     needs_review: false,
     payment_config: def.payment_config,
     allow_addendum: def.allow_addendum,
+    // Not relevant to payment evaluation (this object is only used for
+    // computing payment lines); submission-lock logic keys off `def` directly.
+    allow_multiple_submissions: false,
   };
   // Existing families never bill (review-and-sign), so skip the whole
   // payment path for them even when the form carries a payment_config.

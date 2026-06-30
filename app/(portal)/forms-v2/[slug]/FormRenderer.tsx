@@ -442,7 +442,11 @@ export function FormRenderer({
   const inUpdateMode = definition.per_student
     ? updateModeStudents.has(studentId)
     : familyUpdateMode;
-  const showLockState = (hasLegacy || hasNative) && !inUpdateMode;
+  // Forms that allow multiple independent submissions (e.g. Medication
+  // Authorization — one per medication) never lock: the parent always gets
+  // a fresh blank form to file another, and prior submissions are kept.
+  const allowMultiple = definition.allow_multiple_submissions;
+  const showLockState = (hasLegacy || hasNative) && !inUpdateMode && !allowMultiple;
 
   // Active flags for the current view
   const activeFlags: MigrationFlag[] = definition.per_student
@@ -619,6 +623,23 @@ export function FormRenderer({
           co-parent), the headline + body text adjusts so the current
           parent knows their changes will overwrite their co-parent's
           answers. Pairs with the in-form warning banner below. */}
+      {/* Multiple-submissions forms (e.g. Medication Authorization): no
+          lock, just a note of how many are already on file. The blank form
+          renders below so the parent can add another. */}
+      {allowMultiple && relevantExisting.length > 0 ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="h-5 w-5 text-emerald-700 mt-0.5" />
+            <p className="text-sm text-emerald-900">
+              You&rsquo;ve submitted this form <strong>{relevantExisting.length}</strong>{' '}
+              {relevantExisting.length === 1 ? 'time' : 'times'}
+              {definition.per_student && selectedStudent
+                ? <> for {selectedStudent.preferred_name || selectedStudent.first_name}</>
+                : null}. To add another, just fill out the form below — each one is saved separately.
+            </p>
+          </div>
+        </div>
+      ) : null}
       {(() => {
         const submittedByCoParent = !!(
           latest

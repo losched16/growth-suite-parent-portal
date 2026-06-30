@@ -384,6 +384,11 @@ export interface FormDefinition {
   // only changes specific fields. The original submission stays intact
   // and the addendum links back via parent_submission_id.
   allow_addendum: boolean;
+  // When true, the form is never "locked" after a submission — the parent
+  // always gets a fresh blank form so they can file additional INDEPENDENT
+  // submissions (e.g. one Medication Authorization per medication). Each
+  // submit is a new record; prior submissions are kept, not overwritten.
+  allow_multiple_submissions: boolean;
 }
 
 export function isDisplayOnlyBlock(b: FormFieldBlock): b is HeaderBlock | ParagraphBlock | SectionBlock {

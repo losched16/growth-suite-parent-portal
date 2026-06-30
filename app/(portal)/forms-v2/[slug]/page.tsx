@@ -40,6 +40,7 @@ interface FormDefRow {
   audience: string | null;
   payment_config: FormPaymentConfig | null;
   allow_addendum: boolean;
+  allow_multiple_submissions: boolean;
   applies_to: FormAppliesTo | null;
 }
 
@@ -92,7 +93,7 @@ export default async function FormPage({
     `SELECT id, slug, display_name, description, category, per_student,
             required_for, field_schema, fee_amount, one_submission_per_year,
             resubmission_allowed, needs_review, is_active, audience, payment_config,
-            allow_addendum, applies_to
+            allow_addendum, allow_multiple_submissions, applies_to
      FROM portal_form_definitions
      WHERE school_id = $1 AND slug = $2`,
     [id.parent.school_id, slug],
@@ -539,6 +540,7 @@ export default async function FormPage({
     needs_review: def.needs_review,
     payment_config: def.payment_config,
     allow_addendum: def.allow_addendum,
+    allow_multiple_submissions: def.allow_multiple_submissions,
   };
 
   const parentCtx: PrefillContext['parent'] = {

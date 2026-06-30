@@ -8,7 +8,11 @@
 //   - charge.refunded         → record refund
 //   - invoice.* (later phases)
 //
-// Signature verification uses STRIPE_WEBHOOK_SECRET.
+// Signature verification accepts STRIPE_WEBHOOK_SECRET (the platform-account
+// endpoint) OR STRIPE_CONNECT_WEBHOOK_SECRET (the Connect endpoint that
+// listens to events on connected accounts — required for payment_method.
+// attached, connected-account charges, etc.). We try each so one URL can
+// serve both endpoints without breaking either.
 //
 // Note: This endpoint is excluded from session auth via Next.js route
 // matchers — Stripe needs to hit it without cookies.
@@ -28,9 +32,15 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) {
-    console.error('[stripe/webhook] STRIPE_WEBHOOK_SECRET not set');
+  // Accept either the platform-account secret or the Connect-endpoint
+  // secret (events from connected accounts arrive signed with the Connect
+  // endpoint's secret). Try each; verification just needs one to pass.
+  const secrets = [
+    process.env.STRIPE_WEBHOOK_SECRET,
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
+  ].filter((s): s is string => !!s);
+  if (secrets.length === 0) {
+    console.error('[stripe/webhook] no STRIPE_WEBHOOK_SECRET / STRIPE_CONNECT_WEBHOOK_SECRET set');
     return NextResponse.json({ error: 'misconfigured' }, { status: 500 });
   }
 
@@ -38,11 +48,13 @@ export async function POST(request: NextRequest) {
   if (!sig) return NextResponse.json({ error: 'missing_signature' }, { status: 400 });
 
   const rawBody = await request.text();
-  let event: Stripe.Event;
-  try {
-    event = stripe().webhooks.constructEvent(rawBody, sig, secret);
-  } catch (err) {
-    console.error('[stripe/webhook] signature verify failed:', err);
+  let event: Stripe.Event | null = null;
+  for (const s of secrets) {
+    try { event = stripe().webhooks.constructEvent(rawBody, sig, s); break; }
+    catch { /* try the next secret */ }
+  }
+  if (!event) {
+    console.error('[stripe/webhook] signature verify failed against all configured secrets');
     return NextResponse.json({ error: 'invalid_signature' }, { status: 400 });
   }
 

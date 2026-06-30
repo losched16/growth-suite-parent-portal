@@ -2068,7 +2068,7 @@ function PricingSelect({
         </div>
       ) : null}
       {visibleOptions.map((o) => {
-        const labelText = block.show_price_in_label
+        const labelText = block.show_price_in_label && o.amount_cents
           ? `${o.label} — ${fmtCents(o.amount_cents)}`
           : o.label;
         return (
@@ -2087,7 +2087,7 @@ function PricingSelect({
               />
               <span className="text-gray-900">{labelText}</span>
             </span>
-            {!block.show_price_in_label ? (
+            {!block.show_price_in_label && o.amount_cents ? (
               <span className="text-xs font-semibold tabular-nums text-emerald-700">
                 {fmtCents(o.amount_cents)}
               </span>

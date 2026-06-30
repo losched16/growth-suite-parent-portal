@@ -97,6 +97,7 @@ export function computeFees(input: {
 }
 
 export function fmtCents(cents: number): string {
-  const n = (cents / 100).toFixed(2);
-  return `$${n}`;
+  // Thousands separators + currency formatting, e.g. 1625000 -> "$16,250.00".
+  // (Previously "$16250.00" — no comma, which looked unpolished on forms.)
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }

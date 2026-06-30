@@ -99,6 +99,10 @@ function deriveEaFallback(eaKey: string, ctx: PrefillContext): string {
     case 'ea_pg1_mobile_phone': return g1?.phone ?? '';
     case 'ea_pg2_first_name':   return g2?.first_name ?? '';
     case 'ea_pg2_last_name':    return g2?.last_name ?? '';
+    // Combined P2 full name — used to prefill the co-sign "full legal name"
+    // field so the co-signing parent's name auto-fills from the contact
+    // (Parent 1 doesn't re-type it) when LDMA is joint.
+    case 'ea_pg2_full_name':    return g2 ? [g2.first_name, g2.last_name].filter(Boolean).join(' ').trim() : '';
     case 'ea_pg2_home_email':   return g2?.email ?? '';
     case 'ea_pg2_home_phone':
     case 'ea_pg2_mobile_phone': return g2?.phone ?? '';

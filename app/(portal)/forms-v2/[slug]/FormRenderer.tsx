@@ -1599,9 +1599,10 @@ function FieldShell({
         {locked ? (
           <span
             title="This value is set by the school. To change it, please contact the office."
-            className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 border border-amber-200"
+            className="text-xs text-amber-700"
+            aria-label="Set by the school"
           >
-            🔒 set by school
+            🔒
           </span>
         ) : null}
       </span>

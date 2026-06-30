@@ -81,9 +81,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
 
   const email = sp.email.trim().toLowerCase();
 
-  // Look up whether this email has a password set. We DON'T disclose
-  // existence — if the email isn't on file, we still show the "Create
-  // your password" form, and the POST silently no-ops.
+  // Password creation is LOCKED to the contacts DB: an email only gets a
+  // sign-in or create-password form if it matches an active parent record.
+  // An unknown email gets a clear "not on file" message — we never show a
+  // create-password form for an address the school doesn't have (which
+  // misled testers into thinking any email could make an account).
   const { rows } = await query<{ has_password: boolean }>(
     `SELECT (password_hash IS NOT NULL) AS has_password
        FROM parents
@@ -92,6 +94,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
       LIMIT 1`,
     [email],
   );
+  const onFile = rows.length > 0;
   const hasPassword = rows[0]?.has_password === true;
 
   return (
@@ -102,9 +105,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
       <div className="w-full max-w-md">
         <Header
           appName={appName}
-          subtitle={hasPassword
-            ? `Welcome back. Sign in to continue.`
-            : `First time here? Set a password so you can sign in any time.`}
+          subtitle={!onFile
+            ? `We don't have that email on file.`
+            : hasPassword
+              ? `Welcome back. Sign in to continue.`
+              : `First time here? Set a password so you can sign in any time.`}
           branding={branding}
         />
 
@@ -118,7 +123,23 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
           <ErrorBanner>Passwords didn&rsquo;t match. Try again.</ErrorBanner>
         ) : null}
 
-        {hasPassword ? (
+        {!onFile ? (
+          // ── Not on file — locked to the contacts DB ────────────
+          <div className="space-y-3">
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              We don&rsquo;t have <span className="font-mono">{email}</span> on file. Please sign in with the
+              email address your school has on record for you. If you think this is a mistake, contact the
+              school office{branding?.support_email ? <> at <a href={`mailto:${branding.support_email}`} className="underline" style={{ color: 'var(--brand-fg)' }}>{branding.support_email}</a></> : ''}.
+            </div>
+            <Link
+              href="/login"
+              className="inline-block rounded-md px-3 py-2 text-sm font-medium text-white"
+              style={{ background: 'var(--brand)' }}
+            >
+              Try a different email
+            </Link>
+          </div>
+        ) : hasPassword ? (
           // ── Sign-in mode ───────────────────────────────────────
           <form action="/api/auth/password-signin" method="POST" className="space-y-3">
             <input type="hidden" name="email" value={email} />

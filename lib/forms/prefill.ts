@@ -106,6 +106,17 @@ function deriveEaFallback(eaKey: string, ctx: PrefillContext): string {
     case 'ea_pg1_city':   return m('city')   || m('student_city');
     case 'ea_pg1_state':  return m('state')  || m('student_state');
     case 'ea_pg1_zip':    return m('zip')    || m('student_zip');
+    // Pre-check the "add a second parent/guardian" box when the family
+    // actually has a co-parent synced from GHL, so the (already-prefilled)
+    // Parent/Guardian 2 section reads as included rather than blank-and-off.
+    case 'ea_pg2_present': return g2 ? '1' : '';
+    // Parent/Guardian 2 shares the family/contact address (one address per
+    // GHL contact). Prefill it like pg1 so the 2nd guardian fills in "as
+    // well"; the parent can edit it if the co-parent lives elsewhere.
+    case 'ea_pg2_street': return g2 ? (m('street') || m('student_street')) : '';
+    case 'ea_pg2_city':   return g2 ? (m('city')   || m('student_city'))   : '';
+    case 'ea_pg2_state':  return g2 ? (m('state')  || m('student_state'))  : '';
+    case 'ea_pg2_zip':    return g2 ? (m('zip')    || m('student_zip'))    : '';
   }
   // Generic: ea_<base> → the GHL-synced metadata base key (drop the ea_).
   const base = eaKey.slice(3);

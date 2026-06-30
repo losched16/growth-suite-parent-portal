@@ -1527,7 +1527,7 @@ function BlockRenderer({
     case 'radio':
       return <FieldShell block={block}><RadioGroup block={block} prefillCtx={prefillCtx} legacyResponses={legacyResponses} /></FieldShell>;
     case 'checkbox':
-      return <SingleCheckbox block={block} legacyResponses={legacyResponses} />;
+      return <SingleCheckbox block={block} prefillCtx={prefillCtx} legacyResponses={legacyResponses} />;
     case 'multi_checkbox':
       // student_specific=true (and >1 student) → render one full checkbox
       // set per student, each labeled with the kid's name. Lets Wooster's
@@ -1826,9 +1826,14 @@ function RadioGroup({ block, prefillCtx, legacyResponses }: { block: Extract<For
   );
 }
 
-function SingleCheckbox({ block, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'checkbox' }> } & LegacyProp) {
+function SingleCheckbox({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'checkbox' }>; prefillCtx: PrefillContext } & LegacyProp) {
   const legacy = legacyResponses?.[block.key];
-  const checked = legacy === true || legacy === 'true' || legacy === '1';
+  // Prior-submission value wins; otherwise honor the schema's prefill source
+  // so a checkbox can default-on from data (e.g. pg2_present pre-checks when
+  // the family has a second guardian synced from GHL).
+  const prefilled = resolvePrefill((block as { prefill?: Parameters<typeof resolvePrefill>[0] }).prefill, prefillCtx);
+  const checked = legacy === true || legacy === 'true' || legacy === '1'
+    || prefilled === '1' || prefilled === 'true';
   return (
     <label className="flex items-start gap-2 text-sm">
       <input

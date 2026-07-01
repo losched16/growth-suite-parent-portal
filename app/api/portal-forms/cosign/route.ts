@@ -106,6 +106,9 @@ export async function POST(request: NextRequest) {
         responses,
         notifyEmails: def.notifications_enabled === false ? null : (def.notify_emails ?? null),
         webhookUrls: def.webhook_urls ?? null,
+        // Frame the office email as "fully signed by both guardians" — this is
+        // the completion notice the office is waiting on after the awaiting one.
+        coSignComplete: true,
       })
     ).catch((e) => console.error('[portal-forms/cosign] post-submit effects failed:', e));
 

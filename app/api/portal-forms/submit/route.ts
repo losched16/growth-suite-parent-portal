@@ -787,6 +787,27 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       console.error('[portal-forms/submit] cosign request email failed:', e);
     }
+
+    // Interim office notice: the first signature is in and a counter-signature
+    // was requested, so the office knows it's "awaiting" (the full "fully
+    // signed" notification fires from the co-sign route once Parent 2 signs).
+    if (def.notifications_enabled !== false && def.notify_emails && def.notify_emails.length > 0) {
+      try {
+        const pe = await import('@/lib/forms/post-submit-effects');
+        await pe.sendCoSignAwaitingNotice({
+          schoolId: session.school_id,
+          notifyEmails: def.notify_emails,
+          formDisplayName: def.display_name,
+          familyId: session.family_id,
+          submitterParentId: session.parent_id,
+          studentId,
+          cosignerName: cosignName,
+          cosignerEmail: cosignEmail,
+        });
+      } catch (e) {
+        console.error('[portal-forms/submit] cosign awaiting office notice failed:', e);
+      }
+    }
   }
 
   // If this submission came in via an operator invite, mark the invite
@@ -1132,8 +1153,14 @@ async function sendEnrollmentReceiptEmail(submissionId: string, schoolId: string
     school_name: string;
     form_name: string;
     student_name: string | null;
+    confirmation_message: string | null;
+    grade: string | null;
+    student_id: string | null;
   }>(
     `SELECT s.family_id, sch.name AS school_name, d.display_name AS form_name,
+            d.confirmation_message,
+            st.metadata->>'grade_level' AS grade,
+            st.metadata->>'student_id' AS student_id,
             CASE WHEN st.id IS NOT NULL
                  THEN CONCAT_WS(' ', COALESCE(NULLIF(st.preferred_name, ''), st.first_name), st.last_name)
                  ELSE NULL END AS student_name
@@ -1155,6 +1182,36 @@ async function sendEnrollmentReceiptEmail(submissionId: string, schoolId: string
   if (parents.length === 0) return;
 
   const subject = `Enrollment confirmation: ${m.form_name}${m.student_name ? ` (${m.student_name})` : ''}`;
+
+  // "Next steps" = the school's authored confirmation_message when present
+  // (for DGM this is the FACTS payment-setup instructions). Falls back to the
+  // generic in-app billing language for schools that bill through Growth Suite.
+  const facts = m.confirmation_message?.trim() || '';
+  const fallbackBilling = 'Your enrollment fee invoice is in your parent portal. Once paid, the rest of your tuition installments will be billed automatically per your chosen payment plan.';
+  // Grade + Student ID — the FACTS instructions reference "your child's grade
+  // and student ID, listed below", so surface them right in the email.
+  const idRowsHtml = [
+    m.student_name ? `<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Student</td><td style="padding:2px 0;font-weight:600;">${escape(m.student_name)}</td></tr>` : '',
+    m.grade ? `<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Grade</td><td style="padding:2px 0;font-weight:600;">${escape(m.grade)}</td></tr>` : '',
+    m.student_id ? `<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Student ID</td><td style="padding:2px 0;font-weight:600;font-family:monospace;">${escape(m.student_id)}</td></tr>` : '',
+  ].join('');
+  const idRowsText = [
+    m.student_name ? `Student: ${m.student_name}` : '',
+    m.grade ? `Grade: ${m.grade}` : '',
+    m.student_id ? `Student ID: ${m.student_id}` : '',
+  ].filter(Boolean).join('\n');
+
+  const nextStepsHtml = facts
+    ? `<div style="margin:16px 0;padding:14px 16px;border-radius:8px;background:#ecfdf5;border:1px solid #a7f3d0;">
+         <div style="font-weight:600;font-size:13px;color:#065f46;margin-bottom:6px;">Next step — set up tuition payments</div>
+         <div style="font-size:13px;color:#065f46;white-space:pre-wrap;">${linkify(escape(facts))}</div>
+         ${idRowsHtml ? `<table style="font-size:13px;margin-top:10px;border-collapse:collapse;">${idRowsHtml}</table>` : ''}
+       </div>`
+    : `<p style="margin:16px 0;font-size:13px;color:#6b7280;">${fallbackBilling}</p>`;
+  const nextStepsText = facts
+    ? `Next step — set up tuition payments\n\n${facts}${idRowsText ? `\n\n${idRowsText}` : ''}`
+    : fallbackBilling;
+
   const html = `
 <!doctype html>
 <html><body style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; color: #111827; max-width: 520px; margin: 0 auto; padding: 24px;">
@@ -1163,18 +1220,14 @@ async function sendEnrollmentReceiptEmail(submissionId: string, schoolId: string
     Thanks${m.student_name ? ` for enrolling ${escape(m.student_name)}` : ''} at ${escape(m.school_name)}!
     Your itemized enrollment receipt is attached as a PDF.
   </p>
-  <p style="margin: 16px 0; font-size: 13px; color: #6b7280;">
-    Your enrollment fee invoice is in your parent portal. Once paid, the rest of your tuition
-    installments will be billed automatically per your chosen payment plan.
-  </p>
+  ${nextStepsHtml}
 </body></html>`.trim();
   const text = `${m.form_name} received
 
 Thanks${m.student_name ? ` for enrolling ${m.student_name}` : ''} at ${m.school_name}.
 Your itemized enrollment receipt is attached as a PDF.
 
-Your enrollment fee invoice is in your parent portal. Once paid, the rest of your tuition
-installments will be billed automatically per your chosen payment plan.`;
+${nextStepsText}`;
 
   for (const p of parents) {
     await sendBrandedEmail({
@@ -1200,6 +1253,13 @@ function escape(s: string): string {
     c === '&' ? '&amp;' :
     c === '"' ? '&quot;' :
     '&#39;');
+}
+
+// Wrap bare http(s) URLs (in ALREADY-escaped text) in clickable anchors, so the
+// FACTS links in the school's confirmation_message are tappable in the email.
+function linkify(escapedHtml: string): string {
+  return escapedHtml.replace(/(https?:\/\/[^\s<]+)/g, (u) =>
+    `<a href="${u}" style="color:#047857;">${u}</a>`);
 }
 
 // ─── Helper: verify a TuitionCalculator selection against the DB ──────

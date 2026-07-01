@@ -52,6 +52,10 @@ export interface FireOpts {
   responses: Record<string, unknown>;
   notifyEmails: string[] | null;
   webhookUrls: string[] | null;
+  // When fired from the co-sign completion path (Parent 2 just added the second
+  // signature), the office email is framed as "fully signed by both guardians"
+  // rather than a fresh submission.
+  coSignComplete?: boolean;
 }
 
 // Single entry point — call this once at the end of a real (non-test)
@@ -67,6 +71,66 @@ export function firePostSubmitEffects(opts: FireOpts): void {
       console.error('[post-submit] webhook fan-out failed:', e);
     });
   }
+}
+
+// Office notice fired when Parent 1 submits an agreement that still needs a
+// second guardian's signature. The full office notification is DEFERRED until
+// the agreement is fully executed (see submit route), so this interim note tells
+// the office the first signature is in and a counter-signature was requested —
+// i.e. it's "awaiting", not done. Goes to the same notify_emails list. Awaited
+// by the caller inside its own try/catch; a failure never blocks the submit.
+export async function sendCoSignAwaitingNotice(opts: {
+  schoolId: string;
+  notifyEmails: string[] | null;
+  formDisplayName: string;
+  familyId: string;
+  submitterParentId: string;
+  studentId: string | null;
+  cosignerName: string | null;
+  cosignerEmail: string | null;
+}): Promise<void> {
+  if (!opts.notifyEmails || opts.notifyEmails.length === 0) return;
+  const { rows } = await query<{
+    family_label: string; submitter: string | null; student_label: string | null;
+  }>(
+    `SELECT COALESCE(NULLIF(f.display_name,''), CONCAT_WS(' ', p.first_name, p.last_name), '(unnamed family)') AS family_label,
+            NULLIF(BTRIM(CONCAT_WS(' ', p.first_name, p.last_name)),'') AS submitter,
+            CASE WHEN st.id IS NOT NULL
+                 THEN CONCAT_WS(' ', COALESCE(NULLIF(st.preferred_name,''), st.first_name), st.last_name)
+                 ELSE NULL END AS student_label
+       FROM families f
+       LEFT JOIN parents p ON p.id = $2
+       LEFT JOIN students st ON st.id = $3
+      WHERE f.id = $1`,
+    [opts.familyId, opts.submitterParentId, opts.studentId],
+  );
+  const meta = rows[0] ?? { family_label: '(unknown)', submitter: null, student_label: null };
+  const submitter = meta.submitter ?? 'Parent/Guardian 1';
+  const cosigner = opts.cosignerName?.trim() || 'the second guardian';
+  const childLine = meta.student_label ? ` for ${meta.student_label}` : '';
+  const subject = `Awaiting 2nd signature — ${opts.formDisplayName} — ${meta.family_label}`;
+
+  const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a;max-width:600px;margin:0 auto;padding:24px;">
+  <h2 style="margin:0 0 8px;">${escape(opts.formDisplayName)} — awaiting 2nd signature</h2>
+  <div style="margin:0 0 16px;padding:12px 16px;border-radius:6px;background:#fffbeb;border:1px solid #fde68a;color:#78350f;">
+    <div style="font-weight:600;font-size:13px;">⏳ First signature received — awaiting the second guardian</div>
+    <div style="margin-top:4px;font-size:12px;"><strong>${escape(submitter)}</strong> signed the ${escape(opts.formDisplayName)}${escape(childLine)}. Because the guardians share joint legal authority, a counter-signature is required. A signing link was emailed to <strong>${escape(cosigner)}</strong>${opts.cosignerEmail ? ` (${escape(opts.cosignerEmail)})` : ''}. You'll get a "fully signed" notice once they sign.</div>
+  </div>
+  <table style="font-size:13px;border-collapse:collapse;">
+    <tr><td style="padding:2px 8px;color:#64748b;">Family</td><td style="padding:2px 8px;">${escape(meta.family_label)}</td></tr>
+    ${meta.student_label ? `<tr><td style="padding:2px 8px;color:#64748b;">Student</td><td style="padding:2px 8px;">${escape(meta.student_label)}</td></tr>` : ''}
+    <tr><td style="padding:2px 8px;color:#64748b;">Status</td><td style="padding:2px 8px;">Awaiting Parent/Guardian 2 signature</td></tr>
+  </table>
+</body></html>`;
+  const text = `${opts.formDisplayName} — awaiting 2nd signature
+
+${submitter} signed the ${opts.formDisplayName}${childLine}. Because the guardians share joint legal authority, a counter-signature is required. A signing link was emailed to ${cosigner}${opts.cosignerEmail ? ` (${opts.cosignerEmail})` : ''}. You'll get a "fully signed" notice once they sign.
+
+Family: ${meta.family_label}${meta.student_label ? `\nStudent: ${meta.student_label}` : ''}
+Status: Awaiting Parent/Guardian 2 signature`;
+
+  await Promise.allSettled(opts.notifyEmails.map((to) =>
+    sendBrandedEmail({ to, schoolId: opts.schoolId, subject, html, text })));
 }
 
 // ─── Office notification email ─────────────────────────────────────
@@ -125,7 +189,9 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
 
   // Subject line tells staff at a glance whether they need to act.
   let subject: string;
-  if (isAmendment) {
+  if (opts.coSignComplete) {
+    subject = `✓ Fully signed (both guardians) — ${opts.formDisplayName} — ${meta.family_label}`;
+  } else if (isAmendment) {
     subject = `AMENDED & re-signed — ${opts.formDisplayName} — ${meta.family_label} (${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed)`;
   } else if (isPeriodicReview && reviewMode === 'no_changes') {
     subject = `Periodic re-review (no changes) — ${opts.formDisplayName} — ${meta.family_label}`;
@@ -183,6 +249,17 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
     diffBannerText = `*** UPDATED SUBMISSION — ${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed ***\n\n` + diffTableText;
   }
 
+  // Co-sign completion banner — the office asked to be told the moment BOTH
+  // guardians have signed and the agreement is fully executed.
+  const coSignBannerHtml = opts.coSignComplete ? `
+  <div style="margin:0 0 16px;padding:12px 16px;border-radius:6px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;">
+    <div style="font-weight:600;font-size:13px;">✓ Fully signed — both guardians have signed</div>
+    <div style="margin-top:4px;font-size:12px;">The second guardian just added their signature, so this agreement is now fully executed. No further signature is needed.</div>
+  </div>` : '';
+  const coSignBannerText = opts.coSignComplete
+    ? '*** FULLY SIGNED — both guardians have signed. The agreement is now fully executed. ***\n\n'
+    : '';
+
   const responsePairs = Object.entries(opts.responses)
     .filter(([k]) => !k.startsWith('__') && !k.startsWith('_'))
     .slice(0, 40); // cap at 40 rows so the email body stays readable
@@ -194,11 +271,13 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
   const html = `
 <!doctype html>
 <html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a;max-width:640px;margin:0 auto;padding:24px;">
-  <h2 style="margin:0 0 8px;">${escape(opts.formDisplayName)} — new submission</h2>
+  <h2 style="margin:0 0 8px;">${escape(opts.formDisplayName)} — ${opts.coSignComplete ? 'fully signed' : 'new submission'}</h2>
   <p style="margin:0 0 16px;color:#475569;font-size:14px;">
-    A parent just submitted the <strong>${escape(opts.formDisplayName)}</strong> form for <strong>${escape(meta.school_name)}</strong>.
+    ${opts.coSignComplete
+      ? `The second guardian has signed the <strong>${escape(opts.formDisplayName)}</strong> for <strong>${escape(meta.school_name)}</strong> — it is now fully executed.`
+      : `A parent just submitted the <strong>${escape(opts.formDisplayName)}</strong> form for <strong>${escape(meta.school_name)}</strong>.`}
   </p>
-  ${diffBannerHtml}
+  ${coSignBannerHtml}${diffBannerHtml}
 
   <h3 style="margin:16px 0 4px;font-size:13px;color:#0f172a;">Family</h3>
   <table style="font-size:13px;color:#0f172a;border-collapse:collapse;">
@@ -220,8 +299,9 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
 
   const textPairs = responsePairs.map(([k, v]) => `${k}: ${formatValue(v)}`).join('\n');
   const text = [
-    `${opts.formDisplayName} — new submission`,
+    `${opts.formDisplayName} — ${opts.coSignComplete ? 'fully signed' : 'new submission'}`,
     '',
+    coSignBannerText.trim() || null,
     diffBannerText.trim() || null,
     `Family: ${meta.family_label}`,
     meta.student_label ? `Student: ${meta.student_label}` : null,

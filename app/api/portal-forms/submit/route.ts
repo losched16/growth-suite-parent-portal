@@ -717,8 +717,25 @@ export async function POST(request: NextRequest) {
   //    school-office notification + completion effects are deferred until the
   //    co-signer signs. Addenda don't re-trigger routing.
   const coSignRequired = !isAddendum && isCoSignRequired(responses);
-  const cosignEmail = String(responses[COSIGNER_EMAIL_FIELD] ?? '').trim().toLowerCase();
-  const cosignName = String(responses[COSIGNER_NAME_FIELD] ?? '').trim();
+  // The co-signer is the family's second guardian (Parent 2). The form no
+  // longer collects it manually — when joint LDMA needs a counter-signature it
+  // goes to the Parent 2 already on the contact, by default. We still honor a
+  // form-provided value first (legacy forms that kept the cosigner fields).
+  let cosignEmail = String(responses[COSIGNER_EMAIL_FIELD] ?? '').trim().toLowerCase();
+  let cosignName = String(responses[COSIGNER_NAME_FIELD] ?? '').trim();
+  if (coSignRequired && !cosignEmail) {
+    const { rows: p2 } = await query<{ email: string | null; first_name: string | null; last_name: string | null }>(
+      `SELECT email, first_name, last_name FROM parents
+        WHERE family_id = $1 AND is_primary = false AND status = 'active'
+          AND NULLIF(btrim(email), '') IS NOT NULL
+        ORDER BY created_at ASC LIMIT 1`,
+      [session.family_id],
+    );
+    if (p2[0]?.email) {
+      cosignEmail = p2[0].email.trim().toLowerCase();
+      cosignName = [p2[0].first_name, p2[0].last_name].filter(Boolean).join(' ').trim();
+    }
+  }
   const cosignToken = (coSignRequired && cosignEmail)
     ? crypto.randomBytes(24).toString('base64url')
     : null;

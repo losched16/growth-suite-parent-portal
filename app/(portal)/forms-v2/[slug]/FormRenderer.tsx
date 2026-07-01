@@ -1850,6 +1850,12 @@ function SingleCheckbox({ block, prefillCtx, legacyResponses }: { block: Extract
   const prefilled = resolvePrefill((block as { prefill?: Parameters<typeof resolvePrefill>[0] }).prefill, prefillCtx);
   const checked = legacy === true || legacy === 'true' || legacy === '1'
     || prefilled === '1' || prefilled === 'true';
+  // Hidden derived checkbox: no visible UI, just submits its derived value so
+  // OTHER fields can gate on it — e.g. pg2_present auto-reveals the Parent 2
+  // section when a co-parent is on the contact, with no manual "add P/G 2" box.
+  if ((block as { hidden?: boolean }).hidden === true) {
+    return <input type="hidden" name={block.key} defaultValue={checked ? '1' : ''} />;
+  }
   return (
     <label className="flex items-start gap-2 text-sm">
       <input

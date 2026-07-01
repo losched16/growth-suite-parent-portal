@@ -153,6 +153,9 @@ export function FormRenderer({
   const [studentId, setStudentId] = useState<string>(initialStudentId);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Keys of required fields flagged empty on the last submit attempt, so we can
+  // highlight each one inline (in red) instead of only naming them in a banner.
+  const [missingFields, setMissingFields] = useState<Set<string>>(new Set());
   // Per-student: which students has the parent explicitly chosen to
   // "update my answers" for? Until this is set, a legacy-complete student
   // shows the lock state instead of the form fields.
@@ -196,6 +199,18 @@ export function FormRenderer({
         }
       }
       setResponses(next);
+      // Clear the "required" highlight from any flagged field the parent has
+      // now filled in, so the red ring disappears as they fix each one.
+      setMissingFields((prev) => {
+        if (prev.size === 0) return prev;
+        const still = new Set(
+          [...prev].filter((k) => {
+            const v = next[k];
+            return v == null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0);
+          }),
+        );
+        return still.size === prev.size ? prev : still;
+      });
     }, 0);
   }, [definition.field_schema]);
 
@@ -345,7 +360,10 @@ export function FormRenderer({
         }
       }
       if (missing.length > 0) {
-        setErr(`Please complete the following before submitting: ${missing.map((m) => m.label).join(', ')}.`);
+        setMissingFields(new Set(missing.map((m) => m.key)));
+        setErr(
+          `${missing.length} required field${missing.length === 1 ? '' : 's'} still ${missing.length === 1 ? 'needs' : 'need'} an answer — ${missing.length === 1 ? "it's" : "they're"} highlighted in red below.`,
+        );
         setBusy(false);
         const first = missing[0].key;
         const el = formRef.current
@@ -354,6 +372,7 @@ export function FormRenderer({
         if (el && 'scrollIntoView' in el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
+      setMissingFields(new Set());
 
       // Hard timeout so a slow/stuck server can never leave the parent
       // staring at an infinite "Submitting…" spinner. 90s is far longer
@@ -885,30 +904,39 @@ export function FormRenderer({
               const v = resolvePrefill(src, prefillCtx);
               return !(v == null || String(v).trim() === '');
             })
-            .map((block, i) => (
-              <BlockRenderer
-                // STABLE key per block (its field key), NOT the filtered
-                // array index. With uncontrolled inputs + conditional
-                // visibility, an index key makes React reconcile a field
-                // against whatever block now sits at that index when
-                // something above it hides — so toggling a selection left
-                // the downstream fields stale until a full refresh.
-                key={'key' in block && block.key ? String(block.key) : `pos-${i}`}
-                block={block}
-                prefillCtx={prefillCtx}
-                formResponses={responses}
-                students={students}
-                legacyResponses={
-                  addendumMode === 'editing'
-                    ? (parentSubmission?.responses ?? null)
-                    : (inUpdateMode
-                        ? (latest?.responses ?? null)
-                        // Invite pre-fill: operator-set values seed the
-                        // form's defaults. Parent can still edit them.
-                        : (inviteContext?.prefill ?? null))
-                }
-              />
-            ))}
+            .map((block, i) => {
+              // STABLE key per block (its field key), NOT the filtered array
+              // index — with uncontrolled inputs + conditional visibility an
+              // index key makes React reconcile a field against whatever block
+              // now sits at that index when something above it hides.
+              const bKey = 'key' in block && block.key ? String(block.key) : null;
+              const isMissing = bKey != null && missingFields.has(bKey);
+              return (
+                <div
+                  key={bKey ?? `pos-${i}`}
+                  className={isMissing ? 'rounded-lg p-2 -m-2 ring-2 ring-rose-400 bg-rose-50/40 scroll-mt-4' : undefined}
+                >
+                  <BlockRenderer
+                    block={block}
+                    prefillCtx={prefillCtx}
+                    formResponses={responses}
+                    students={students}
+                    legacyResponses={
+                      addendumMode === 'editing'
+                        ? (parentSubmission?.responses ?? null)
+                        : (inUpdateMode
+                            ? (latest?.responses ?? null)
+                            // Invite pre-fill: operator-set values seed the
+                            // form's defaults. Parent can still edit them.
+                            : (inviteContext?.prefill ?? null))
+                    }
+                  />
+                  {isMissing ? (
+                    <p className="mt-1 text-xs font-medium text-rose-600">This field is required.</p>
+                  ) : null}
+                </div>
+              );
+            })}
           {/* Hidden marker for operator-initiated invites — lets the
               submit route mark this invite consumed. */}
           {inviteContext ? (

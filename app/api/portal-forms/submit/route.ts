@@ -1487,6 +1487,11 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
     for (const wb of opts.writeback) {
       const raw = opts.responses[wb.field_key];
       const v = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw);
+      // Skip blanks — GHL's update overwrites, so writing an empty value would
+      // CLEAR whatever the contact already has. We only push values the parent
+      // actually provided, so an untouched optional field (or a partial
+      // amendment that changes just one thing) never wipes existing data.
+      if (v.trim() === '') continue;
       let ghlKey: string;
       if (wb.per_student && slotIndex) {
         if (wb.ghl_field_key.includes('{slot}')) {

@@ -910,13 +910,25 @@ export async function POST(request: NextRequest) {
 
   // 9. Best-effort GHL writeback. Fire-and-forget so the parent gets a
   //    fast response even if GHL is slow. Errors recorded on the row.
-  if ((def.ghl_writeback?.length ?? 0) > 0) {
+  //    Sources merged: (a) the form's explicit ghl_writeback config, plus
+  //    (b) any field CONNECTED to a Growth Suite field in the v2 builder
+  //    (block.ghl_field_key) — so a builder-connected field saves its answer
+  //    back onto the contact automatically, no separate config.
+  const schemaWriteback = (Array.isArray(def.field_schema) ? def.field_schema : [])
+    .map((b) => b as { key?: unknown; ghl_field_key?: unknown })
+    .filter((b) => typeof b.ghl_field_key === 'string' && b.ghl_field_key
+      && typeof b.key === 'string' && b.key)
+    .map((b) => ({ field_key: String(b.key), ghl_field_key: String(b.ghl_field_key) }));
+  const explicit = def.ghl_writeback ?? [];
+  const seenWb = new Set(explicit.map((w) => w.field_key));
+  const allWriteback = [...explicit, ...schemaWriteback.filter((w) => !seenWb.has(w.field_key))];
+  if (allWriteback.length > 0) {
     pushSubmissionToGhl(submissionId, {
       schoolId: session.school_id,
       parentId: session.parent_id,
       familyId: session.family_id,
       studentId,
-      writeback: def.ghl_writeback,
+      writeback: allWriteback,
       responses,
     }).catch((err) => {
       console.error('[portal-forms/submit] GHL writeback crashed for', submissionId, ':', err);

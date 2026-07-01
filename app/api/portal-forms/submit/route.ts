@@ -1442,15 +1442,16 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
     }
 
     // Determine the per-student slot index (1..N).
-    //   1. Prefer the student's stored slot (students.metadata.slot).
-    //      This is what Wooster's GHL data uses — assigned in operator-
-    //      original add order.
-    //   2. Fall back to alphabetical row_number (DG-era pattern) so
-    //      schools without an explicit slot keep working.
+    //   1. Prefer the student's stored slot — `slot` (Wooster) or `ghl_slot`
+    //      (DGM + snapshot-sync schools). This is the GHL slot the student's
+    //      fields actually live under (student_<slot>_*), so writeback lands
+    //      on the right child.
+    //   2. Fall back to alphabetical row_number (DG-era pattern) so schools
+    //      without an explicit slot keep working.
     let slotIndex: number | null = null;
     if (opts.studentId) {
       const { rows: stRows } = await query<{ slot: string | null }>(
-        `SELECT metadata->>'slot' AS slot FROM students WHERE id = $1`,
+        `SELECT COALESCE(metadata->>'slot', metadata->>'ghl_slot') AS slot FROM students WHERE id = $1`,
         [opts.studentId],
       );
       const fromMeta = stRows[0]?.slot;

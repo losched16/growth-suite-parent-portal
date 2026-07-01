@@ -41,6 +41,11 @@ interface SubRow {
   voided_reason: string | null;
   fee_amount_charged: string | null;
   payment_status: string | null;
+  cosign_status: string | null;
+  cosign_name: string | null;
+  cosign_email: string | null;
+  cosign_signature: string | null;
+  cosign_signed_at: string | null;
 }
 
 interface FileRow {
@@ -68,7 +73,9 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
        p.first_name AS parent_first_name, p.last_name AS parent_last_name,
        p.email AS parent_email,
        s.responses, s.status, s.academic_year, s.submitted_at,
-       s.voided_at, s.voided_reason, s.fee_amount_charged, s.payment_status
+       s.voided_at, s.voided_reason, s.fee_amount_charged, s.payment_status,
+       s.cosign_status, s.cosign_name, s.cosign_email, s.cosign_signature,
+       to_char(s.cosign_signed_at, 'YYYY-MM-DD"T"HH24:MI:SSOF') AS cosign_signed_at
      FROM portal_form_submissions s
      JOIN portal_form_definitions d ON d.id = s.form_definition_id
      LEFT JOIN students st ON st.id = s.student_id
@@ -192,6 +199,31 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
             />
           ))}
         </div>
+
+        {/* Second-guardian (co-sign) signature — shows both signatures on the
+            saved/printed agreement once the co-signer has added theirs. */}
+        {sub.cosign_status ? (
+          <div className={`mt-6 rounded-md border p-3 ${sub.cosign_status === 'signed' ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}>
+            <div className={`text-[11px] font-semibold uppercase tracking-wide ${sub.cosign_status === 'signed' ? 'text-emerald-800' : 'text-amber-800'}`}>
+              Second guardian signature
+            </div>
+            {sub.cosign_status === 'signed' ? (
+              <>
+                <div className="mt-1 text-2xl leading-none text-gray-900" style={{ fontFamily: 'var(--font-signature), "Dancing Script", "Brush Script MT", cursive' }}>
+                  {sub.cosign_signature}
+                </div>
+                <div className="mt-1 text-[10px] text-gray-600">
+                  {sub.cosign_name || sub.cosign_email || 'Second guardian'}
+                  {sub.cosign_signed_at ? ` · signed ${fmtDateTime(sub.cosign_signed_at)}` : ''}
+                </div>
+              </>
+            ) : (
+              <div className="mt-1 text-xs text-amber-900">
+                ⏳ Awaiting the second guardian&rsquo;s signature{sub.cosign_name ? ` from ${sub.cosign_name}` : ''}. The agreement isn&rsquo;t final until they sign.
+              </div>
+            )}
+          </div>
+        ) : null}
 
         <footer className="mt-8 border-t border-gray-200 pt-3 text-[10px] text-gray-500">
           Form ID: {sub.id} · Definition: {sub.form_slug}

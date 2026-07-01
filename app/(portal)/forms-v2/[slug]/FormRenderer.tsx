@@ -214,6 +214,20 @@ export function FormRenderer({
     }, 0);
   }, [definition.field_schema]);
 
+  // Keep the "N required fields still need an answer" banner in sync as the
+  // parent fills the flagged fields — the red rings already clear one-by-one
+  // (above), but the banner text was frozen at the count from the last submit.
+  // Tick it down live, and clear it entirely once nothing is outstanding, so a
+  // parent who fixes every field doesn't stare at a stale "23 required" error.
+  useEffect(() => {
+    setErr((cur) => {
+      if (cur == null || !/required field/.test(cur)) return cur; // not our banner
+      const n = missingFields.size;
+      if (n === 0) return null;
+      return `${n} required field${n === 1 ? '' : 's'} still ${n === 1 ? 'needs' : 'need'} an answer — ${n === 1 ? "it's" : "they're"} highlighted in red below.`;
+    });
+  }, [missingFields]);
+
   const selectedStudent = useMemo(
     () => students.find((s) => s.id === studentId),
     [students, studentId],

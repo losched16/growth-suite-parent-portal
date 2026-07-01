@@ -46,7 +46,7 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const CURRENT_YEAR = '2025-26';
+const CURRENT_YEAR = '2026-27';
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 interface DefRow {

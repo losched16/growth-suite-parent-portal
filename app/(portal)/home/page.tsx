@@ -11,6 +11,7 @@ import { Users, FileText, Mail, ChevronRight, AlertCircle, ArrowRight } from 'lu
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { PinnedNotices } from './PinnedNotices';
+import { LinkifyText } from '@/lib/ui/LinkifyText';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,7 +105,17 @@ export default async function HomePage() {
   // Only show the FACTS card once the school has actually assigned Student
   // IDs (DGM generates these). Avoids a confusing empty card elsewhere.
   const studentsWithId = students.filter((s) => s.student_id && s.student_id.trim());
-  const showFactsCard = factsInstructions != null && studentsWithId.length > 0;
+  // …and only AFTER the family has submitted the enrollment agreement — the
+  // FACTS setup info shouldn't appear on Home before they've enrolled.
+  const { rows: enrSubRows } = await query<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM portal_form_submissions s
+       JOIN portal_form_definitions d ON d.id = s.form_definition_id
+      WHERE s.school_id = $1 AND s.family_id = $2 AND d.category = 'enrollment'
+        AND s.status IN ('submitted', 'paid', 'pending_payment', 'legacy_imported')`,
+    [schoolId, familyId],
+  );
+  const hasSubmittedEnrollment = Number(enrSubRows[0]?.n ?? 0) > 0;
+  const showFactsCard = factsInstructions != null && studentsWithId.length > 0 && hasSubmittedEnrollment;
   const studentNames = students
     .map((s) => s.preferred_name || s.first_name)
     .join(', ');
@@ -203,7 +214,7 @@ export default async function HomePage() {
               </tbody>
             </table>
           </div>
-          <p className="mt-3 whitespace-pre-wrap text-sm text-emerald-900">{factsInstructions}</p>
+          <p className="mt-3 whitespace-pre-wrap text-sm text-emerald-900"><LinkifyText text={factsInstructions ?? ''} /></p>
         </section>
       ) : null}
 

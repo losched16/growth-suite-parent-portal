@@ -12,6 +12,7 @@ import { notFound, redirect } from 'next/navigation';
 import { CheckCircle2, ExternalLink, Home } from 'lucide-react';
 import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
+import { LinkifyText } from '@/lib/ui/LinkifyText';
 
 export const dynamic = 'force-dynamic';
 
@@ -118,7 +119,7 @@ export default async function FormThanksPage({ params, searchParams }: { params:
 
         {r.confirmation_message ? (
           <div className="rounded-md bg-zinc-50 border border-zinc-200 px-4 py-3 text-sm text-zinc-800 whitespace-pre-wrap">
-            {r.confirmation_message}
+            <LinkifyText text={r.confirmation_message} />
           </div>
         ) : (
           <p className="text-sm text-zinc-600">

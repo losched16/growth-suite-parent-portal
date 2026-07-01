@@ -76,7 +76,7 @@ interface FlagRow {
   status: string;
 }
 
-const CURRENT_YEAR_FALLBACK = '2025-26';
+const CURRENT_YEAR_FALLBACK = '2026-27';
 
 type PageParams = Promise<{ slug: string }>;
 type PageSearchParams = Promise<{ invite?: string }>;

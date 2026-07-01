@@ -46,7 +46,7 @@ interface FlagCountRow {
   flag_count: string;
 }
 
-const CURRENT_YEAR = '2025-26';
+const CURRENT_YEAR = '2026-27';
 
 const CATEGORY_LABEL: Record<string, string> = {
   permission: 'Permission',

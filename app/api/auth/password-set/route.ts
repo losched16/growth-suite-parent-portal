@@ -23,6 +23,7 @@ import {
   recordSession,
 } from '@/lib/auth/session';
 import { ghlWritebackPasswordSetAt } from '@/lib/auth/writeback-password-set';
+import { portalProvisioningAllowed } from '@/lib/auth/portal-provisioning';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -74,6 +75,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.redirect(url, 303);
     }
     return back(request, email, 'unknown_email');
+  }
+
+  // Portal-provisioning gate (opted-in schools): a first-time password can only
+  // be created when the family's contact is in the admissions "Pending" stage.
+  // Enforced server-side so it can't be bypassed by POSTing directly. Sign-in
+  // for an already-provisioned account is never gated (access persists).
+  if (!(await portalProvisioningAllowed(parent.school_id, parent.family_id))) {
+    return back(request, email, 'not_eligible');
   }
 
   const hash = await hashPassword(password);

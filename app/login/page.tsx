@@ -22,6 +22,7 @@ import { headers } from 'next/headers';
 import { ShieldCheck, AlertCircle } from 'lucide-react';
 import { query } from '@/lib/db';
 import { loadBrandingByHost, type PreloginBranding } from '@/lib/branding';
+import { portalProvisioningAllowed } from '@/lib/auth/portal-provisioning';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,8 +87,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   // An unknown email gets a clear "not on file" message — we never show a
   // create-password form for an address the school doesn't have (which
   // misled testers into thinking any email could make an account).
-  const { rows } = await query<{ has_password: boolean }>(
-    `SELECT (password_hash IS NOT NULL) AS has_password
+  const { rows } = await query<{ has_password: boolean; school_id: string; family_id: string }>(
+    `SELECT (password_hash IS NOT NULL) AS has_password, school_id, family_id
        FROM parents
       WHERE LOWER(email) = $1 AND status = 'active'
       ORDER BY (password_hash IS NOT NULL) DESC
@@ -96,6 +97,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   );
   const onFile = rows.length > 0;
   const hasPassword = rows[0]?.has_password === true;
+  // First-time provisioning is gated to the admissions "Pending" stage for
+  // opted-in schools: an on-file email WITHOUT a password only gets the
+  // create-password form when the family is eligible. Sign-in (already has a
+  // password) is never gated — access persists once granted.
+  const canProvision = onFile && !hasPassword && rows[0]
+    ? await portalProvisioningAllowed(rows[0].school_id, rows[0].family_id)
+    : true;
 
   return (
     <main
@@ -109,7 +117,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             ? `We don't have that email on file.`
             : hasPassword
               ? `Welcome back. Sign in to continue.`
-              : `First time here? Set a password so you can sign in any time.`}
+              : canProvision
+                ? `First time here? Set a password so you can sign in any time.`
+                : `Your portal isn't available yet.`}
           branding={branding}
         />
 
@@ -121,6 +131,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
           <ErrorBanner>We couldn&rsquo;t find that email. Double-check it or contact the school office.</ErrorBanner>
         ) : sp.err === 'mismatch' ? (
           <ErrorBanner>Passwords didn&rsquo;t match. Try again.</ErrorBanner>
+        ) : sp.err === 'not_eligible' ? (
+          <ErrorBanner>Your portal isn&rsquo;t available yet. You&rsquo;ll be able to set it up once the school moves your enrollment forward.</ErrorBanner>
         ) : null}
 
         {!onFile ? (
@@ -154,7 +166,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             />
             <PrimaryBtn branding={branding}>Sign in</PrimaryBtn>
           </form>
-        ) : (
+        ) : canProvision ? (
           // ── First-time / set-password mode ─────────────────────
           <form action="/api/auth/password-set" method="POST" className="space-y-3">
             <input type="hidden" name="email" value={email} />
@@ -180,6 +192,22 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             />
             <PrimaryBtn branding={branding}>Create password &amp; sign in</PrimaryBtn>
           </form>
+        ) : (
+          // ── Not eligible — provisioning gated to the "Pending" stage ──
+          <div className="space-y-3">
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Your family portal isn&rsquo;t available yet. You&rsquo;ll be able to set up your login once the
+              school moves your enrollment forward. If you think this is a mistake, contact the school
+              office{branding?.support_email ? <> at <a href={`mailto:${branding.support_email}`} className="underline" style={{ color: 'var(--brand-fg)' }}>{branding.support_email}</a></> : ''}.
+            </div>
+            <Link
+              href="/login"
+              className="inline-block rounded-md px-3 py-2 text-sm font-medium text-white"
+              style={{ background: 'var(--brand)' }}
+            >
+              Try a different email
+            </Link>
+          </div>
         )}
 
         <Footer branding={branding} />

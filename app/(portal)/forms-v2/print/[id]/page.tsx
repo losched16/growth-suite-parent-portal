@@ -190,7 +190,12 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
         </header>
 
         <div className="space-y-4">
-          {sub.field_schema.map((block, i) => (
+          {sub.field_schema
+            // Blocks hidden on the live form (e.g. the internal "add a second
+            // parent/guardian" toggle when Parent 2 is already on file) stay
+            // hidden on the saved/printed copy too.
+            .filter((block) => (block as { hidden?: boolean }).hidden !== true)
+            .map((block, i) => (
             <PrintBlock
               key={i}
               block={block}

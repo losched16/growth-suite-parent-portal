@@ -21,7 +21,7 @@
 //
 // Returns: { id: <submission uuid>, slug: <form slug> }
 
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
@@ -78,6 +78,10 @@ interface GhlWritebackEntry {
   field_key: string;                  // form field key
   ghl_field_key: string;              // target custom field key
   per_student?: boolean;              // if true → "student_<N>_<key>" slot
+  // Write the selected option's PRICE (whole dollars, e.g. "2100" / "0")
+  // instead of the option value — pairs a pricing choice with its cost field
+  // on the contact (organic_lunch choice → organic_lunch fee, etc.).
+  write_amount?: boolean;
 }
 
 // student.metadata field-keys we sync to from the health.* prefill slots
@@ -944,16 +948,24 @@ export async function POST(request: NextRequest) {
   const seenWb = new Set(explicit.map((w) => w.field_key));
   const allWriteback = [...explicit, ...schemaWriteback.filter((w) => !seenWb.has(w.field_key))];
   if (allWriteback.length > 0) {
-    pushSubmissionToGhl(submissionId, {
-      schoolId: session.school_id,
-      parentId: session.parent_id,
-      familyId: session.family_id,
-      studentId,
-      writeback: allWriteback,
-      responses,
-    }).catch((err) => {
-      console.error('[portal-forms/submit] GHL writeback crashed for', submissionId, ':', err);
-    });
+    // after(): scheduled post-response work the runtime is REQUIRED to finish.
+    // A bare fire-and-forget promise gets frozen when the serverless function
+    // returns — which silently dropped every GHL writeback (ghl_synced_at
+    // stayed NULL with no error). The parent still gets a fast redirect; the
+    // contact update completes right after.
+    after(() =>
+      pushSubmissionToGhl(submissionId, {
+        schoolId: session.school_id,
+        parentId: session.parent_id,
+        familyId: session.family_id,
+        studentId,
+        writeback: allWriteback,
+        fieldSchema: def.field_schema,
+        responses,
+      }).catch((err) => {
+        console.error('[portal-forms/submit] GHL writeback crashed for', submissionId, ':', err);
+      }),
+    );
   }
 
   // 10. Payment-required forms: create the invoice now and return its
@@ -1415,6 +1427,9 @@ interface PushGhlOpts {
   familyId: string;
   studentId: string | null;
   writeback: GhlWritebackEntry[];
+  // The form's field_schema — used by write_amount entries to look up the
+  // selected pricing option's amount_cents.
+  fieldSchema?: FormFieldBlock[];
   responses: Record<string, unknown>;
 }
 
@@ -1486,7 +1501,20 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
     const byKey: Record<string, string> = {};
     for (const wb of opts.writeback) {
       const raw = opts.responses[wb.field_key];
-      const v = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw);
+      let v = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw);
+      // write_amount: push the selected pricing option's PRICE (whole dollars)
+      // instead of the option label — e.g. choosing "Organic Lunch $2,100 —
+      // Vegetarian" writes "2100" to the paired cost field ("0" for declines,
+      // so the contact's fee updates when a parent opts out).
+      if (wb.write_amount) {
+        if (v.trim() === '') continue; // no selection → leave the fee alone
+        const block = (opts.fieldSchema ?? []).find(
+          (b) => 'key' in b && b.key === wb.field_key && 'options' in b && Array.isArray(b.options),
+        ) as { options?: Array<{ value: string; amount_cents?: number }> } | undefined;
+        const opt = block?.options?.find((o) => o.value === v);
+        if (!opt) continue; // unknown selection → don't guess a price
+        v = String(Math.round((opt.amount_cents ?? 0) / 100));
+      }
       // Skip blanks — GHL's update overwrites, so writing an empty value would
       // CLEAR whatever the contact already has. We only push values the parent
       // actually provided, so an untouched optional field (or a partial

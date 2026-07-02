@@ -224,7 +224,7 @@ export function FormRenderer({
       if (cur == null || !/required field/.test(cur)) return cur; // not our banner
       const n = missingFields.size;
       if (n === 0) return null;
-      return `${n} required field${n === 1 ? '' : 's'} still ${n === 1 ? 'needs' : 'need'} an answer — ${n === 1 ? "it's" : "they're"} highlighted in red below.`;
+      return `${n} required field${n === 1 ? '' : 's'} still ${n === 1 ? 'needs' : 'need'} an answer — ${n === 1 ? "it's" : "they're"} highlighted in red above.`;
     });
   }, [missingFields]);
 
@@ -376,7 +376,7 @@ export function FormRenderer({
       if (missing.length > 0) {
         setMissingFields(new Set(missing.map((m) => m.key)));
         setErr(
-          `${missing.length} required field${missing.length === 1 ? '' : 's'} still ${missing.length === 1 ? 'needs' : 'need'} an answer — ${missing.length === 1 ? "it's" : "they're"} highlighted in red below.`,
+          `${missing.length} required field${missing.length === 1 ? '' : 's'} still ${missing.length === 1 ? 'needs' : 'need'} an answer — ${missing.length === 1 ? "it's" : "they're"} highlighted in red above.`,
         );
         setBusy(false);
         const first = missing[0].key;

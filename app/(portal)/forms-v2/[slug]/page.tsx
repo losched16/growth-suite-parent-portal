@@ -557,20 +557,41 @@ export default async function FormPage({
   // single source and no per-family prep is ever needed.
   const { rows: guardianRows } = await query<{
     first_name: string; last_name: string; email: string | null; phone: string | null; is_primary: boolean;
+    ghl_contact_id: string | null;
   }>(
-    `SELECT first_name, last_name, email, phone, is_primary
+    `SELECT first_name, last_name, email, phone, is_primary, ghl_contact_id
        FROM parents WHERE family_id = $1 AND status = 'active'
        ORDER BY is_primary DESC, created_at ASC`,
     [id.parent.family_id],
   );
   const primaryGuardian = guardianRows.find((g) => g.is_primary) ?? guardianRows[0] ?? null;
   const secondaryGuardian = guardianRows.find((g) => g !== primaryGuardian) ?? null;
+
+  // Each guardian's relationship to the child lives as parent_1_relationship /
+  // parent_2_relationship custom fields on the PRIMARY contact (mirrored into
+  // ghl_contact_field_values by the attribute sync). Loaded so ea_pg1/2_
+  // relationship prefills work; best-effort — blank when never set in GHL.
+  let pg1Relationship: string | null = null;
+  let pg2Relationship: string | null = null;
+  if (primaryGuardian?.ghl_contact_id) {
+    const { rows: relRows } = await query<{ field_key: string; value: string | null }>(
+      `SELECT field_key, value FROM ghl_contact_field_values
+        WHERE school_id = $1 AND ghl_contact_id = $2
+          AND field_key IN ('parent_1_relationship', 'parent_2_relationship')`,
+      [id.school.id, primaryGuardian.ghl_contact_id],
+    ).catch(() => ({ rows: [] as Array<{ field_key: string; value: string | null }> }));
+    for (const r of relRows) {
+      if (r.field_key === 'parent_1_relationship') pg1Relationship = r.value;
+      if (r.field_key === 'parent_2_relationship') pg2Relationship = r.value;
+    }
+  }
+
   const guardians: PrefillContext['guardians'] = {
     primary: primaryGuardian
-      ? { first_name: primaryGuardian.first_name, last_name: primaryGuardian.last_name, email: primaryGuardian.email, phone: primaryGuardian.phone }
+      ? { first_name: primaryGuardian.first_name, last_name: primaryGuardian.last_name, email: primaryGuardian.email, phone: primaryGuardian.phone, relationship: pg1Relationship }
       : null,
     secondary: secondaryGuardian
-      ? { first_name: secondaryGuardian.first_name, last_name: secondaryGuardian.last_name, email: secondaryGuardian.email, phone: secondaryGuardian.phone }
+      ? { first_name: secondaryGuardian.first_name, last_name: secondaryGuardian.last_name, email: secondaryGuardian.email, phone: secondaryGuardian.phone, relationship: pg2Relationship }
       : null,
   };
 

@@ -103,6 +103,21 @@ export default async function FormPage({
   // to parents — block direct-URL access too, not just the list.
   if (!def || !def.is_active || def.audience === 'staff') notFound();
 
+  // Record that this parent OPENED the form (distinct from submitting), so the
+  // forms tracking hub can show engagement for families who haven't submitted
+  // yet. Fire-and-forget — tracking must never break the page render.
+  try {
+    await query(
+      `INSERT INTO portal_form_views (school_id, parent_id, family_id, form_definition_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (school_id, parent_id, form_definition_id)
+       DO UPDATE SET last_viewed_at = now(), view_count = portal_form_views.view_count + 1`,
+      [id.parent.school_id, id.parent.id, id.parent.family_id, def.id],
+    );
+  } catch (err) {
+    console.warn('[forms-v2] view log failed:', err instanceof Error ? err.message : String(err));
+  }
+
   // 2) Load students + their health profiles (for per-student forms).
   // For per-student forms with an applies_to rule, restrict the picker
   // to students who actually match (e.g. K-only forms hide siblings in

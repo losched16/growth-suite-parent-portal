@@ -1,12 +1,13 @@
 // Fires an email to the school's admin notification address when a
 // parent submits an enrollment with parent/guardian info that differs
-// from what's on file. Used to keep external SIS (e.g. Transparent
-// Classroom for DGM) in sync.
+// from what's on file, so the office can update any records the
+// automatic GHL writeback doesn't cover (core contact name/email/phone
+// are deliberately never auto-overwritten) plus any external systems.
 //
 // Detection logic: any of the canonical pg1_* fields below differing
-// from the existing parents row triggers a notification. We also send
-// the email if any pg2_* field is non-empty (since we don't currently
-// store a second-parent record, any pg2 info is necessarily new).
+// from the existing parents row triggers a notification, as does any
+// pg2_* core field differing from the family's second guardian on file
+// (or any pg2 content when no second guardian exists yet).
 //
 // Never throws — caller wraps in .catch().
 
@@ -78,8 +79,8 @@ export async function notifyAdminOfParentChanges(args: NotifyArgs): Promise<void
   }
 
   // 2. Compare submitted pg1_* values to the existing parent record.
-  const { rows: parentRows } = await query<ExistingParent>(
-    `SELECT first_name, last_name, email, phone
+  const { rows: parentRows } = await query<ExistingParent & { family_id: string }>(
+    `SELECT first_name, last_name, email, phone, family_id
        FROM parents WHERE id = $1`,
     [args.parentId],
   );
@@ -95,9 +96,36 @@ export async function notifyAdminOfParentChanges(args: NotifyArgs): Promise<void
     }
   }
 
-  // 3. Check if any pg2_* field has any value — since we don't model
-  //    second parents yet, any pg2 entry is by definition new info.
-  const pg2HasContent = PG2_INFO_FIELDS.some(
+  // 3. Compare submitted pg2_* values against the second guardian on file.
+  //    Most families now have Parent 2 synced (and prefilled on the form), so
+  //    only a DIFFERENCE is news — otherwise every submission would fire this
+  //    email claiming prefilled P2 info is "new". No P2 on file → any pg2
+  //    content is genuinely new.
+  const { rows: p2Rows } = await query<ExistingParent>(
+    `SELECT first_name, last_name, email, phone
+       FROM parents
+      WHERE family_id = $1 AND is_primary = false AND status = 'active'
+      ORDER BY created_at ASC LIMIT 1`,
+    [existing.family_id],
+  );
+  const existingP2 = p2Rows[0] ?? null;
+  const changedP2: Array<{ label: string; before: string; after: string }> = [];
+  if (existingP2) {
+    const PG2_TO_PARENT_COLUMN: Array<{ field: string; col: keyof ExistingParent; label: string }> = [
+      { field: 'pg2_first_name', col: 'first_name', label: 'First name' },
+      { field: 'pg2_last_name', col: 'last_name', label: 'Last name' },
+      { field: 'pg2_mobile_phone', col: 'phone', label: 'Mobile phone' },
+      { field: 'pg2_home_email', col: 'email', label: 'Email' },
+    ];
+    for (const m of PG2_TO_PARENT_COLUMN) {
+      const submitted = normalize(args.responses[m.field]);
+      const onFile = normalize(existingP2[m.col]);
+      if (submitted && submitted !== onFile) {
+        changedP2.push({ label: m.label, before: onFile || '(none)', after: submitted });
+      }
+    }
+  }
+  const pg2HasContent = !existingP2 && PG2_INFO_FIELDS.some(
     (f) => normalize(args.responses[f.field]) !== '',
   );
 
@@ -112,7 +140,7 @@ export async function notifyAdminOfParentChanges(args: NotifyArgs): Promise<void
     if (v) pg1Address.push({ label: f.label, value: v });
   }
 
-  if (changedCore.length === 0 && !pg2HasContent && pg1Address.length === 0) {
+  if (changedCore.length === 0 && changedP2.length === 0 && !pg2HasContent && pg1Address.length === 0) {
     return; // nothing to notify
   }
 
@@ -121,18 +149,26 @@ export async function notifyAdminOfParentChanges(args: NotifyArgs): Promise<void
   const subject = `[Parent info update] ${args.formDisplayName} (submission ${args.submissionId.slice(0, 8)})`;
 
   const lines: string[] = [];
-  lines.push(`A parent just submitted ${args.formDisplayName}. Their parent/guardian information may need to be mirrored into Transparent Classroom.\n`);
+  lines.push(`A parent just submitted ${args.formDisplayName}. Their parent/guardian details are below — review any changes and update your records as needed. (Name, email, and phone changes are never applied automatically.)\n`);
 
   if (changedCore.length > 0) {
-    lines.push('CHANGES FROM EXISTING RECORD:');
+    lines.push('PARENT/GUARDIAN 1 — CHANGES FROM EXISTING RECORD:');
     for (const c of changedCore) {
       lines.push(`  • ${c.label}: ${c.before}  →  ${c.after}`);
     }
     lines.push('');
   }
 
+  if (changedP2.length > 0) {
+    lines.push('PARENT/GUARDIAN 2 — CHANGES FROM EXISTING RECORD:');
+    for (const c of changedP2) {
+      lines.push(`  • ${c.label}: ${c.before}  →  ${c.after}`);
+    }
+    lines.push('');
+  }
+
   if (pg1Address.length > 0) {
-    lines.push('SUBMITTED PARENT/GUARDIAN 1 DETAILS (please verify in TC):');
+    lines.push('SUBMITTED PARENT/GUARDIAN 1 DETAILS (for review):');
     for (const f of pg1Address) {
       lines.push(`  • ${f.label}: ${f.value}`);
     }
@@ -140,7 +176,7 @@ export async function notifyAdminOfParentChanges(args: NotifyArgs): Promise<void
   }
 
   if (pg2HasContent) {
-    lines.push('PARENT/GUARDIAN 2 INFO PROVIDED (we don\'t have this on file yet):');
+    lines.push('PARENT/GUARDIAN 2 INFO PROVIDED (no second guardian on file yet):');
     for (const f of PG2_INFO_FIELDS) {
       const v = normalize(args.responses[f.field]);
       if (v) lines.push(`  • ${f.label}: ${v}`);

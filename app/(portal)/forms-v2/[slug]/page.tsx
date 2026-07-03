@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
+import { loadSchoolSettings } from '@/lib/school-settings';
 import { loadStudentsForFamily } from '@/lib/family-data';
 import { query } from '@/lib/db';
 import type { FormDefinition, FormFieldBlock } from '@/lib/forms/types';
@@ -76,7 +77,7 @@ interface FlagRow {
   status: string;
 }
 
-const CURRENT_YEAR_FALLBACK = '2026-27';
+
 
 type PageParams = Promise<{ slug: string }>;
 type PageSearchParams = Promise<{ invite?: string }>;
@@ -87,6 +88,7 @@ export default async function FormPage({
   const { slug } = await params;
   const sp = await searchParams;
   const id = await requireParent();
+  const CURRENT_YEAR_FALLBACK = (await loadSchoolSettings(id.school.id)).academic_year;
 
   // 1) Load the form definition for this school+slug.
   const defRows = (await query<FormDefRow>(

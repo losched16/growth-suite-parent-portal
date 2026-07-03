@@ -25,6 +25,7 @@ import { NextResponse, after } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
+import { loadSchoolSettings } from '@/lib/school-settings';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
 import { resolvePrefill, todayString, isBlockVisible, type PrefillContext } from '@/lib/forms/prefill';
 import {
@@ -46,7 +47,7 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const CURRENT_YEAR = '2026-27';
+// Academic year comes from the school's settings (schools.settings.academic_year).
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 interface DefRow {
@@ -139,6 +140,10 @@ export async function POST(request: NextRequest) {
   )).rows;
   const def = defs[0];
   if (!def) return NextResponse.json({ error: 'form_not_found' }, { status: 404 });
+
+  // Academic year stamped on this submission — per-school setting, not a
+  // platform constant.
+  const CURRENT_YEAR = (await loadSchoolSettings(session.school_id)).academic_year;
 
   // 2. Resolve student (per_student forms)
   let studentId: string | null = null;

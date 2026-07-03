@@ -7,6 +7,7 @@
 import Link from 'next/link';
 import { CheckCircle2, Circle, FileText, History, Clock } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
+import { loadSchoolSettings } from '@/lib/school-settings';
 import { loadStudentsForFamily } from '@/lib/family-data';
 import { query } from '@/lib/db';
 import {
@@ -46,7 +47,7 @@ interface FlagCountRow {
   flag_count: string;
 }
 
-const CURRENT_YEAR = '2026-27';
+
 
 const CATEGORY_LABEL: Record<string, string> = {
   permission: 'Permission',
@@ -63,6 +64,7 @@ type SearchParams = Promise<{ submitted?: string }>;
 
 export default async function FormsV2ListPage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
+  const CURRENT_YEAR = (await loadSchoolSettings(id.school.id)).academic_year;
   const { submitted } = await searchParams;
 
   const [defs, students, subs, flagCounts] = await Promise.all([

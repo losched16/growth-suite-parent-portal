@@ -312,6 +312,11 @@ export interface FormPaymentConfig {
   // When true, the built-in "Have a discount code?" input is hidden on this
   // form (DGM doesn't use redemption codes — it only confused parents).
   hide_discount_code?: boolean;
+  // When true, the dated payment SCHEDULE panel is hidden — the parent sees
+  // only the running payment summary (line items + total). For schools whose
+  // real payment dates live in an external system (e.g. FACTS), our computed
+  // installment dates invite confusion. Default false (schedule shown).
+  hide_schedule?: boolean;
   // When true, the payment_config drives ONLY the schedule DISPLAY. The form
   // collects NO payment: no payment-method gate, no invoices, no "continue to
   // payment" — it submits like any normal form. The parent still sees the

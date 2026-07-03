@@ -1005,7 +1005,8 @@ export function FormRenderer({
 
       {/* Dated payment schedule — shows after a plan is chosen / prefilled,
           even in dry-run. Explicitly states it does NOT bill today. */}
-      {!showLockState && scheduleEval && addendumMode !== 'picking' ? (
+      {!showLockState && scheduleEval && addendumMode !== 'picking'
+        && definition.payment_config?.hide_schedule !== true ? (
         <PaymentSchedule
           eval={scheduleEval}
           planValue={String(responses['payment_plan'] ?? '')}

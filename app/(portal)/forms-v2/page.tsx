@@ -78,8 +78,16 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
          -- requests). IS DISTINCT FROM keeps legacy null-audience forms visible.
          AND audience IS DISTINCT FROM 'staff'
          -- On-demand forms (e.g. the Enrollment Amendment) are reachable by a
-         -- direct link/button but excluded from the forms checklist.
-         AND COALESCE(list_in_checklist, true) = true
+         -- direct link/button but excluded from the forms checklist — UNLESS
+         -- the school pushed this form to the family (open invite), which
+         -- surfaces it here regardless.
+         AND (COALESCE(list_in_checklist, true) = true
+              OR EXISTS (
+                SELECT 1 FROM enrollment_invites i
+                 WHERE i.form_definition_id = portal_form_definitions.id
+                   AND i.family_id = $2
+                   AND i.consumed_at IS NULL AND i.expires_at > now()
+              ))
        ORDER BY
          CASE category
            WHEN 'registration' THEN 1
@@ -91,7 +99,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
            ELSE 9
          END,
          display_name`,
-      [id.parent.school_id],
+      [id.parent.school_id, id.parent.family_id],
     ).then((r) => r.rows),
     loadStudentsForFamily(id.parent.family_id),
     // Include legacy_imported as "submitted" for completion-tracking purposes.
@@ -157,10 +165,40 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
   );
   const familyTags = tagRows.map((r) => r.tag).filter(Boolean);
 
+  // Open (unconsumed, unexpired) invites for this family — a form the
+  // school PUSHED to them. An invite overrides applies_to: the form shows
+  // in this family's checklist even when no targeting rule matches, for
+  // the invited student (or all students when the invite is family-wide).
+  const { rows: inviteRows } = await query<{ form_definition_id: string; student_id: string | null }>(
+    `SELECT form_definition_id, student_id FROM enrollment_invites
+      WHERE family_id = $1 AND consumed_at IS NULL AND expires_at > now()`,
+    [id.parent.family_id],
+  );
+  const invitesByForm = new Map<string, { familyWide: boolean; studentIds: Set<string> }>();
+  for (const inv of inviteRows) {
+    const entry = invitesByForm.get(inv.form_definition_id)
+      ?? { familyWide: false, studentIds: new Set<string>() };
+    if (inv.student_id) entry.studentIds.add(inv.student_id);
+    else entry.familyWide = true;
+    invitesByForm.set(inv.form_definition_id, entry);
+  }
+
   // Returns the subset of students this form is visible to.
   // For non-per_student (family-level) forms, applies_to is ignored —
   // there's no per-student concept there. Family-level forms always show.
   function applicableStudents(def: DefRow) {
+    const invite = invitesByForm.get(def.id);
+    if (invite?.familyWide) return students;
+    if (!def.applies_to) return students;
+    if (invite && invite.studentIds.size > 0) {
+      const byRule = applicableStudentsByRule(def);
+      const extra = students.filter((s) => invite.studentIds.has(s.id) && !byRule.includes(s));
+      return [...byRule, ...extra];
+    }
+    return applicableStudentsByRule(def);
+  }
+
+  function applicableStudentsByRule(def: DefRow) {
     if (!def.applies_to) return students;
     if (!def.per_student) {
       // Family-level form: the only applies_to lever that makes sense is
@@ -185,8 +223,10 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
   }
 
   // Filter out forms that apply to nobody (e.g. K-only form in a
-  // family with only Primary kids).
+  // family with only Primary kids). A pushed form (open invite) always
+  // stays visible.
   const visibleDefs = defs.filter((d) => {
+    if (invitesByForm.has(d.id)) return true;
     if (!d.per_student) return true;
     if (!d.applies_to) return true;
     return applicableStudents(d).length > 0;

@@ -20,6 +20,12 @@ import { loadSchoolSettings } from '@/lib/school-settings';
 // The opportunity lives on the primary parent's GHL contact, so we check the
 // whole family (a secondary guardian with no contact of their own still counts
 // as eligible when the family's primary is in the gate stage).
+//
+// A family with a CURRENTLY-ENROLLED student is always allowed, gate or no
+// gate — the stage gate exists to keep random synced contacts (leads,
+// inquiries) from making logins, not to lock out the actual student body.
+// Without this, an imported enrolled family whose contact never passes
+// through the gate stage could never create a password at all.
 export async function portalProvisioningAllowed(
   schoolId: string,
   familyId: string,
@@ -36,5 +42,16 @@ export async function portalProvisioningAllowed(
       LIMIT 1`,
     [schoolId, familyId, settings.portal_gate_stage],
   );
-  return rows.length > 0;
+  if (rows.length > 0) return true;
+  const { rows: enrolled } = await query(
+    `SELECT 1
+       FROM students s
+       JOIN enrollments e ON e.student_id = s.id
+      WHERE s.family_id = $1 AND s.school_id = $2 AND s.status = 'active'
+        AND (s.metadata->>'is_demo') IS DISTINCT FROM 'true'
+        AND e.status = 'enrolled'
+      LIMIT 1`,
+    [familyId, schoolId],
+  );
+  return enrolled.length > 0;
 }

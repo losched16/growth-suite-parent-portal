@@ -176,6 +176,26 @@ export default async function FormPage({
     });
   }
 
+  // A pushed form (open invite for this family) overrides applies_to —
+  // the school explicitly sent it to them, so they must be able to open
+  // it whether or not any targeting rule matches. A family-wide invite
+  // restores every student; student-targeted invites add those students.
+  if (def.applies_to && students.length < allStudents.length) {
+    const { rows: openInv } = await query<{ student_id: string | null }>(
+      `SELECT student_id FROM enrollment_invites
+        WHERE family_id = $1 AND form_definition_id = $2
+          AND consumed_at IS NULL AND expires_at > now()`,
+      [id.parent.family_id, def.id],
+    );
+    if (openInv.some((i) => i.student_id === null)) {
+      students = allStudents;
+    } else if (openInv.length > 0) {
+      const invited = new Set(openInv.map((i) => i.student_id));
+      const present = new Set(students.map((s) => s.id));
+      students = [...students, ...allStudents.filter((s) => invited.has(s.id) && !present.has(s.id))];
+    }
+  }
+
   const healthByStudentId: Record<string, PrefillContext['health']> = {};
   if (def.per_student && students.length > 0) {
     const sIds = students.map((s) => s.id);

@@ -35,12 +35,18 @@ interface ParentRow {
 }
 
 export async function GET(request: NextRequest) {
-  // Two ways to enable this:
+  // HARD production kill-switch (security remediation H1). This route mints a
+  // parent session; a misconfigured env flag here is a full account-takeover
+  // backdoor (it happened — PARENT_DEMO_BYPASS was found set 'true' in prod).
+  // In production it is ALWAYS 404, no matter what the env flags say, so the
+  // backdoor cannot be reopened by an env change alone.
+  if (process.env.NODE_ENV === 'production') {
+    return new NextResponse('not found', { status: 404 });
+  }
+
+  // Non-production only, two ways to enable:
   //   1) DEV_AUTH_BYPASS=true + present a `token` matching PARENT_SESSION_SECRET
-  //      (original behavior, two layers of protection)
-  //   2) PARENT_DEMO_BYPASS=true — one-flag bypass for sales demos.
-  //      No token needed; only set the env var for the duration of the
-  //      demo, then unset.
+  //   2) PARENT_DEMO_BYPASS=true — one-flag bypass for local sales demos.
   const demoBypass = process.env.PARENT_DEMO_BYPASS === 'true';
   if (!demoBypass && process.env.DEV_AUTH_BYPASS !== 'true') {
     return new NextResponse('not found', { status: 404 });

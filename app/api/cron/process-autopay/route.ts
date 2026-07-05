@@ -33,8 +33,18 @@ interface SchoolRetryConfig {
 }
 
 export async function GET(request: NextRequest) {
-  // Auth check — bypass in dev when CRON_SECRET is unset
+  // Auth check — FAIL CLOSED (security remediation H5). This cron charges
+  // saved cards; it must never be publicly triggerable. In production the
+  // secret is required: if CRON_SECRET is unset OR the caller's bearer
+  // doesn't match, reject. Vercel Cron automatically sends
+  // `Authorization: Bearer <CRON_SECRET>` for scheduled runs. Only a
+  // non-production environment with no secret configured is allowed through
+  // (for local testing).
   const secret = process.env.CRON_SECRET;
+  const isProd = process.env.NODE_ENV === 'production';
+  if (isProd && !secret) {
+    return NextResponse.json({ error: 'cron_secret_not_configured' }, { status: 401 });
+  }
   if (secret) {
     const auth = request.headers.get('authorization');
     if (auth !== `Bearer ${secret}`) {

@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
+import { schoolIdForHost } from '@/lib/branding';
 import { hashPassword, MIN_PASSWORD_LENGTH } from '@/lib/auth/password';
 import { logEvent } from '@/lib/auth/magic-link';
 import {
@@ -45,15 +46,22 @@ export async function POST(request: NextRequest) {
   // yet. Filtering out parents with existing passwords here keeps this
   // endpoint safe to expose — the only thing it can do is initialize
   // a never-used account.
+  // Scoped to the host's school on custom domains — the same email can
+  // exist at two schools, and this must initialize the row for the school
+  // whose portal the parent is actually on.
+  const hostSchoolId = await schoolIdForHost(
+    request.headers.get('x-forwarded-host') ?? request.headers.get('host'),
+  );
   const { rows } = await query<{
     id: string; school_id: string; family_id: string;
   }>(
     `SELECT id, school_id, family_id
        FROM parents
       WHERE LOWER(email) = $1 AND status = 'active' AND password_hash IS NULL
+        AND ($2::uuid IS NULL OR school_id = $2::uuid)
       ORDER BY created_at ASC
       LIMIT 1`,
-    [email],
+    [email, hostSchoolId],
   );
   const parent = rows[0];
   if (!parent) {
@@ -63,8 +71,9 @@ export async function POST(request: NextRequest) {
     const { rows: existsRows } = await query<{ has_password: boolean }>(
       `SELECT (password_hash IS NOT NULL) AS has_password
          FROM parents WHERE LOWER(email) = $1 AND status = 'active'
+          AND ($2::uuid IS NULL OR school_id = $2::uuid)
         ORDER BY (password_hash IS NOT NULL) DESC LIMIT 1`,
-      [email],
+      [email, hostSchoolId],
     );
     if (existsRows[0]?.has_password === true) {
       // Already has a password → kick to sign-in

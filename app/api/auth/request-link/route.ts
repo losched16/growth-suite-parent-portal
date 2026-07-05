@@ -4,6 +4,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { handleLoginRequest } from '@/lib/auth/magic-link';
+import { schoolIdForHost } from '@/lib/branding';
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
@@ -20,6 +21,9 @@ export async function POST(request: NextRequest) {
         origin: originFromRequest(request),
         requestIp: ip,
         userAgent: ua,
+        hostSchoolId: await schoolIdForHost(
+          request.headers.get('x-forwarded-host') ?? request.headers.get('host'),
+        ),
       });
     } catch (err) {
       console.error('[parent-portal] login request handler crashed:', err);

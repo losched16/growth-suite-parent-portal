@@ -26,6 +26,17 @@ export interface PreloginBranding {
   support_phone: string | null;
 }
 
+// Host → school scoping for auth. On a school-owned custom host, email →
+// parent resolution must stay inside that school: the same email can exist
+// as parent rows at two schools (e.g. a school rebuilt as a fresh instance),
+// and an unscoped lookup resolves to whichever row has a password — landing
+// the parent in the wrong school's portal. Returns null for generic hosts,
+// where the global lookup remains the behavior.
+export async function schoolIdForHost(host: string | null | undefined): Promise<string | null> {
+  const branding = await loadBrandingByHost(host);
+  return branding?.school_id ?? null;
+}
+
 export async function loadBrandingByHost(host: string | null | undefined): Promise<PreloginBranding | null> {
   if (!host) return null;
   // Strip port (localhost:3000), normalize.

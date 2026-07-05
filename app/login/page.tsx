@@ -87,13 +87,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   // An unknown email gets a clear "not on file" message — we never show a
   // create-password form for an address the school doesn't have (which
   // misled testers into thinking any email could make an account).
+  // On a school-owned custom host, resolution is scoped to that school —
+  // the same email can exist as parent rows at two schools, and picking
+  // the row with a password would land the parent in the wrong portal.
+  const hostSchoolId = branding?.school_id ?? null;
   const { rows } = await query<{ has_password: boolean; school_id: string; family_id: string }>(
     `SELECT (password_hash IS NOT NULL) AS has_password, school_id, family_id
        FROM parents
       WHERE LOWER(email) = $1 AND status = 'active'
+        AND ($2::uuid IS NULL OR school_id = $2::uuid)
       ORDER BY (password_hash IS NOT NULL) DESC
       LIMIT 1`,
-    [email],
+    [email, hostSchoolId],
   );
   const onFile = rows.length > 0;
   const hasPassword = rows[0]?.has_password === true;

@@ -18,6 +18,7 @@ import { query, withTransaction } from '@/lib/db';
 import type { FormDefinition } from '@/lib/forms/types';
 import type { ResolvedLine } from '@/lib/forms/payment-eval';
 import { evaluateDiscounts, recordDiscountApplications } from './discounts';
+import { loadSchoolSettings } from '@/lib/school-settings';
 
 interface CreateOpts {
   schoolId: string;
@@ -42,8 +43,6 @@ interface CreateResult {
   total_annual_committed_cents: number;
 }
 
-const ACADEMIC_YEAR = '2026-27';
-
 // Categories that get billed UPFRONT on the immediate invoice (not
 // spread across the plan). Everything else goes into installments.
 const DUE_NOW_CATEGORIES = new Set([
@@ -64,6 +63,11 @@ const INSTALLMENT_CATEGORIES = new Set([
 ]);
 
 export async function createEnrollmentInvoices(opts: CreateOpts): Promise<CreateResult> {
+  // Academic year comes from the school's settings bag (falls back to the
+  // shared default when unset) — not a hardcoded constant, so schools on a
+  // different year stamp enrollments/invoices with the right one.
+  const ACADEMIC_YEAR = (await loadSchoolSettings(opts.schoolId)).academic_year;
+
   // ── Partition the lines ────────────────────────────────────────────
   const dueNowLines = opts.lines.filter((l) => l.category && DUE_NOW_CATEGORIES.has(l.category));
   const installmentLines = opts.lines.filter((l) => l.category && INSTALLMENT_CATEGORIES.has(l.category));

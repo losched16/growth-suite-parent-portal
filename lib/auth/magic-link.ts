@@ -34,8 +34,14 @@ export interface ParentLookupResult {
 // Find ALL parent rows matching a normalized email. A single email may
 // be tied to parents at multiple schools (rare but possible — the auth
 // flow handles this by creating one token per (email, parent_id) pair
-// and the verify step picks the right school).
-export async function lookupParentsByEmail(rawEmail: string): Promise<ParentLookupResult> {
+// and the verify step picks the right school). When the request came in
+// on a school-owned custom host, pass that school's id to scope the
+// match — a dual-school email must not receive a link into the other
+// school's portal from this school's domain.
+export async function lookupParentsByEmail(
+  rawEmail: string,
+  schoolId?: string | null,
+): Promise<ParentLookupResult> {
   const email = rawEmail.trim().toLowerCase();
   if (!email) return { email, candidates: [] };
 
@@ -61,8 +67,9 @@ export async function lookupParentsByEmail(rawEmail: string): Promise<ParentLook
      FROM parents p
      JOIN schools s ON s.id = p.school_id
      LEFT JOIN school_branding b ON b.school_id = p.school_id
-     WHERE LOWER(p.email) = $1 AND p.status = 'active'`,
-    [email],
+     WHERE LOWER(p.email) = $1 AND p.status = 'active'
+       AND ($2::uuid IS NULL OR p.school_id = $2::uuid)`,
+    [email, schoolId ?? null],
   );
   return { email, candidates: rows };
 }
@@ -194,8 +201,9 @@ export async function handleLoginRequest(opts: {
   origin: string; // e.g. https://family.mygrowthsuite.com — for the link URL
   requestIp: string | null;
   userAgent: string | null;
+  hostSchoolId?: string | null; // custom-host school scoping (see lookupParentsByEmail)
 }): Promise<{ sent: number }> {
-  const { email, candidates } = await lookupParentsByEmail(opts.rawEmail);
+  const { email, candidates } = await lookupParentsByEmail(opts.rawEmail, opts.hostSchoolId);
   await logEvent({
     event_type: 'login_request',
     email,

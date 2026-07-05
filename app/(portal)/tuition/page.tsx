@@ -14,11 +14,10 @@ import Link from 'next/link';
 import { CreditCard, Calendar, CheckCircle2, AlertCircle } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
+import { loadSchoolSettings } from '@/lib/school-settings';
 import { TuitionPlanPicker } from './TuitionPlanPicker';
 
 export const dynamic = 'force-dynamic';
-
-const ACADEMIC_YEAR = '2026-27';
 
 interface EnrollmentRow {
   id: string;
@@ -64,6 +63,8 @@ function fmtCents(c: number): string {
 
 export default async function TuitionPage() {
   const id = await requireParent();
+  // Academic year from the school's settings bag (not a hardcoded constant).
+  const academicYear = (await loadSchoolSettings(id.parent.school_id)).academic_year;
 
   // Load enrollments for this family + this academic year
   const enrollments = (await query<EnrollmentRow>(
@@ -86,7 +87,7 @@ export default async function TuitionPage() {
         AND fte.school_id = $2
         AND fte.academic_year = $3
       ORDER BY s.date_of_birth NULLS LAST`,
-    [id.family.id, id.parent.school_id, ACADEMIC_YEAR],
+    [id.family.id, id.parent.school_id, academicYear],
   )).rows;
 
   // Load all available payment plans for this school (the picker shows these)
@@ -125,7 +126,7 @@ export default async function TuitionPage() {
       <header>
         <h1 className="text-2xl font-semibold text-gray-900">Tuition &amp; Payments</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Your {ACADEMIC_YEAR} tuition for each student. Pick a payment plan, save a payment method,
+          Your {academicYear} tuition for each student. Pick a payment plan, save a payment method,
           and you&rsquo;re set — we&rsquo;ll bill automatically per the schedule.
         </p>
       </header>

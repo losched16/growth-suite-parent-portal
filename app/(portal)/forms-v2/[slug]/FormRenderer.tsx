@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, AlertCircle, CheckCircle2, FileText, Edit3, CreditCard, Minus, Plus } from 'lucide-react';
 import type { FormDefinition, FormFieldBlock, PrefillSource } from '@/lib/forms/types';
-import { resolvePrefill, isBlockVisible, type PrefillContext } from '@/lib/forms/prefill';
+import { resolvePrefill, isBlockVisible, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
 import { PaymentMethodGate } from './PaymentMethodGate';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { fmtCents } from '@/lib/billing/fee-math';
@@ -311,6 +311,15 @@ export function FormRenderer({
     enrollment: selectedStudent ? enrollmentByStudentId?.[selectedStudent.id] : undefined,
   }), [parent, guardians, selectedStudent, healthByStudentId, enrollmentByStudentId]);
 
+  // Resolve any catalog/prefill-sourced visible_when facts once per context
+  // (they don't change as the parent types). Merged into the values map at each
+  // isBlockVisible call so `source:'prefill'` conditions can be evaluated. {}
+  // for forms that don't use them.
+  const condPrefill = useMemo(
+    () => resolveConditionPrefillValues(definition.field_schema, prefillCtx),
+    [definition.field_schema, prefillCtx],
+  );
+
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
@@ -364,7 +373,7 @@ export function FormRenderer({
       for (const block of blocksToShow) {
         if (!('key' in block) || !('required' in block) || !block.required) continue;
         const vw = 'visible_when' in block ? block.visible_when : undefined;
-        if (!isBlockVisible(vw, fdValues)) continue; // hidden → not required
+        if (!isBlockVisible(vw, { ...fdValues, ...condPrefill })) continue; // hidden → not required
         const key = block.key;
         const single = fd.get(key);
         const hasSingle = typeof single === 'string' ? single.trim() !== '' : single != null;
@@ -905,7 +914,7 @@ export function FormRenderer({
             // isn't satisfied by the live form values. Hidden → not rendered,
             // not submitted, not required (the submit route skips them too).
             .filter((block) =>
-              isBlockVisible(('visible_when' in block ? block.visible_when : undefined), responses),
+              isBlockVisible(('visible_when' in block ? block.visible_when : undefined), { ...responses, ...condPrefill }),
             )
             // `hide_when_empty`: drop opt-in line items whose resolved prefill
             // is empty, so e.g. a "Scholarship — credit" row only appears for

@@ -26,9 +26,19 @@ export interface SectionBlock {
 
 // A single conditional-visibility test: the live value of `field` must be
 // one of `equals`. Multi-value fields stringify (same as the legacy check).
+//
+// `source` picks WHERE `field` is read from:
+//   - undefined / 'field' (default) — `field` is the key of another block on
+//     THIS form; the test runs against the parent's live answer. (Legacy.)
+//   - 'prefill' — `field` is a PrefillSource (e.g. `meta:student_1_grade_level`)
+//     read from the family's synced data, so a form field can be gated on a
+//     fact we already know WITHOUT collecting it as a question. The renderer /
+//     submit route resolve it and expose it under `@prefill:<source>` in the
+//     values map that isBlockVisible reads.
 export interface VisibilityCondition {
   field: string;
   equals: string[];
+  source?: 'field' | 'prefill';
 }
 // Block-level conditional visibility. Two shapes, both accepted forever:
 //   - legacy single: `{ field, equals }` — one controlling field.

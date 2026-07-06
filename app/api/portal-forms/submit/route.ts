@@ -27,7 +27,7 @@ import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
 import { loadSchoolSettings } from '@/lib/school-settings';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
-import { resolvePrefill, todayString, isBlockVisible, type PrefillContext } from '@/lib/forms/prefill';
+import { resolvePrefill, todayString, isBlockVisible, hasPrefillConditions, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
 import {
   studentMatchesAppliesTo,
   type FormAppliesTo,
@@ -315,6 +315,17 @@ export async function POST(request: NextRequest) {
     [...fd.keys()].map((k) => [k, fd.get(k)]),
   );
 
+  // Catalog/prefill-sourced visible_when facts, resolved from the family's data
+  // so a `source:'prefill'` condition is evaluated the same server-side as in
+  // the renderer (a field the client hid stays skipped here too). Only built
+  // when the form actually uses catalog conditions.
+  let condPrefill: Record<string, string> = {};
+  if (hasPrefillConditions(def.field_schema)) {
+    const condCtx = await buildPrefillContextForSubmit(session.parent_id, studentId, session.school_id);
+    condPrefill = resolveConditionPrefillValues(def.field_schema, condCtx);
+  }
+  const visValues = { ...fdValues, ...condPrefill };
+
   for (const block of def.field_schema) {
     if (!('key' in block)) continue;
     // Skip non-picked fields when in addendum mode. Signatures stay so
@@ -327,7 +338,7 @@ export async function POST(request: NextRequest) {
     }
     // Conditional visibility — hidden fields weren't submitted, so don't
     // validate, require, or store them.
-    if (!isBlockVisible(('visible_when' in block ? block.visible_when : undefined), fdValues)) continue;
+    if (!isBlockVisible(('visible_when' in block ? block.visible_when : undefined), visValues)) continue;
     const key = block.key;
 
     switch (block.type) {

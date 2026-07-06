@@ -282,11 +282,52 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
 // Evaluate one condition: the current value of `field` is one of `equals`.
 // An empty/unselected reference field never matches (same as the legacy
 // single-condition behavior — this is exactly the old body).
+//
+// A `source:'prefill'` condition reads a fact from the family's synced data
+// instead of a form answer. The caller resolves those and merges them into
+// `values` under `@prefill:<source>` (see resolveConditionPrefillValues), so
+// this stays a pure lookup with no context dependency.
 function matchCondition(cond: VisibilityCondition, values: Record<string, unknown>): boolean {
   if (!cond.field) return true;
-  const cur = values[cond.field];
+  const key = cond.source === 'prefill' ? `@prefill:${cond.field}` : cond.field;
+  const cur = values[key];
   const curStr = cur == null ? '' : String(cur);
   return (cond.equals ?? []).map(String).includes(curStr);
+}
+
+// Every condition inside a visible_when rule (either shape), flattened.
+function conditionsOf(vw: VisibleWhen | undefined | null): VisibilityCondition[] {
+  if (!vw) return [];
+  if ('conditions' in vw) return Array.isArray(vw.conditions) ? vw.conditions : [];
+  return vw.field ? [vw] : [];
+}
+
+type MaybeConditional = { type: string; visible_when?: VisibleWhen };
+
+// Does any block in a schema gate on a catalog/prefill fact? Lets callers skip
+// building a PrefillContext for forms that don't use catalog conditions.
+export function hasPrefillConditions(schema: ReadonlyArray<MaybeConditional>): boolean {
+  for (const b of schema) {
+    if (conditionsOf(b.visible_when).some((c) => c.source === 'prefill' && c.field)) return true;
+  }
+  return false;
+}
+
+// Resolve every distinct prefill-sourced condition in a schema into a map keyed
+// `@prefill:<source>`, ready to spread into the values map that isBlockVisible
+// reads. Returns {} when the schema has no such conditions, so forms that don't
+// use catalog conditions pay nothing.
+export function resolveConditionPrefillValues(
+  schema: ReadonlyArray<MaybeConditional>,
+  ctx: PrefillContext,
+): Record<string, string> {
+  const sources = new Set<string>();
+  for (const b of schema) {
+    for (const c of conditionsOf(b.visible_when)) if (c.source === 'prefill' && c.field) sources.add(c.field);
+  }
+  const out: Record<string, string> = {};
+  for (const s of sources) out[`@prefill:${s}`] = resolvePrefill(s as PrefillSource, ctx);
+  return out;
 }
 
 // Conditional-visibility check, shared by the renderer (to hide the field)

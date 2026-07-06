@@ -2,7 +2,7 @@
 // identity + the selected student + the student's health profile.
 // Used by the renderer to populate inputs with sensible defaults.
 
-import type { PrefillSource } from './types';
+import type { PrefillSource, VisibleWhen, VisibilityCondition } from './types';
 
 export interface PrefillContext {
   parent: {
@@ -279,18 +279,36 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
   return '';
 }
 
+// Evaluate one condition: the current value of `field` is one of `equals`.
+// An empty/unselected reference field never matches (same as the legacy
+// single-condition behavior — this is exactly the old body).
+function matchCondition(cond: VisibilityCondition, values: Record<string, unknown>): boolean {
+  if (!cond.field) return true;
+  const cur = values[cond.field];
+  const curStr = cur == null ? '' : String(cur);
+  return (cond.equals ?? []).map(String).includes(curStr);
+}
+
 // Conditional-visibility check, shared by the renderer (to hide the field)
 // and the submit route (to skip its required-validation). A field with no
-// `visible_when` is always visible. Otherwise it's visible only when the
-// current value of the referenced field is one of `equals`.
+// `visible_when` is always visible. Handles both shapes:
+//   - legacy single `{ field, equals }` — one controlling field.
+//   - multi `{ match, conditions }` — ALL (AND) or ANY (OR) of the conditions.
+// The legacy path is byte-for-byte the previous logic, so existing forms are
+// unaffected.
 export function isBlockVisible(
-  visibleWhen: { field: string; equals: string[] } | undefined | null,
+  visibleWhen: VisibleWhen | undefined | null,
   values: Record<string, unknown>,
 ): boolean {
-  if (!visibleWhen || !visibleWhen.field) return true;
-  const cur = values[visibleWhen.field];
-  const curStr = cur == null ? '' : String(cur);
-  return (visibleWhen.equals ?? []).map(String).includes(curStr);
+  if (!visibleWhen) return true;
+  if ('conditions' in visibleWhen) {
+    const all = Array.isArray(visibleWhen.conditions) ? visibleWhen.conditions : [];
+    const conds = all.filter((c) => c && c.field);
+    if (conds.length === 0) return true;
+    const results = conds.map((c) => matchCondition(c, values));
+    return visibleWhen.match === 'any' ? results.some(Boolean) : results.every(Boolean);
+  }
+  return matchCondition(visibleWhen, values);
 }
 
 // Today's date (YYYY-MM-DD) in the school's timezone. The single source of

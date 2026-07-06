@@ -24,6 +24,22 @@ export interface SectionBlock {
   description?: string;
 }
 
+// A single conditional-visibility test: the live value of `field` must be
+// one of `equals`. Multi-value fields stringify (same as the legacy check).
+export interface VisibilityCondition {
+  field: string;
+  equals: string[];
+}
+// Block-level conditional visibility. Two shapes, both accepted forever:
+//   - legacy single: `{ field, equals }` — one controlling field.
+//   - multi:         `{ match: 'all' | 'any', conditions: [...] }` — AND / OR
+//     across several controlling fields. The builder only writes the multi
+//     shape when there are 2+ conditions, so single-rule forms stay on the
+//     legacy shape byte-for-byte (nothing to migrate).
+export type VisibleWhen =
+  | VisibilityCondition
+  | { match: 'all' | 'any'; conditions: VisibilityCondition[] };
+
 // Interactive blocks (all have `key`, `label`, `required`)
 interface BaseField {
   key: string;
@@ -62,12 +78,12 @@ interface BaseField {
   // field so it never silently hides fields on forms that don't expect it.
   hide_when_empty?: boolean;
   // Conditional visibility. When set, the field only renders (and is only
-  // required / validated) when the live value of `field` is one of
-  // `equals`. e.g. show the "Other" explanation box only when the
-  // physical-custody dropdown is set to "other". Hidden fields aren't
-  // submitted, so they're skipped server-side too. Same shape as the
-  // option-level `visible_when` used by pricing fields.
-  visible_when?: { field: string; equals: string[] };
+  // required / validated) when its rule is satisfied by the live form values.
+  // e.g. show the "Other" explanation box only when the physical-custody
+  // dropdown is set to "other". Supports a single controlling field or an
+  // AND/OR combination across several (see VisibleWhen). Hidden fields aren't
+  // submitted, so they're skipped server-side too.
+  visible_when?: VisibleWhen;
   // When true on a per-family form (`per_student: false`), the input
   // renders ONE COPY PER STUDENT in the family instead of a single
   // family-wide input. Each per-student copy submits its value under

@@ -56,6 +56,16 @@ export interface FormAppliesTo {
   // student's id, so it's robust to name-spelling differences. Manage
   // the list with the operator roster tool; never hand-edit UUIDs.
   student_ids?: string[];
+
+  // EXCLUSION by family contact tag (case-insensitive, exact-tag).
+  // Evaluated BEFORE every inclusion rule: a family carrying any of
+  // these tags never sees the form, even when an inclusion rule (or no
+  // rule at all) would show it. The canonical use: hide the enrollment
+  // agreement from already-enrolled families ("enrolled - 26/27") while
+  // new families — who don't carry the tag yet — still get it. An
+  // office push (open invite) still overrides, so a school can always
+  // send the form to a specific excluded family deliberately.
+  tag_exclude?: string[];
 }
 
 export interface AppliesToContext {
@@ -80,7 +90,15 @@ export function studentMatchesAppliesTo(
   ctx: AppliesToContext,
   rule: FormAppliesTo | null | undefined,
 ): boolean {
-  if (!rule || isEmptyRule(rule)) return true;
+  if (!rule) return true;
+
+  // Exclusion wins over everything: a family tagged out never matches.
+  if (rule.tag_exclude?.length && ctx.tags.length) {
+    const have = new Set(ctx.tags.map((t) => t.toLowerCase()));
+    if (rule.tag_exclude.some((t) => have.has(t.toLowerCase()))) return false;
+  }
+
+  if (isEmptyRule(rule)) return true;
 
   if (rule.student_ids?.length) {
     if (rule.student_ids.includes(ctx.studentId)) return true;
@@ -122,6 +140,9 @@ export function studentMatchesAppliesTo(
   return false;
 }
 
+// "Empty" = no INCLUSION criteria. tag_exclude deliberately doesn't count:
+// a rule that's exclusion-only means "everyone except the tagged families",
+// so the inclusion side falls through to the show-everyone default.
 function isEmptyRule(r: FormAppliesTo): boolean {
   return !(
     (r.student_ids && r.student_ids.length > 0) ||

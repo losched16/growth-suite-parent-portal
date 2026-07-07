@@ -198,8 +198,18 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     return applicableStudentsByRule(def);
   }
 
+  // Family carries one of the rule's excluded tags → hidden outright
+  // (e.g. the enrollment agreement hidden from "enrolled - 26/27").
+  function familyExcluded(def: DefRow): boolean {
+    const excl = def.applies_to?.tag_exclude;
+    if (!excl?.length || familyTags.length === 0) return false;
+    const have = new Set(familyTags.map((t) => t.toLowerCase()));
+    return excl.some((t) => have.has(t.toLowerCase()));
+  }
+
   function applicableStudentsByRule(def: DefRow) {
     if (!def.applies_to) return students;
+    if (familyExcluded(def)) return [];
     if (!def.per_student) {
       // Family-level form: the only applies_to lever that makes sense is
       // tag_match (program/grade are per-student). Gate the whole family on
@@ -227,6 +237,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
   // stays visible.
   const visibleDefs = defs.filter((d) => {
     if (invitesByForm.has(d.id)) return true;
+    if (familyExcluded(d)) return false;
     if (!d.per_student) return true;
     if (!d.applies_to) return true;
     return applicableStudents(d).length > 0;

@@ -135,12 +135,19 @@ export default async function FormPage({
     [id.parent.school_id, id.parent.family_id],
   );
   const familyTags = tagRows.map((r) => r.tag).filter(Boolean);
-  if (def.applies_to && !def.per_student && def.applies_to.tag_match?.length) {
+  // Exclusion tag on the family → blocked outright (both form shapes).
+  // The open-invite override below still restores access for a family the
+  // office deliberately pushed the form to.
+  if (def.applies_to?.tag_exclude?.length && familyTags.length > 0) {
+    const have = new Set(familyTags.map((t) => t.toLowerCase()));
+    if (def.applies_to.tag_exclude.some((t) => have.has(t.toLowerCase()))) students = [];
+  }
+  if (students.length > 0 && def.applies_to && !def.per_student && def.applies_to.tag_match?.length) {
     // Family-level form gated by tag — block the whole family if no match
     // (the "no applicable students" guard below renders the not-eligible state).
     const have = new Set(familyTags.map((t) => t.toLowerCase()));
     if (!def.applies_to.tag_match.some((t) => have.has(t.toLowerCase()))) students = [];
-  } else if (def.per_student && def.applies_to) {
+  } else if (students.length > 0 && def.per_student && def.applies_to) {
     const sIds = allStudents.map((s) => s.id);
     const enrolMap = new Map<string, { tuitionGridName: string | null; addonKeys: string[] }>();
     if (sIds.length > 0) {

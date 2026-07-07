@@ -71,6 +71,9 @@ export default async function CoSignPage({ params, searchParams }: { params: Par
        LEFT JOIN students st ON st.id = s.student_id
        LEFT JOIN parents p ON p.id = s.parent_id
       WHERE s.cosign_token = $1
+        -- A voided submission's signing link must dead-end: the office
+        -- voided it so the family can redo the form from scratch.
+        AND s.status <> 'voided'
       LIMIT 1`,
     [token],
   );

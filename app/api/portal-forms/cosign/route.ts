@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
     `SELECT id, school_id, form_definition_id, family_id, parent_id, student_id, responses
        FROM portal_form_submissions
       WHERE cosign_token = $1 AND cosign_status = 'awaiting'
+        AND status <> 'voided'
       LIMIT 1`,
     [token],
   );

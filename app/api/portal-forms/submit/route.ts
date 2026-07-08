@@ -984,6 +984,31 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // 9b. Official-PDF forms: write the answers onto the school's uploaded
+  //     PDF template (state emergency cards etc.), stamp the typed
+  //     signature, store the completed card on the student's record, and
+  //     email office + parent. Cheap probe first — regular forms skip.
+  after(async () => {
+    try {
+      const { formHasPdfTemplate, generateCompletedPdf } = await import('@/lib/forms/fill-pdf-template');
+      if (!(await formHasPdfTemplate(def.id))) return;
+      await generateCompletedPdf({
+        schoolId: session.school_id,
+        formDefinitionId: def.id,
+        submissionId,
+        studentId,
+        parentId: session.parent_id,
+        familyId: session.family_id,
+        responses,
+        fieldSchema: (def.field_schema ?? []) as unknown as Array<Record<string, unknown>>,
+        formDisplayName: def.display_name,
+        notifyEmails: def.notifications_enabled !== false ? (def.notify_emails ?? []) : [],
+      });
+    } catch (err) {
+      console.error('[portal-forms/submit] PDF fill crashed for', submissionId, ':', err);
+    }
+  });
+
   // 10. Payment-required forms: create the invoice now and return its
   //      id so the client can redirect to /billing/pay/{id}. The
   //      submission already sits in pending_payment; the Stripe webhook

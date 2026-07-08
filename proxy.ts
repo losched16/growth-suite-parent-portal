@@ -60,6 +60,10 @@ export const config = {
     // page is used by a second guardian who has no parent account — auth is
     // the secure cosign_token emailed to them (same public-token model as
     // /pay). The general api/portal-forms/submit route stays guarded.
-    '/((?!login|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|cosign|api/portal-forms/cosign|_next/static|_next/image|favicon.ico|robots.txt).*)',
+    //
+    // `forgot-password` + `reset-password` excluded: both are used by
+    // parents who, by definition, can't sign in. The reset page's auth is
+    // the single-use emailed token.
+    '/((?!login|forgot-password|reset-password|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|cosign|api/portal-forms/cosign|_next/static|_next/image|favicon.ico|robots.txt).*)',
   ],
 };

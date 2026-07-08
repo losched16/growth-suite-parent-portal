@@ -74,6 +74,17 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
               className={inputCls}
             />
             <PrimaryBtn branding={branding}>Continue</PrimaryBtn>
+            {/* Always-visible reset entry point: posts the typed email
+                straight to the reset endpoint (which responds neutrally
+                whether or not the email is on file). */}
+            <button
+              type="submit"
+              formAction="/api/auth/password-reset/request"
+              formMethod="POST"
+              className="block w-full text-center text-xs text-gray-500 underline hover:text-gray-800"
+            >
+              Forgot your password? Enter your email above, then click here for a reset link
+            </button>
           </form>
 
           <Footer branding={branding} />

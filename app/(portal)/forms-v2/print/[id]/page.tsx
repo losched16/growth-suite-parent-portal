@@ -306,8 +306,19 @@ function ResponseValue({
   switch (block.type) {
     case 'signature_drawn': {
       const v = typeof value === 'string' ? value : '';
-      // The block can carry EITHER a drawn PNG dataUrl OR (when the
-      // parent used the "Type instead" fallback) a plain text name.
+      // New submissions: typed name under the key + PNG under key_drawn —
+      // show both. Legacy submissions carried one value (PNG or text).
+      const drawnValue = typeof responses[`${block.key}_drawn`] === 'string'
+        ? String(responses[`${block.key}_drawn`]) : '';
+      if (drawnValue.startsWith('data:image/')) {
+        return (
+          <div className="space-y-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={drawnValue} alt="signature" className="signature-img h-16 border border-gray-300 rounded bg-white" />
+            {v.trim() ? <div className="font-serif italic text-sm text-gray-800">{v}</div> : null}
+          </div>
+        );
+      }
       if (v.startsWith('data:image/')) {
         return (
           // eslint-disable-next-line @next/next/no-img-element

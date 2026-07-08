@@ -2090,13 +2090,13 @@ function FileInput({ block, legacyResponses }: { block: Extract<FormFieldBlock, 
 // nothing about React state or hidden inputs can fail. If the parent
 // can type into a text box, the form will submit.
 function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'signature_drawn' }> }) {
-  // Parent's choice: type the legal name OR physically draw the signature
-  // (finger/stylus/mouse). Either way the value lands in one hidden input
-  // under block.key — typed names as plain text, drawings as a PNG data
-  // URL — and the server, print views, and the PDF fill engine handle
-  // both formats.
-  const [mode, setMode] = useState<'type' | 'draw'>('type');
-  const [value, setValue] = useState('');
+  // BOTH parts are the signature: the typed legal name (attestation of
+  // identity) AND the physically drawn signature. When the block is
+  // required, neither alone is enough — the server enforces the same.
+  // Stored as: responses[key] = typed name, responses[key + '_drawn'] =
+  // PNG data URL from the canvas.
+  const [typed, setTyped] = useState('');
+  const [drawn, setDrawn] = useState('');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   const hasInk = useRef(false);
@@ -2136,44 +2136,26 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
     if (!drawing.current) return;
     drawing.current = false;
     if (hasInk.current && canvasRef.current) {
-      setValue(canvasRef.current.toDataURL('image/png'));
+      setDrawn(canvasRef.current.toDataURL('image/png'));
     }
   }
   function clearCanvas() {
     const c = canvasRef.current;
     if (c) c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
     hasInk.current = false;
-    if (mode === 'draw') setValue('');
+    setDrawn('');
   }
-  function switchMode(next: 'type' | 'draw') {
-    if (next === mode) return;
-    setMode(next);
-    setValue('');
-    hasInk.current = false;
-    // Canvas may not be mounted yet when switching to draw — cleared on next paint.
-    setTimeout(() => {
-      const c = canvasRef.current;
-      if (c) c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
-    }, 0);
-  }
-
-  const tabCls = (active: boolean) =>
-    `rounded-full border px-3 py-1 text-xs font-medium ${active
-      ? 'border-emerald-600 bg-emerald-600 text-white'
-      : 'border-gray-300 bg-white text-gray-700 hover:border-emerald-400'}`;
 
   return (
-    <div className="space-y-2">
-      <div className="flex gap-1.5">
-        <button type="button" onClick={() => switchMode('type')} className={tabCls(mode === 'type')}>Type it</button>
-        <button type="button" onClick={() => switchMode('draw')} className={tabCls(mode === 'draw')}>Draw it</button>
-      </div>
-
-      {mode === 'type' ? (
+    <div className="space-y-3">
+      <div>
+        <div className="mb-1 text-xs font-medium text-gray-700">
+          1. Type your full legal name{block.required ? ' *' : ''}
+        </div>
         <input
           type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
           required={block.required}
           placeholder="Type your full legal name"
           autoComplete="off"
@@ -2181,36 +2163,56 @@ function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'sig
           spellCheck={false}
           className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-serif italic focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-200"
         />
-      ) : (
-        <div className="space-y-1">
-          <canvas
-            ref={canvasRef}
-            width={600}
-            height={160}
-            onPointerDown={strokeStart}
-            onPointerMove={strokeMove}
-            onPointerUp={strokeEnd}
-            onPointerCancel={strokeEnd}
-            className="h-32 w-full touch-none rounded-md border border-gray-300 bg-white"
-            style={{ touchAction: 'none' }}
-          />
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-gray-400">Sign above with your finger, stylus, or mouse.</span>
-            <button type="button" onClick={clearCanvas}
-              className="text-[11px] text-gray-500 underline hover:text-gray-800">
-              Clear
-            </button>
-          </div>
-        </div>
-      )}
+      </div>
 
-      {/* The real submitted value (typed name OR PNG data URL). */}
-      <input type="hidden" name={block.key} value={value} />
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-medium text-gray-700">
+            2. Draw your signature{block.required ? ' *' : ''}
+          </span>
+          {drawn ? (
+            <span className="text-[11px] font-medium text-emerald-700">✓ captured</span>
+          ) : null}
+        </div>
+        <canvas
+          ref={canvasRef}
+          width={600}
+          height={160}
+          onPointerDown={strokeStart}
+          onPointerMove={strokeMove}
+          onPointerUp={strokeEnd}
+          onPointerCancel={strokeEnd}
+          className={`h-32 w-full touch-none rounded-md border bg-white ${drawn ? 'border-emerald-400' : 'border-gray-300'}`}
+          style={{ touchAction: 'none' }}
+        />
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-gray-400">Sign with your finger, stylus, or mouse.</span>
+          <button type="button" onClick={clearCanvas}
+            className="text-[11px] text-gray-500 underline hover:text-gray-800">
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {/* Submitted values: typed name under the block key (what every view
+          shows as "the signature"), drawing under key_drawn. The 1px
+          required input gives the drawn part native can't-submit behavior
+          without being visible — it focuses next to the canvas when empty. */}
+      <input type="hidden" name={block.key} value={typed} />
+      <input
+        type="text"
+        name={`${block.key}_drawn`}
+        value={drawn}
+        onChange={() => { /* set via canvas only */ }}
+        required={block.required}
+        tabIndex={-1}
+        aria-hidden
+        className="pointer-events-none absolute h-px w-px opacity-0"
+      />
       <input type="hidden" name={`${block.key}_signed_at`} value={new Date().toISOString()} />
       <p className="text-[11px] text-gray-500">
-        {mode === 'type'
-          ? 'By typing your name above, you are signing this form electronically. This e-signature has the same legal effect as a handwritten one.'
-          : 'By drawing your signature above, you are signing this form electronically. This e-signature has the same legal effect as a handwritten one.'}
+        By typing your name and drawing your signature above, you are signing this form
+        electronically. This e-signature has the same legal effect as a handwritten one.
       </p>
     </div>
   );

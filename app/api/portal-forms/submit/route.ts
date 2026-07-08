@@ -389,19 +389,20 @@ export async function POST(request: NextRequest) {
         break;
       }
       case 'signature_drawn': {
-        // Field type kept for schema compat, but the UX is now a typed
-        // text input — parent keys their name. The PNG-only check
-        // below was the bug parents reported as "can't sign": their
-        // typed signature didn't start with data:image/ so the server
-        // rejected with "is required" even when filled in. Accept any
-        // non-empty value; downstream renderers handle both formats
-        // (legacy PNGs from old submissions still display as images).
+        // BOTH parts are the signature: typed legal name (stored under the
+        // block key, so every view shows it as "the signature") AND the
+        // drawn signature (PNG data URL under key_drawn). When required,
+        // neither alone passes. Legacy submissions that stored a PNG under
+        // the block key itself still render everywhere.
         const v = String(fd.get(key) ?? '').trim();
+        const drawn = String(fd.get(`${key}_drawn`) ?? '').trim();
         const signedAt = String(fd.get(`${key}_signed_at`) ?? '').trim();
-        if (block.required && !v) {
-          validationErrors.push(`${block.label} is required`);
+        if (block.required) {
+          if (!v) validationErrors.push(`${block.label}: typed legal name is required`);
+          if (!drawn.startsWith('data:image/')) validationErrors.push(`${block.label}: drawn signature is required`);
         }
         responses[key] = v;
+        if (drawn.startsWith('data:image/')) responses[`${key}_drawn`] = drawn;
         if (signedAt) responses[`${key}_signed_at`] = signedAt;
         break;
       }

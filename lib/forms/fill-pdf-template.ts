@@ -82,7 +82,14 @@ export async function generateCompletedPdf(opts: FillOpts): Promise<void> {
     // produce cryptographic /Sig signatures; a stamped signature + audit
     // trail is the platform's e-sign model, same as native forms.
     if (block.type === 'signature_typed' || block.type === 'signature_drawn') {
-      const sigValue = asText(raw).trim();
+      // Draw-capable blocks store the PNG under key_drawn (typed name under
+      // the key itself). Prefer the drawing on the signature line; legacy
+      // rows may carry the PNG directly under the key.
+      const drawnRaw = asText(opts.responses[`${key}_drawn`]).trim();
+      const typedRaw = asText(raw).trim();
+      const sigValue = drawnRaw.startsWith('data:image/')
+        ? drawnRaw
+        : typedRaw;
       if (!sigValue) continue;
       try {
         const field = form.getField(pdfField);
@@ -112,7 +119,8 @@ export async function generateCompletedPdf(opts: FillOpts): Promise<void> {
             size, font: helvOblique, color: rgb(0.1, 0.1, 0.35),
           });
         }
-        page.drawText(`Signed electronically ${sigDate}`, {
+        const typedName = typedRaw && !typedRaw.startsWith('data:image/') ? typedRaw : '';
+        page.drawText(`Signed electronically${typedName ? ` by ${typedName}` : ''} ${sigDate}`, {
           x: rect.x + 2, y: Math.max(2, rect.y - 8),
           size: 6, font: helv, color: rgb(0.4, 0.4, 0.4),
         });

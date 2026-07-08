@@ -7,14 +7,13 @@
 // "is a co-signer required?" decision + the field keys so the submit route,
 // the form schema, and the co-sign page all agree on the same rule.
 
-// LDMA select values (on the enrollment agreement) that mean BOTH guardians
-// share legal decision-making authority → both must sign. Anything else
-// ("sole" authority, "other") is a single signature. Keep this in sync with
-// the `ldma` field's option values on the enrollment form.
+// LDMA answers that require BOTH guardians to sign. Per Clint
+// (2026-07-08): only SEPARATED or DIVORCED joint-authority situations
+// need the counter-signature — married or single households sign once.
+// The regex in isCoSignRequired also catches future label variants that
+// mention divorced/separated.
 export const JOINT_LDMA_VALUES: ReadonlySet<string> = new Set([
   'Parents/Guardians share joint LDMA (divorced)',
-  'Parents/Guardians share joint LDMA (married)',
-  'Parents/Guardians share joint LDMA (unmarried)',
 ]);
 
 // Form field keys involved in the co-sign flow.
@@ -29,5 +28,6 @@ export const COSIGNER_SIGNED_AT_FIELD = 'cosigner_signature_signed_at';
 // True when the submitted answers require a second guardian's signature.
 export function isCoSignRequired(responses: Record<string, unknown>): boolean {
   const v = String(responses[LDMA_FIELD_KEY] ?? '').trim();
-  return JOINT_LDMA_VALUES.has(v);
+  if (JOINT_LDMA_VALUES.has(v)) return true;
+  return /(divorced|separated)/i.test(v);
 }

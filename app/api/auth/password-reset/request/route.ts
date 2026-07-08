@@ -25,13 +25,20 @@ export async function POST(request: NextRequest) {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
   const ua = request.headers.get('user-agent');
 
-  // Neutral response regardless of outcome.
+  // Neutral response regardless of outcome. Requests from the dedicated
+  // /forgot-password page land back there with the sent state.
+  const fromForgot = String(fd.get('from') ?? '') === 'forgot';
   const url = request.nextUrl.clone();
-  url.pathname = '/login';
   url.search = '';
-  if (email) {
-    url.searchParams.set('email', email.slice(0, 120));
-    url.searchParams.set('msg', 'reset_sent');
+  if (fromForgot) {
+    url.pathname = '/forgot-password';
+    url.searchParams.set('sent', '1');
+  } else {
+    url.pathname = '/login';
+    if (email) {
+      url.searchParams.set('email', email.slice(0, 120));
+      url.searchParams.set('msg', 'reset_sent');
+    }
   }
   const done = NextResponse.redirect(url, 303);
   if (!email) return done;

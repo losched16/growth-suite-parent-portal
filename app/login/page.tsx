@@ -74,18 +74,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
               className={inputCls}
             />
             <PrimaryBtn branding={branding}>Continue</PrimaryBtn>
-            {/* Always-visible reset entry point: posts the typed email
-                straight to the reset endpoint (which responds neutrally
-                whether or not the email is on file). */}
-            <button
-              type="submit"
-              formAction="/api/auth/password-reset/request"
-              formMethod="POST"
-              className="block w-full text-center text-xs text-gray-500 underline hover:text-gray-800"
-            >
-              Forgot your password? Enter your email above, then click here for a reset link
-            </button>
           </form>
+
+          <p className="mt-3 text-center">
+            <Link href="/forgot-password" className="text-xs underline text-gray-500 hover:text-gray-800">
+              Forgot Password?
+            </Link>
+          </p>
 
           <Footer branding={branding} />
         </div>
@@ -188,15 +183,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             <PasswordInput id="password" name="password" autoComplete="current-password" autoFocus />
             <PrimaryBtn branding={branding}>Sign in</PrimaryBtn>
           </form>
-          <form action="/api/auth/password-reset/request" method="POST" className="mt-3">
-            <input type="hidden" name="email" value={email} />
-            <button
-              type="submit"
-              className="text-xs underline text-gray-500 hover:text-gray-800"
-            >
-              Forgot your password? Email me a reset link
-            </button>
-          </form>
+          <p className="mt-3">
+            <Link href={`/forgot-password?email=${encodeURIComponent(email)}`} className="text-xs underline text-gray-500 hover:text-gray-800">
+              Forgot Password?
+            </Link>
+          </p>
           </>
         ) : canProvision ? (
           // ── First-time / set-password mode ─────────────────────

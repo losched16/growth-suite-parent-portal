@@ -2090,21 +2090,127 @@ function FileInput({ block, legacyResponses }: { block: Extract<FormFieldBlock, 
 // nothing about React state or hidden inputs can fail. If the parent
 // can type into a text box, the form will submit.
 function SignatureDrawn({ block }: { block: Extract<FormFieldBlock, { type: 'signature_drawn' }> }) {
+  // Parent's choice: type the legal name OR physically draw the signature
+  // (finger/stylus/mouse). Either way the value lands in one hidden input
+  // under block.key — typed names as plain text, drawings as a PNG data
+  // URL — and the server, print views, and the PDF fill engine handle
+  // both formats.
+  const [mode, setMode] = useState<'type' | 'draw'>('type');
+  const [value, setValue] = useState('');
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawing = useRef(false);
+  const hasInk = useRef(false);
+
+  function canvasPos(e: React.PointerEvent<HTMLCanvasElement>) {
+    const c = canvasRef.current!;
+    const r = c.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (c.width / r.width),
+      y: (e.clientY - r.top) * (c.height / r.height),
+    };
+  }
+  function strokeStart(e: React.PointerEvent<HTMLCanvasElement>) {
+    const c = canvasRef.current;
+    if (!c) return;
+    e.preventDefault();
+    c.setPointerCapture(e.pointerId);
+    const ctx = c.getContext('2d')!;
+    const p = canvasPos(e);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    drawing.current = true;
+  }
+  function strokeMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawing.current) return;
+    const ctx = canvasRef.current!.getContext('2d')!;
+    const p = canvasPos(e);
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    hasInk.current = true;
+  }
+  function strokeEnd() {
+    if (!drawing.current) return;
+    drawing.current = false;
+    if (hasInk.current && canvasRef.current) {
+      setValue(canvasRef.current.toDataURL('image/png'));
+    }
+  }
+  function clearCanvas() {
+    const c = canvasRef.current;
+    if (c) c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
+    hasInk.current = false;
+    if (mode === 'draw') setValue('');
+  }
+  function switchMode(next: 'type' | 'draw') {
+    if (next === mode) return;
+    setMode(next);
+    setValue('');
+    hasInk.current = false;
+    // Canvas may not be mounted yet when switching to draw — cleared on next paint.
+    setTimeout(() => {
+      const c = canvasRef.current;
+      if (c) c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
+    }, 0);
+  }
+
+  const tabCls = (active: boolean) =>
+    `rounded-full border px-3 py-1 text-xs font-medium ${active
+      ? 'border-emerald-600 bg-emerald-600 text-white'
+      : 'border-gray-300 bg-white text-gray-700 hover:border-emerald-400'}`;
+
   return (
-    <div className="space-y-1">
-      <input
-        type="text"
-        name={block.key}
-        required={block.required}
-        placeholder="Type your full legal name"
-        autoComplete="off"
-        autoCapitalize="words"
-        spellCheck={false}
-        className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-200"
-      />
+    <div className="space-y-2">
+      <div className="flex gap-1.5">
+        <button type="button" onClick={() => switchMode('type')} className={tabCls(mode === 'type')}>Type it</button>
+        <button type="button" onClick={() => switchMode('draw')} className={tabCls(mode === 'draw')}>Draw it</button>
+      </div>
+
+      {mode === 'type' ? (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          required={block.required}
+          placeholder="Type your full legal name"
+          autoComplete="off"
+          autoCapitalize="words"
+          spellCheck={false}
+          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-serif italic focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-200"
+        />
+      ) : (
+        <div className="space-y-1">
+          <canvas
+            ref={canvasRef}
+            width={600}
+            height={160}
+            onPointerDown={strokeStart}
+            onPointerMove={strokeMove}
+            onPointerUp={strokeEnd}
+            onPointerCancel={strokeEnd}
+            className="h-32 w-full touch-none rounded-md border border-gray-300 bg-white"
+            style={{ touchAction: 'none' }}
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-gray-400">Sign above with your finger, stylus, or mouse.</span>
+            <button type="button" onClick={clearCanvas}
+              className="text-[11px] text-gray-500 underline hover:text-gray-800">
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* The real submitted value (typed name OR PNG data URL). */}
+      <input type="hidden" name={block.key} value={value} />
+      <input type="hidden" name={`${block.key}_signed_at`} value={new Date().toISOString()} />
       <p className="text-[11px] text-gray-500">
-        By typing your name above, you are signing this form electronically.
-        This e-signature has the same legal effect as a handwritten one.
+        {mode === 'type'
+          ? 'By typing your name above, you are signing this form electronically. This e-signature has the same legal effect as a handwritten one.'
+          : 'By drawing your signature above, you are signing this form electronically. This e-signature has the same legal effect as a handwritten one.'}
       </p>
     </div>
   );

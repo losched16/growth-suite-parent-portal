@@ -76,13 +76,14 @@ export async function generateCompletedPdf(opts: FillOpts): Promise<void> {
     if (!pdfField || !key) continue;
     const raw = opts.responses[key];
 
-    // Typed signature → stamp name + date onto the signature widget's
-    // rectangle (pdf-lib can't produce cryptographic /Sig signatures;
-    // a drawn typed signature + audit trail is the platform's e-sign
-    // model, same as native forms).
-    if (block.type === 'signature_typed') {
-      const name = asText(raw).trim();
-      if (!name) continue;
+    // Signature → stamp onto the signature widget's rectangle. Typed
+    // names render as italic text; drawn signatures (PNG data URLs from
+    // the canvas) are embedded as an image scaled to fit. pdf-lib can't
+    // produce cryptographic /Sig signatures; a stamped signature + audit
+    // trail is the platform's e-sign model, same as native forms.
+    if (block.type === 'signature_typed' || block.type === 'signature_drawn') {
+      const sigValue = asText(raw).trim();
+      if (!sigValue) continue;
       try {
         const field = form.getField(pdfField);
         const widgets = (field as PDFSignature).acroField.getWidgets();
@@ -91,11 +92,26 @@ export async function generateCompletedPdf(opts: FillOpts): Promise<void> {
         const rect = widget.getRectangle();
         const ref = widget.P();
         const page = doc.getPages().find((p) => p.ref === ref) ?? doc.getPages()[doc.getPageCount() - 1];
-        const size = Math.min(14, Math.max(9, rect.height - 4));
-        page.drawText(name, {
-          x: rect.x + 2, y: rect.y + Math.max(2, (rect.height - size) / 2),
-          size, font: helvOblique, color: rgb(0.1, 0.1, 0.35),
-        });
+        if (sigValue.startsWith('data:image/')) {
+          // Drawn signature — embed the PNG, contained within the widget.
+          const base64 = sigValue.slice(sigValue.indexOf(',') + 1);
+          const pngBytes = Buffer.from(base64, 'base64');
+          const png = await doc.embedPng(pngBytes);
+          const scale = Math.min(rect.width / png.width, rect.height / png.height);
+          const w = png.width * scale;
+          const h = png.height * scale;
+          page.drawImage(png, {
+            x: rect.x + (rect.width - w) / 2,
+            y: rect.y + (rect.height - h) / 2,
+            width: w, height: h,
+          });
+        } else {
+          const size = Math.min(14, Math.max(9, rect.height - 4));
+          page.drawText(sigValue, {
+            x: rect.x + 2, y: rect.y + Math.max(2, (rect.height - size) / 2),
+            size, font: helvOblique, color: rgb(0.1, 0.1, 0.35),
+          });
+        }
         page.drawText(`Signed electronically ${sigDate}`, {
           x: rect.x + 2, y: Math.max(2, rect.y - 8),
           size: 6, font: helv, color: rgb(0.4, 0.4, 0.4),

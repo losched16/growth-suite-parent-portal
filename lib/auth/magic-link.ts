@@ -221,9 +221,13 @@ export async function handleLoginRequest(opts: {
     userAgent: opts.userAgent,
   });
 
-  // One email per matched school. Almost always 1.
+  // One email per matched school. Almost always 1. Each link uses the
+  // matched school's own portal domain when it has one — never the
+  // shared host if a branded one exists.
+  const { portalBaseForSchool } = await import('@/lib/portal-base');
   for (const t of tokens) {
-    const url = `${opts.origin}/api/auth/verify?token=${encodeURIComponent(t.token)}`;
+    const base = await portalBaseForSchool(t.school_id, opts.origin);
+    const url = `${base}/api/auth/verify?token=${encodeURIComponent(t.token)}`;
     try {
       await sendMagicLinkEmail({
         to: email,

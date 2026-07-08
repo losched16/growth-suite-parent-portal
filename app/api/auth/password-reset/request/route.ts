@@ -71,7 +71,9 @@ export async function POST(request: NextRequest) {
     );
 
     const origin = `${request.headers.get('x-forwarded-proto') ?? 'https'}://${request.headers.get('x-forwarded-host') ?? request.headers.get('host')}`;
-    const resetUrl = `${origin}/reset-password/${encodeURIComponent(token)}`;
+    const { portalBaseForSchool } = await import('@/lib/portal-base');
+    const resetBase = await portalBaseForSchool(parent.school_id, origin);
+    const resetUrl = `${resetBase}/reset-password/${encodeURIComponent(token)}`;
     const support = parent.support_email
       ? `If you didn't request this, ignore the email or contact ${parent.support_email}.`
       : `If you didn't request this, you can ignore the email.`;

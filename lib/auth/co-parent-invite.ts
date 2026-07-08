@@ -40,7 +40,9 @@ export async function sendCoParentWelcomeEmail(opts: {
     ],
   );
 
-  const loginUrl = `${opts.origin}/api/auth/verify?token=${encodeURIComponent(token)}`;
+  const { portalBaseForSchool } = await import('@/lib/portal-base');
+  const base = await portalBaseForSchool(opts.schoolId, opts.origin);
+  const loginUrl = `${base}/api/auth/verify?token=${encodeURIComponent(token)}`;
   const support = opts.supportEmail
     ? `Questions? Reply to this email or contact ${opts.supportEmail}.`
     : `Questions? Reply to this email.`;

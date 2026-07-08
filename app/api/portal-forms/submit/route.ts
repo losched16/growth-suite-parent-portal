@@ -793,7 +793,9 @@ export async function POST(request: NextRequest) {
   if (deferForCosign) {
     const proto = request.headers.get('x-forwarded-proto') ?? 'https';
     const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? new URL(request.url).host;
-    const cosignUrl = `${proto}://${host}/cosign/${cosignToken}`;
+    const { portalBaseForSchool } = await import('@/lib/portal-base');
+    const cosignBase = await portalBaseForSchool(session.school_id, `${proto}://${host}`);
+    const cosignUrl = `${cosignBase}/cosign/${cosignToken}`;
     try {
       const m = await import('@/lib/forms/cosign-email');
       await m.sendCoSignRequestEmail({

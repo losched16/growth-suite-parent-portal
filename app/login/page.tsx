@@ -22,6 +22,7 @@ import { headers } from 'next/headers';
 import { ShieldCheck, AlertCircle } from 'lucide-react';
 import { query } from '@/lib/db';
 import { loadBrandingByHost, type PreloginBranding } from '@/lib/branding';
+import { PasswordInput } from './PasswordInput';
 import { portalProvisioningAllowed } from '@/lib/auth/portal-provisioning';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,7 @@ type SearchParams = Promise<{
   email?: string;
   err?: string;
   out?: string;
+  msg?: string;
 }>;
 
 export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
@@ -140,6 +142,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
           <ErrorBanner>Your portal isn&rsquo;t available yet. You&rsquo;ll be able to set it up once the school moves your enrollment forward.</ErrorBanner>
         ) : null}
 
+        {sp.msg === 'reset_sent' ? (
+          <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            If that email is on file, a password-reset link is on its way. It expires in 60 minutes —
+            check spam if you don&rsquo;t see it.
+          </div>
+        ) : null}
+
         {!onFile ? (
           // ── Not on file — locked to the contacts DB ────────────
           <div className="space-y-3">
@@ -158,19 +167,26 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
           </div>
         ) : hasPassword ? (
           // ── Sign-in mode ───────────────────────────────────────
+          <>
           <form action="/api/auth/password-signin" method="POST" className="space-y-3">
             <input type="hidden" name="email" value={email} />
             <div className="text-xs text-gray-500 font-mono">{email}</div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mt-2">
               Password
             </label>
-            <input
-              id="password" name="password" type="password" required autoFocus
-              autoComplete="current-password"
-              className={inputCls}
-            />
+            <PasswordInput id="password" name="password" autoComplete="current-password" autoFocus />
             <PrimaryBtn branding={branding}>Sign in</PrimaryBtn>
           </form>
+          <form action="/api/auth/password-reset/request" method="POST" className="mt-3">
+            <input type="hidden" name="email" value={email} />
+            <button
+              type="submit"
+              className="text-xs underline text-gray-500 hover:text-gray-800"
+            >
+              Forgot your password? Email me a reset link
+            </button>
+          </form>
+          </>
         ) : canProvision ? (
           // ── First-time / set-password mode ─────────────────────
           <form action="/api/auth/password-set" method="POST" className="space-y-3">
@@ -179,22 +195,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mt-2">
               Create a password
             </label>
-            <input
-              id="password" name="password" type="password" required autoFocus
-              minLength={8}
-              autoComplete="new-password"
-              placeholder="At least 8 characters"
-              className={inputCls}
-            />
+            <PasswordInput id="password" name="password" minLength={8} autoComplete="new-password" placeholder="At least 8 characters" autoFocus />
             <label htmlFor="password_confirm" className="block text-sm font-medium text-gray-700">
               Confirm password
             </label>
-            <input
-              id="password_confirm" name="password_confirm" type="password" required
-              minLength={8}
-              autoComplete="new-password"
-              className={inputCls}
-            />
+            <PasswordInput id="password_confirm" name="password_confirm" minLength={8} autoComplete="new-password" />
             <PrimaryBtn branding={branding}>Create password &amp; sign in</PrimaryBtn>
           </form>
         ) : (

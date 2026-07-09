@@ -269,33 +269,11 @@ function Header({ appName, subtitle, branding }: {
   );
 }
 
-function Footer({ branding }: { branding: PreloginBranding | null }) {
-  if (branding?.support_email || branding?.support_phone) {
-    return (
-      <p className="mt-6 text-center text-xs text-gray-400">
-        Trouble signing in? Contact{' '}
-        {branding.support_email ? (
-          <a href={`mailto:${branding.support_email}`} className="underline" style={{ color: 'var(--brand-fg)' }}>
-            {branding.support_email}
-          </a>
-        ) : null}
-        {branding.support_email && branding.support_phone ? ' or ' : null}
-        {branding.support_phone ? (
-          <a href={`tel:${branding.support_phone}`} className="underline" style={{ color: 'var(--brand-fg)' }}>
-            {branding.support_phone}
-          </a>
-        ) : null}
-        .
-      </p>
-    );
-  }
-  return (
-    <p className="mt-6 text-center text-xs text-gray-400">
-      Trouble signing in? Contact your school directly.
-    </p>
-  );
+function Footer(_props: { branding: PreloginBranding | null }) {
+  // "Trouble signing in?" line removed per Clint (2026-07-08) — the
+  // Forgot Password link is the self-serve path now.
+  return null;
 }
-
 function ErrorBanner({ children }: { children: React.ReactNode }) {
   return (
     <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 flex items-start gap-2">

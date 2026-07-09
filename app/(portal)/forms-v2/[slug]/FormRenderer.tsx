@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { Check, AlertCircle, CheckCircle2, FileText, Edit3, CreditCard, Minus, Plus } from 'lucide-react';
 import type { FormDefinition, FormFieldBlock, PrefillSource } from '@/lib/forms/types';
 import { resolvePrefill, isBlockVisible, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
+import { PdfPaperFields } from './PdfPaperFields';
 import { PaymentMethodGate } from './PaymentMethodGate';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { fmtCents } from '@/lib/billing/fee-math';
@@ -882,6 +883,36 @@ export function FormRenderer({
               </button>
             </div>
           ) : null}
+          {(() => {
+            // "Paper mode": blocks bound to an official PDF's own fields
+            // (block.pdf_field) render ON the document itself — the actual
+            // card in the browser with inputs positioned on it. Signature
+            // blocks stay below as normal web fields (they're stamped onto
+            // the PDF by the fill engine).
+            const paperBlocks = definition.field_schema
+              .filter((b): b is Extract<typeof b, { key: string }> => 'key' in b && !!(b as { pdf_field?: string }).pdf_field)
+              .filter((b) => b.type !== 'signature_typed' && b.type !== 'signature_drawn')
+              .map((b) => {
+                const legacy = legacyVal(
+                  inUpdateMode ? (latest?.responses ?? null) : (inviteContext?.prefill ?? null),
+                  b.key,
+                );
+                const pre = 'prefill' in b && b.prefill ? resolvePrefill(b.prefill, prefillCtx) : null;
+                return {
+                  key: b.key,
+                  pdf_field: String((b as { pdf_field?: string }).pdf_field),
+                  type: b.type === 'checkbox' ? 'checkbox' : (b.type === 'select' || b.type === 'radio') ? 'select' : 'text',
+                  required: 'required' in b ? b.required === true : false,
+                  label: 'label' in b ? (b as { label?: string }).label : undefined,
+                  defaultValue: (legacy ?? pre ?? undefined) as string | undefined,
+                  options: 'options' in b && Array.isArray((b as { options?: unknown }).options)
+                    ? ((b as { options: Array<{ value: string; label: string }> }).options)
+                    : undefined,
+                };
+              });
+            if (paperBlocks.length === 0) return null;
+            return <PdfPaperFields formId={definition.id} blocks={paperBlocks} />;
+          })()}
           {definition.field_schema
             // New families fill the form fresh — strip the review-only lock
             // so their pricing/plan fields are editable. Existing families
@@ -900,6 +931,12 @@ export function FormRenderer({
                 if (v && String(v).trim() !== '') return block; // contact set it → keep locked
               }
               return { ...block, readOnly: false };
+            })
+            // Paper-mode blocks render on the PDF above — not as web fields.
+            .filter((block) => {
+              if (!('key' in block)) return true;
+              if (!(block as { pdf_field?: string }).pdf_field) return true;
+              return block.type === 'signature_typed' || block.type === 'signature_drawn';
             })
             .filter((block) => {
               if (addendumMode !== 'editing') return true;

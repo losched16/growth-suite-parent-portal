@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { Users, FileText, Mail, ChevronRight, AlertCircle, ArrowRight } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
+import { studentMatchesAppliesTo, type AppliesToContext, type FormAppliesTo } from '@/lib/forms/applies-to';
 import { PinnedNotices } from './PinnedNotices';
 import { LinkifyText } from '@/lib/ui/LinkifyText';
 
@@ -382,6 +383,12 @@ function QuickLink({
 //
 // Submissions in status submitted / paid / pending_payment / legacy_imported
 // count as "done." Drafts do not.
+//
+// applies_to targeting (tag_match / tag_exclude / program / grid rules) is
+// honored the same way the /forms-v2 hub honors it — a form targeted at
+// "pending"-tagged families must NOT appear as a to-do on everyone else's
+// home page. An open invite (office push) overrides the rule, so a pushed
+// form still shows here.
 async function loadPendingForms({
   schoolId, familyId,
 }: { schoolId: string; familyId: string }): Promise<PendingForm[]> {
@@ -392,11 +399,13 @@ async function loadPendingForms({
     description: string | null;
     category: string | null;
     per_student: boolean;
+    applies_to: FormAppliesTo | null;
     submitted_student_ids: string[] | null;
     family_has_any: boolean;
   }>(
     `SELECT
        d.id, d.slug, d.display_name, d.description, d.category, d.per_student,
+       d.applies_to,
        ARRAY(
          SELECT DISTINCT s.student_id::text
            FROM portal_form_submissions s
@@ -435,18 +444,85 @@ async function loadPendingForms({
   );
 
   // Active students on this family — used to compute missing-student-ids
-  // for per-student forms.
-  const { rows: activeStudents } = await query<{ id: string }>(
-    `SELECT id FROM students WHERE family_id = $1 AND status = 'active'`,
+  // for per-student forms (metadata feeds applies_to matching).
+  const { rows: activeStudents } = await query<{ id: string; metadata: Record<string, unknown> | null }>(
+    `SELECT id, metadata FROM students WHERE family_id = $1 AND status = 'active'`,
     [familyId],
   );
   const activeStudentIds = activeStudents.map((s) => s.id);
 
+  // Targeting context — only fetched when at least one listed form
+  // actually carries an applies_to rule.
+  const hasRules = rows.some((r) => r.applies_to);
+  let familyTags: string[] = [];
+  const enrollCtx = new Map<string, { tuitionGridName: string | null; addonKeys: string[] }>();
+  const invitesByForm = new Map<string, { familyWide: boolean; studentIds: Set<string> }>();
+  if (hasRules) {
+    const [tagRows, enrRows, inviteRows] = await Promise.all([
+      query<{ tag: string }>(
+        `SELECT DISTINCT t.tag FROM ghl_contact_tags t
+           JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
+          WHERE t.school_id = $1 AND p.family_id = $2`,
+        [schoolId, familyId],
+      ),
+      activeStudentIds.length > 0
+        ? query<{ student_id: string; tuition_grid_name: string | null; addons: Array<{ key?: string }> | null }>(
+            `SELECT fte.student_id, g.display_name AS tuition_grid_name, fte.addons
+               FROM family_tuition_enrollments fte
+               LEFT JOIN tuition_grids g ON g.id = fte.tuition_grid_id
+              WHERE fte.school_id = $1 AND fte.student_id = ANY($2::uuid[])
+                AND fte.status = 'active'`,
+            [schoolId, activeStudentIds],
+          )
+        : Promise.resolve({ rows: [] as Array<{ student_id: string; tuition_grid_name: string | null; addons: Array<{ key?: string }> | null }> }),
+      query<{ form_definition_id: string; student_id: string | null }>(
+        `SELECT form_definition_id, student_id FROM enrollment_invites
+          WHERE family_id = $1 AND consumed_at IS NULL AND expires_at > now()`,
+        [familyId],
+      ),
+    ]);
+    familyTags = tagRows.rows.map((t) => t.tag).filter(Boolean);
+    for (const e of enrRows.rows) {
+      const addons = Array.isArray(e.addons) ? e.addons : [];
+      enrollCtx.set(e.student_id, {
+        tuitionGridName: e.tuition_grid_name,
+        addonKeys: addons.map((a) => a?.key).filter((k): k is string => typeof k === 'string'),
+      });
+    }
+    for (const inv of inviteRows.rows) {
+      const entry = invitesByForm.get(inv.form_definition_id)
+        ?? { familyWide: false, studentIds: new Set<string>() };
+      if (inv.student_id) entry.studentIds.add(inv.student_id);
+      else entry.familyWide = true;
+      invitesByForm.set(inv.form_definition_id, entry);
+    }
+  }
+
+  const studentMatchesRule = (studentId: string, rule: FormAppliesTo): boolean => {
+    const s = activeStudents.find((st) => st.id === studentId);
+    const enr = enrollCtx.get(studentId);
+    const ctx: AppliesToContext = {
+      studentId,
+      metadata: (s?.metadata ?? {}) as Record<string, unknown>,
+      tuitionGridName: enr?.tuitionGridName ?? null,
+      enrollmentAddonKeys: enr?.addonKeys ?? [],
+      tags: familyTags,
+    };
+    return studentMatchesAppliesTo(ctx, rule);
+  };
+
   const pending: PendingForm[] = [];
   for (const r of rows) {
+    const invite = invitesByForm.get(r.id);
     if (r.per_student) {
       const submitted = new Set(r.submitted_student_ids ?? []);
-      const missing = activeStudentIds.filter((sid) => !submitted.has(sid));
+      // A rule restricts which students the form is FOR; a per-student
+      // invite re-admits the invited student even when the rule doesn't
+      // match; a family-wide invite admits everyone.
+      const eligible = r.applies_to && !invite?.familyWide
+        ? activeStudentIds.filter((sid) => studentMatchesRule(sid, r.applies_to!) || invite?.studentIds.has(sid))
+        : activeStudentIds;
+      const missing = eligible.filter((sid) => !submitted.has(sid));
       if (missing.length > 0) {
         pending.push({
           id: r.id,
@@ -460,6 +536,15 @@ async function loadPendingForms({
         });
       }
     } else if (!r.family_has_any) {
+      // Family-level form: tag_exclude hides, tag_match gates (same as the
+      // hub); an open invite for this family overrides either.
+      if (r.applies_to && !invite) {
+        const have = new Set(familyTags.map((t) => t.toLowerCase()));
+        const excl = r.applies_to.tag_exclude;
+        if (excl?.length && excl.some((t) => have.has(t.toLowerCase()))) continue;
+        const want = r.applies_to.tag_match;
+        if (want?.length && !want.some((t) => have.has(t.toLowerCase()))) continue;
+      }
       pending.push({
         id: r.id,
         slug: r.slug,

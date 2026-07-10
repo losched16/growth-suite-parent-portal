@@ -156,11 +156,12 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     }
   }
 
-  // The family's GHL contact tags (synced) — powers applies_to.tag_match.
+  // The PRIMARY parent's GHL contact tags (synced) — powers applies_to.
+  // tag_match. P1 is the source of truth; P2 tags are communication mirrors.
   const { rows: tagRows } = await query<{ tag: string }>(
     `SELECT DISTINCT t.tag FROM ghl_contact_tags t
        JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
-      WHERE t.school_id = $1 AND p.family_id = $2`,
+      WHERE t.school_id = $1 AND p.family_id = $2 AND p.is_primary = true`,
     [id.parent.school_id, id.parent.family_id],
   );
   const familyTags = tagRows.map((r) => r.tag).filter(Boolean);

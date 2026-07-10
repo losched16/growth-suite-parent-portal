@@ -131,7 +131,7 @@ export default async function FormPage({
   const { rows: tagRows } = await query<{ tag: string }>(
     `SELECT DISTINCT t.tag FROM ghl_contact_tags t
        JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
-      WHERE t.school_id = $1 AND p.family_id = $2`,
+      WHERE t.school_id = $1 AND p.family_id = $2 AND p.is_primary = true`,
     [id.parent.school_id, id.parent.family_id],
   );
   const familyTags = tagRows.map((r) => r.tag).filter(Boolean);

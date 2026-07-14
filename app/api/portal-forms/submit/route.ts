@@ -27,7 +27,7 @@ import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
 import { loadSchoolSettings } from '@/lib/school-settings';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
-import { resolvePrefill, todayString, isBlockVisible, hasPrefillConditions, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
+import { resolvePrefill, applyPrefillMap, todayString, isBlockVisible, hasPrefillConditions, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
 import {
   studentMatchesAppliesTo,
   type FormAppliesTo,
@@ -559,13 +559,17 @@ export async function POST(request: NextRequest) {
       if (!('key' in block) || !('prefill' in block) || !block.prefill) continue;
       const isReadOnly = 'readOnly' in block && block.readOnly === true;
       const isLockIfPrefilled = (block as { lock_if_prefilled?: boolean }).lock_if_prefilled === true;
+      // prefill_map must be applied here exactly as the renderer applies it,
+      // or the re-resolved "truth" reverts to the source vocabulary (e.g.
+      // the raw GHL grade code instead of the mapped program bucket).
+      const map = (block as { prefill_map?: Record<string, string> }).prefill_map;
       // readOnly → always re-apply (existing families only).
       // lock_if_prefilled → re-apply ONLY when the truth is non-empty (it was
       //   locked); a blank truth means the parent filled it in — keep theirs.
       if (isReadOnly && isExistingFamily) {
-        responses[block.key] = resolvePrefill(block.prefill, ctx);
+        responses[block.key] = applyPrefillMap(resolvePrefill(block.prefill, ctx), map);
       } else if (isLockIfPrefilled) {
-        const truth = resolvePrefill(block.prefill, ctx);
+        const truth = applyPrefillMap(resolvePrefill(block.prefill, ctx), map);
         if (truth && String(truth).trim()) responses[block.key] = truth;
       }
     }

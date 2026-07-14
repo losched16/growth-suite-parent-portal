@@ -133,6 +133,17 @@ function deriveEaFallback(eaKey: string, ctx: PrefillContext): string {
   return '';
 }
 
+// Apply a block's optional `prefill_map` to a resolved prefill value —
+// translates a source vocabulary (e.g. GHL grade codes P2/T1/U6) into the
+// field's option values (e.g. "Primary"/"Toddler"). Exact match on the
+// trimmed value; unmapped values pass through unchanged. Must be applied
+// everywhere the prefill is resolved for a mapped field (renderer AND the
+// submit route's locked-field re-resolution) or the two disagree.
+export function applyPrefillMap(value: string, map: Record<string, string> | undefined): string {
+  if (!value || !map) return value;
+  return map[value.trim()] ?? value;
+}
+
 export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillContext): string {
   if (!source) return '';
   // Generic metadata passthrough: `meta:<key>` reads students.metadata[key]

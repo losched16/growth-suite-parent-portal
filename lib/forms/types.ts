@@ -57,6 +57,14 @@ interface BaseField {
   required?: boolean;
   help?: string;                     // shown under the input
   prefill?: PrefillSource;            // see below
+  // Optional value translation applied AFTER the prefill resolves — for
+  // sources whose vocabulary differs from the field's option values.
+  // e.g. DGM's GHL grade codes (P2, T1, U6) → the program buckets the
+  // enrollment agreement's pricing gates key off ("Primary", "Toddler").
+  // Exact-match on the trimmed resolved value; unmapped values pass
+  // through unchanged. Honored by select fields (renderer + the submit
+  // route's locked-field anti-tamper re-resolution).
+  prefill_map?: Record<string, string>;
   width?: 'full' | 'half' | 'third';  // grid hint for the layout
   // Static literal default — used when no `prefill` resolved value
   // exists AND no legacy response is on file. Useful for fields

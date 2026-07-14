@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, AlertCircle, CheckCircle2, FileText, Edit3, CreditCard, Minus, Plus } from 'lucide-react';
 import type { FormDefinition, FormFieldBlock, PrefillSource } from '@/lib/forms/types';
-import { resolvePrefill, isBlockVisible, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
+import { resolvePrefill, applyPrefillMap, isBlockVisible, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
 import { PdfPaperFields } from './PdfPaperFields';
 import { PaymentMethodGate } from './PaymentMethodGate';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
@@ -1882,9 +1882,12 @@ function fmtDateDisplay(v: string): string {
 }
 
 function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'select' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = (legacyVal(legacyResponses, block.key)
-    ?? resolvePrefill(block.prefill, prefillCtx))
-    || (typeof block.default === 'string' ? block.default : '');
+  const defaultValue = applyPrefillMap(
+    (legacyVal(legacyResponses, block.key)
+      ?? resolvePrefill(block.prefill, prefillCtx))
+      || (typeof block.default === 'string' ? block.default : ''),
+    block.prefill_map,
+  );
   // Lock when explicitly readOnly, OR when lock_if_prefilled is set AND we
   // actually have a value (existing families) — new families get the
   // editable dropdown to fill it in.

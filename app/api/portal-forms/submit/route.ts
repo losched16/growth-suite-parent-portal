@@ -83,6 +83,12 @@ interface GhlWritebackEntry {
   // instead of the option value — pairs a pricing choice with its cost field
   // on the contact (organic_lunch choice → organic_lunch fee, etc.).
   write_amount?: boolean;
+  // Write the first regex match found in the response value instead of the
+  // whole value — extracts a facet embedded in an option label. e.g. the
+  // tuition choice "3: Toddler/Primary - School Day - $16,250" with
+  // write_pattern "School Day|Half Day" writes "School Day" to the contact's
+  // daily_schedule field. No match → entry is skipped (never writes blank).
+  write_pattern?: string;
 }
 
 // student.metadata field-keys we sync to from the health.* prefill slots
@@ -1486,22 +1492,29 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
     const { loadGhlClient } = await import('@/lib/ghl/client');
     const { updateContactCustomFields } = await import('@/lib/ghl/writes');
 
-    // Resolve the parent's GHL contact_id (fall back to family primary).
-    const { rows: pRows } = await query<{ ghl_contact_id: string | null }>(
-      `SELECT ghl_contact_id FROM parents WHERE id = $1`, [opts.parentId],
+    // Resolve the target contact: ALWAYS the family's PRIMARY parent.
+    // P1 is the source of truth for student/family data; P2 contacts are
+    // communication-only mirrors. When the co-parent submitted a form, the
+    // old submitter-first order wrote every student field onto the P2
+    // contact — where the sync never reads it and the office never looks
+    // (Sky Albero's enrollment agreement, 2026-07-09). Fall back to the
+    // submitting parent's contact only when the family has no primary
+    // contact at all.
+    const { rows: priRows } = await query<{ ghl_contact_id: string | null }>(
+      `SELECT ghl_contact_id FROM parents
+       WHERE family_id = $1 AND is_primary = true AND ghl_contact_id IS NOT NULL
+       LIMIT 1`,
+      [opts.familyId],
     );
-    let contactId = pRows[0]?.ghl_contact_id ?? null;
+    let contactId = priRows[0]?.ghl_contact_id ?? null;
     if (!contactId) {
-      const { rows: priRows } = await query<{ ghl_contact_id: string | null }>(
-        `SELECT ghl_contact_id FROM parents
-         WHERE family_id = $1 AND is_primary = true AND ghl_contact_id IS NOT NULL
-         LIMIT 1`,
-        [opts.familyId],
+      const { rows: pRows } = await query<{ ghl_contact_id: string | null }>(
+        `SELECT ghl_contact_id FROM parents WHERE id = $1`, [opts.parentId],
       );
-      contactId = priRows[0]?.ghl_contact_id ?? null;
+      contactId = pRows[0]?.ghl_contact_id ?? null;
     }
     if (!contactId) {
-      throw new Error('No GHL contact id for parent or family primary');
+      throw new Error('No GHL contact id for family primary or parent');
     }
 
     // Determine the per-student slot index (1..N).
@@ -1562,6 +1575,14 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
         const opt = block?.options?.find((o) => o.value === v);
         if (!opt) continue; // unknown selection → don't guess a price
         v = String(Math.round((opt.amount_cents ?? 0) / 100));
+      }
+      // write_pattern: extract a facet embedded in the selection instead of
+      // writing the whole value (e.g. "School Day" out of the tuition label).
+      if (wb.write_pattern) {
+        let match: string | null = null;
+        try { match = v.match(new RegExp(wb.write_pattern))?.[0] ?? null; } catch { match = null; }
+        if (!match) continue; // no match → leave the target field alone
+        v = match;
       }
       // Skip blanks — GHL's update overwrites, so writing an empty value would
       // CLEAR whatever the contact already has. We only push values the parent

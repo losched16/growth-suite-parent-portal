@@ -80,6 +80,18 @@ export async function POST(request: NextRequest) {
   if (override === 'DELETE') return handleDelete(request, session, fd);
   if (override === 'PATCH') return handlePatch(request, session, fd);
 
+  // Office-vetted schools (parent_managed_pickups=false, e.g. DGM): parents
+  // can't ADD pickup people — the office does, after vetting. Edits and
+  // deactivations above stay available. Enforced here so a hand-crafted
+  // POST can't bypass the hidden form.
+  {
+    const { loadSchoolSettings } = await import('@/lib/school-settings');
+    const settings = await loadSchoolSettings(session.school_id);
+    if (!settings.parent_managed_pickups) {
+      return badRequest(request, 'New pickup people are added by the school office — please contact the school.');
+    }
+  }
+
   const name = (fd.get('name') ?? '').toString().trim();
   const relationship = (fd.get('relationship') ?? '').toString().trim();
   if (!name || !relationship) {

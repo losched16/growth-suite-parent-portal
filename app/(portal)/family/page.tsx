@@ -16,6 +16,7 @@ import { editParentAction } from '@/lib/actions/edit-parent';
 import { editStudentAction } from '@/lib/actions/edit-student';
 import { addCoParentAction } from '@/lib/actions/add-co-parent';
 import { query } from '@/lib/db';
+import { loadSchoolSettings } from '@/lib/school-settings';
 import type { ParentRow, StudentRow, ParentStudentAssignment } from '@/lib/family-data';
 
 // One row per emergency contact slot — the emergency-medical form
@@ -46,7 +47,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
   const id = await requireParent();
   const { msg, err } = await searchParams;
 
-  const [parents, students, assignments, pickupCount, emergencyContacts] = await Promise.all([
+  const [parents, students, assignments, pickupCount, emergencyContacts, settings] = await Promise.all([
     loadParentsForFamily(id.family.id),
     loadStudentsForFamily(id.family.id),
     loadParentStudentAssignments(id.family.id),
@@ -97,6 +98,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
       const additional_applies_to = readApplies('additional_emergency_contacts_applies_to');
       return { slots, additional, additional_applies_to };
     }),
+    loadSchoolSettings(id.parent.school_id),
   ]);
 
   // Pretty-print "applies to" for the cards. 'all' (or empty after a
@@ -281,13 +283,14 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
                 Manage who can pick up your students
               </div>
               <div className="mt-0.5 text-xs text-gray-600">
-                Separate from emergency contacts. Add grandparents, nannies, or family friends
-                who are authorized to come pick up your children from school.
+                Separate from emergency contacts. {settings.parent_managed_pickups
+                  ? 'Add grandparents, nannies, or family friends who are authorized to come pick up your children from school.'
+                  : 'See who is authorized to pick up your children, and manage their kiosk PINs. New people are added by the school office.'}
               </div>
               <div className="mt-1 text-[11px]" style={{ color: 'var(--brand-fg)' }}>
                 {pickupCount === 0
-                  ? 'None added yet · tap to add someone'
-                  : `${pickupCount} ${pickupCount === 1 ? 'person' : 'people'} authorized · tap to edit`}
+                  ? (settings.parent_managed_pickups ? 'None added yet · tap to add someone' : 'None on the list yet · tap to view')
+                  : `${pickupCount} ${pickupCount === 1 ? 'person' : 'people'} authorized · tap to ${settings.parent_managed_pickups ? 'edit' : 'view'}`}
               </div>
             </div>
           </div>

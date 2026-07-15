@@ -10,9 +10,10 @@
 // editing; display row lists the authorized children inline.
 
 import Link from 'next/link';
-import { ArrowLeft, UserPlus } from 'lucide-react';
+import { ArrowLeft, Mail, UserPlus } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
+import { loadSchoolSettings } from '@/lib/school-settings';
 import { SetPinControl } from './SetPinControl';
 import { EditAuthorizedStudents } from './EditAuthorizedStudents';
 import { MyPinControl } from './MyPinControl';
@@ -42,6 +43,20 @@ interface PickupPersonRow {
 export default async function PickupPeoplePage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
   const sp = await searchParams;
+
+  // Some schools (DGM) vet every pickup-person addition through the office:
+  // parents see a "contact the school" notice instead of the add form.
+  const settings = await loadSchoolSettings(id.parent.school_id);
+  const parentAddsAllowed = settings.parent_managed_pickups;
+  let officeEmail: string | null = null;
+  if (!parentAddsAllowed) {
+    const { rows: br } = await query<{ change_email: string | null }>(
+      `SELECT COALESCE(NULLIF(btrim(admin_change_notification_email), ''), NULLIF(btrim(support_email), '')) AS change_email
+         FROM school_branding WHERE school_id = $1`,
+      [id.parent.school_id],
+    );
+    officeEmail = br[0]?.change_email ?? null;
+  }
 
   const { rows } = await query<PickupPersonRow>(
     `SELECT
@@ -135,7 +150,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
         </div>
         {active.length === 0 ? (
           <div className="px-4 py-6 text-sm text-gray-500 italic">
-            No one added yet. Add someone below.
+            {parentAddsAllowed ? 'No one added yet. Add someone below.' : 'No one on the list yet.'}
           </div>
         ) : (
           <ul className="divide-y divide-gray-100">
@@ -146,7 +161,28 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
         )}
       </section>
 
-      {/* Add new */}
+      {/* Add new — or, for office-vetted schools, how to request an addition. */}
+      {!parentAddsAllowed ? (
+        <section className="rounded-lg border-2 border-amber-200 bg-amber-50/40 p-4">
+          <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <Mail className="h-4 w-4 text-amber-600" />
+            Need to add someone new?
+          </div>
+          <p className="text-sm text-gray-700">
+            For your children&rsquo;s safety, new authorized pickup people are added by the school office.
+            {officeEmail ? (
+              <> Please contact{' '}
+                <a href={`mailto:${officeEmail}`} className="font-medium underline" style={{ color: 'var(--brand-fg)' }}>
+                  {officeEmail}
+                </a>{' '}
+                with the person&rsquo;s name, relationship, and phone number.
+              </>
+            ) : (
+              <> Please contact the school office with the person&rsquo;s name, relationship, and phone number.</>
+            )}
+          </p>
+        </section>
+      ) : (
       <section className="rounded-lg border-2 border-emerald-200 bg-emerald-50/30 p-4">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
           <UserPlus className="h-4 w-4" style={{ color: 'var(--brand)' }} />
@@ -230,6 +266,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
           </button>
         </form>
       </section>
+      )}
 
       {/* Deactivated */}
       {inactive.length > 0 ? (

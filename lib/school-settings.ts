@@ -21,6 +21,12 @@ export interface SchoolSettings {
   // When non-empty: only contacts carrying one of these tags become roster
   // families ("withdrawn" keeps the family but marks students withdrawn).
   roster_tag_filter: string[];
+  // Can parents ADD authorized pickup people themselves? Default true.
+  // false = the office vets every addition (parents see a "contact the
+  // school" notice instead of the add form; the create endpoint rejects
+  // direct POSTs). Editing/deactivating existing people stays available
+  // either way. DGM runs false: admissions@ vets every new pickup person.
+  parent_managed_pickups: boolean;
 }
 
 export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
@@ -29,6 +35,7 @@ export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
   auto_student_ids: false,
   promote_parent2: false,
   roster_tag_filter: [],
+  parent_managed_pickups: true,
 };
 
 export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
@@ -43,6 +50,8 @@ export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
     roster_tag_filter: Array.isArray(r.roster_tag_filter)
       ? r.roster_tag_filter.map((t) => String(t ?? '').trim()).filter(Boolean)
       : [],
+    // Opt-out flag: anything but an explicit false stays enabled.
+    parent_managed_pickups: r.parent_managed_pickups !== false,
   };
 }
 

@@ -17,7 +17,7 @@ export interface FeeConfig {
 export interface FeeBreakdown {
   rail: PaymentRail;
   subtotal_cents: number;          // line items
-  platform_fee_cents: number;      // $25 Growth Suite setup fee, only on first plan-setup invoice
+  platform_fee_cents: number;      // one-time setup fee, only ever on a family's FIRST tuition invoice
   passed_fee_cents: number;        // processing fee shown to parent (0 if school absorbs)
   total_cents: number;             // what the parent pays
   // For display + reporting only — the actual fee Stripe charges the

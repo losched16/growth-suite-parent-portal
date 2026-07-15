@@ -164,7 +164,7 @@ export default async function PublicPayPage({ params, searchParams }: { params: 
           })}
           {inv.platform_fee_cents > 0 ? (
             <li className="py-2 flex items-baseline justify-between gap-3 text-sm">
-              <span className="text-slate-900">Family Portal Setup Fee<span className="block text-[11px] text-slate-500">One-time</span></span>
+              <span className="text-slate-900">One-Time Setup Fee<span className="block text-[11px] text-slate-500">Payment processor · charged once</span></span>
               <span className="font-mono text-slate-700">{fmtCents(inv.platform_fee_cents)}</span>
             </li>
           ) : null}

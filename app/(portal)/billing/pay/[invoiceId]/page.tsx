@@ -243,8 +243,8 @@ export default async function PayInvoicePage({
           {inv.platform_fee_cents > 0 ? (
             <li className="py-2 flex items-baseline justify-between gap-3 text-sm">
               <span className="text-gray-900">
-                Family Portal Setup Fee
-                <span className="block text-[11px] text-gray-500">One-time · Growth Suite</span>
+                One-Time Setup Fee
+                <span className="block text-[11px] text-gray-500">Payment processor · charged once</span>
               </span>
               <span className="font-mono text-gray-700">{fmtCents(inv.platform_fee_cents)}</span>
             </li>

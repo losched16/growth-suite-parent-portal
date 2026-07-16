@@ -69,6 +69,17 @@ export async function GET(request: NextRequest) {
         AND i.autopay_payment_method_id IS NOT NULL
         AND i.status IN ('open', 'partially_paid')
         AND COALESCE(spc.billing_active, false) = true
+        -- Never charge an invoice that already has a payment IN FLIGHT. ACH
+        -- sits in 'pending' for days and a card awaits webhook confirmation, so
+        -- the invoice stays 'open' the whole time — without this guard the cron
+        -- re-charges it every run and the family is debited two, three times
+        -- for the same installment. A genuine FAILURE flips the payment out of
+        -- pending (and sets next_retry_at), so retries still work.
+        AND NOT EXISTS (
+              SELECT 1 FROM payments p
+               WHERE p.invoice_id = i.id
+                 AND p.status IN ('pending', 'processing')
+        )
         AND (
               (i.autopay_charge_on IS NULL AND i.due_at::date <= $1::date)
            OR (i.autopay_charge_on IS NOT NULL AND i.autopay_charge_on <= $1::date)

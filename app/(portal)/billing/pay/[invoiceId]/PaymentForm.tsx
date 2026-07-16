@@ -296,6 +296,10 @@ function StripeCheckout({ railLabel, totalCents, returnTo, onBack }: {
     // so the success redirect lands back on a page that still authorizes.
     const sp = new URLSearchParams(window.location.search);
     sp.set('success', '1');
+    // Carry the rail through so the success page can tell the parent a BANK
+    // payment is still clearing (days) vs a card that's already done — without
+    // it, ACH shows "Payment received" and the parent thinks it's instant.
+    if (railLabel === 'bank') sp.set('rail', 'ach');
     if (returnTo) sp.set('return_to', returnTo);
     const returnUrl = `${window.location.origin}${window.location.pathname}?${sp.toString()}`;
     const { error } = await stripe.confirmPayment({

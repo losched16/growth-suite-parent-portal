@@ -34,6 +34,7 @@ interface InstallmentRow {
   amount_paid_cents: number;
   status: string;
   autopay_enabled: boolean;
+  has_pending_payment: boolean;
 }
 
 export default async function PlanPage() {
@@ -110,7 +111,11 @@ export default async function PlanPage() {
             i.id AS invoice_id, i.invoice_number,
             (i.source_ref->>'installment_number')::int AS installment_number,
             i.due_at, i.total_cents, i.amount_paid_cents, i.status,
-            i.autopay_enabled
+            i.autopay_enabled,
+            EXISTS (
+              SELECT 1 FROM payments p
+               WHERE p.invoice_id = i.id AND p.status IN ('pending', 'processing')
+            ) AS has_pending_payment
        FROM invoices i
       WHERE i.school_id = $1
         AND i.family_id = $2
@@ -315,8 +320,9 @@ function InstallmentRowItem({ inst }: { inst: InstallmentRow }) {
   // Draft installments exist before the school goes live — they're a
   // scheduled preview, never payable yet.
   const isScheduledPreview = inst.status === 'draft';
+  // A bank payment in flight isn't overdue — it's clearing.
   const overdue = (inst.status === 'open' || inst.status === 'partially_paid')
-    && dueDate < new Date();
+    && dueDate < new Date() && !inst.has_pending_payment;
 
   const statusBadge = inst.status === 'paid' ? (
     <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
@@ -326,6 +332,10 @@ function InstallmentRowItem({ inst }: { inst: InstallmentRow }) {
     <span className="text-[10px] font-semibold text-amber-700">Partial</span>
   ) : inst.status === 'voided' ? (
     <span className="text-[10px] font-semibold text-gray-500">Voided</span>
+  ) : inst.has_pending_payment ? (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
+      <Clock className="h-3 w-3" /> Processing
+    </span>
   ) : isScheduledPreview ? (
     <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600">
       <Calendar className="h-3 w-3" /> Scheduled

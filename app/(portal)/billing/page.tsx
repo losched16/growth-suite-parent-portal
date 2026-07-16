@@ -21,6 +21,7 @@ interface InvoiceRow {
   due_at: string;
   issued_at: string | null;
   paid_at: string | null;
+  has_pending_payment: boolean;
 }
 
 export default async function BillingPage() {
@@ -35,7 +36,12 @@ export default async function BillingPage() {
   // view, while pre-existing joint invoices keep working.
   const { rows: invoices } = await query<InvoiceRow>(
     `SELECT id, invoice_number, title, status, total_cents, amount_paid_cents,
-            due_at, issued_at, paid_at
+            due_at, issued_at, paid_at,
+            EXISTS (
+              SELECT 1 FROM payments p
+               WHERE p.invoice_id = invoices.id
+                 AND p.status IN ('pending', 'processing')
+            ) AS has_pending_payment
        FROM invoices
       WHERE school_id = $1 AND family_id = $2 AND status <> 'draft'
         AND (responsible_parent_id IS NULL OR responsible_parent_id = $3)
@@ -136,7 +142,10 @@ export default async function BillingPage() {
 function OutstandingInvoiceRow({ inv }: { inv: InvoiceRow }) {
   const due = new Date(inv.due_at);
   const now = new Date();
-  const overdue = due < now;
+  // A payment already in flight (ACH sits in 'pending' for a few business
+  // days) means this ISN'T unpaid — never show "Overdue" while it clears, or
+  // the parent panics and pays a second time (usually by card, with a fee).
+  const overdue = due < now && !inv.has_pending_payment;
   const amount = inv.total_cents - inv.amount_paid_cents;
   return (
     <li>
@@ -151,11 +160,17 @@ function OutstandingInvoiceRow({ inv }: { inv: InvoiceRow }) {
             <div className="text-base font-bold text-gray-900">{fmtCents(amount)}</div>
           </div>
           <div className="mt-0.5 text-[11px] text-gray-500 font-mono">{inv.invoice_number}</div>
-          <div className={`mt-1 text-xs ${overdue ? 'text-red-700' : 'text-gray-600'}`}>
-            {overdue ? '⚠ Overdue — ' : 'Due '}
-            {due.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-            {inv.amount_paid_cents > 0 ? ` · ${fmtCents(inv.amount_paid_cents)} paid so far` : ''}
-          </div>
+          {inv.has_pending_payment ? (
+            <div className="mt-1 text-xs text-emerald-700">
+              ⏳ Payment processing — a bank payment is clearing (a few business days). No need to pay again.
+            </div>
+          ) : (
+            <div className={`mt-1 text-xs ${overdue ? 'text-red-700' : 'text-gray-600'}`}>
+              {overdue ? '⚠ Overdue — ' : 'Due '}
+              {due.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+              {inv.amount_paid_cents > 0 ? ` · ${fmtCents(inv.amount_paid_cents)} paid so far` : ''}
+            </div>
+          )}
         </div>
         <div className="flex items-center text-xs font-medium text-emerald-700">
           Pay <ExternalLink className="ml-1 h-3 w-3" />

@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 type Params = Promise<{ invoiceId: string }>;
-type SearchParams = Promise<{ t?: string; success?: string }>;
+type SearchParams = Promise<{ t?: string; success?: string; rail?: string }>;
 
 interface InvoiceRow {
   id: string; invoice_number: string; school_id: string; school_name: string;
@@ -104,8 +104,14 @@ export default async function PublicPayPage({ params, searchParams }: { params: 
       <Shell>
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600 mb-3" />
-          <h1 className="text-xl font-semibold text-emerald-900">Payment received</h1>
-          <p className="mt-1 text-sm text-emerald-800">Thank you! A receipt is on its way.</p>
+          <h1 className="text-xl font-semibold text-emerald-900">
+            {sp.success === '1' && sp.rail === 'ach' ? 'Bank payment submitted' : 'Payment received'}
+          </h1>
+          <p className="mt-1 text-sm text-emerald-800">
+            {sp.rail === 'ach'
+              ? 'Your bank payment is on its way and will clear in about 4–5 business days. You’re all set — please don’t pay again.'
+              : 'Thank you! A receipt is on its way.'}
+          </p>
         </div>
       </Shell>
     );

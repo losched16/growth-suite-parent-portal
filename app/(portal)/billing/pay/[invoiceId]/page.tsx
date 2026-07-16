@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 type Params = Promise<{ invoiceId: string }>;
-type SearchParams = Promise<{ return_to?: string; success?: string }>;
+type SearchParams = Promise<{ return_to?: string; success?: string; rail?: string }>;
 
 // Allow-list of return-to prefixes so a malicious link can't bounce the
 // parent to an attacker site after a successful payment.
@@ -49,6 +49,7 @@ interface InvoiceRow {
   amount_paid_cents: number;
   due_at: string;
   includes_platform_setup_fee: boolean;
+  has_pending_payment: boolean;
 }
 
 interface LineRow {
@@ -84,6 +85,7 @@ export default async function PayInvoicePage({
   const [invRows, paymentAccount] = await Promise.all([
     query<InvoiceRow>(
       `SELECT id, invoice_number, school_id, family_id, title, description, status,
+              (EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = invoices.id AND p.status IN ('pending','processing'))) AS has_pending_payment,
               subtotal_cents, platform_fee_cents, discount_total_cents,
               total_cents, amount_paid_cents,
               due_at, includes_platform_setup_fee,
@@ -161,6 +163,36 @@ export default async function PayInvoicePage({
       </div>
     );
   }
+
+  // Came back from a successful confirm, but the invoice isn't 'paid' yet —
+  // that's a bank/ACH payment (clears in a few business days) or a card whose
+  // confirmation hasn't landed. Show a clear "submitted" panel instead of the
+  // pay form, so the parent doesn't assume it failed and pay a second time.
+  if (sp.success === '1' && (inv.status === 'open' || inv.status === 'partially_paid')) {
+    const isAch = sp.rail === 'ach';
+    return (
+      <div className="max-w-xl mx-auto py-12">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600 mb-3" />
+          <h1 className="text-xl font-semibold text-emerald-900">
+            {isAch ? 'Bank payment submitted' : 'Payment submitted'}
+          </h1>
+          <p className="mt-2 text-sm text-emerald-800">
+            {isAch
+              ? 'Your bank payment is on its way and will clear in about 4–5 business days. You’re all set — please don’t pay again.'
+              : 'Thanks! Your payment is processing and this invoice will update shortly.'}
+          </p>
+          <p className="mt-1 text-xs text-emerald-700">
+            {inv.title} · {fmtCents(inv.total_cents)} · {inv.invoice_number}
+          </p>
+          <Link href="/billing" className="mt-4 inline-block text-sm text-emerald-700 underline">
+            Back to billing
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (inv.status === 'voided') {
     return (
       <div className="max-w-xl mx-auto py-12">
@@ -255,6 +287,16 @@ export default async function PayInvoicePage({
           <span className="font-mono font-semibold">{fmtCents(subtotalForPayment + inv.platform_fee_cents)}</span>
         </div>
       </div>
+
+      {inv.has_pending_payment ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">A payment for this invoice is already processing.</p>
+          <p className="mt-1 text-amber-800">
+            A bank payment can take a few business days to clear — you don’t need to pay again unless that one
+            failed. Paying now would charge you twice.
+          </p>
+        </div>
+      ) : null}
 
       <PaymentForm
         invoiceId={inv.id}

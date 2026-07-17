@@ -284,13 +284,20 @@ function StripeCheckout({ railLabel, totalCents, returnTo, onBack }: {
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
+  // For a bank payment, Stripe opens its own secure window to verify the
+  // account before confirming — that can take a while, and a bare spinner
+  // reads as "frozen." After a short wait we surface a reassuring hint.
+  const [slow, setSlow] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const isBank = railLabel === 'bank';
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!stripe || !elements || submitting) return;
     setSubmitting(true);
     setErr(null);
+    setSlow(false);
+    const slowTimer = setTimeout(() => setSlow(true), 12000);
 
     // Preserve existing query params (notably the public pay `t` token)
     // so the success redirect lands back on a page that still authorizes.
@@ -299,16 +306,18 @@ function StripeCheckout({ railLabel, totalCents, returnTo, onBack }: {
     // Carry the rail through so the success page can tell the parent a BANK
     // payment is still clearing (days) vs a card that's already done — without
     // it, ACH shows "Payment received" and the parent thinks it's instant.
-    if (railLabel === 'bank') sp.set('rail', 'ach');
+    if (isBank) sp.set('rail', 'ach');
     if (returnTo) sp.set('return_to', returnTo);
     const returnUrl = `${window.location.origin}${window.location.pathname}?${sp.toString()}`;
     const { error } = await stripe.confirmPayment({
       elements,
       confirmParams: { return_url: returnUrl },
     });
+    clearTimeout(slowTimer);
     if (error) {
       setErr(error.message ?? 'Payment failed');
       setSubmitting(false);
+      setSlow(false);
     }
     // On success Stripe redirects to returnUrl — we never reach this code.
   }
@@ -326,8 +335,24 @@ function StripeCheckout({ railLabel, totalCents, returnTo, onBack }: {
 
       <PaymentElement />
 
+      {isBank ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+          Paying by bank: a secure window may open to connect your account. Bank payments then take a few
+          business days to clear — your invoice will show <strong>“Processing,”</strong> never overdue, until it
+          does. You only pay once.
+        </div>
+      ) : null}
+
       {err ? (
         <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
+      ) : null}
+
+      {submitting && slow ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Still working…{isBank ? ' If a window opened to sign in to your bank, please finish there.' : ''} You can
+          safely close this page — if your payment went through it will show as <strong>“Processing”</strong> and
+          you don’t need to pay again.
+        </div>
       ) : null}
 
       <button
@@ -337,7 +362,7 @@ function StripeCheckout({ railLabel, totalCents, returnTo, onBack }: {
         style={{ background: 'var(--brand)' }}
       >
         {submitting ? <Loader2 className="inline h-4 w-4 animate-spin mr-1" /> : null}
-        {submitting ? 'Processing…' : `Pay ${fmtCents(totalCents)}`}
+        {submitting ? (isBank ? 'Connecting to your bank…' : 'Processing…') : `Pay ${fmtCents(totalCents)}`}
       </button>
     </form>
   );

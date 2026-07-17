@@ -21,7 +21,7 @@ type SearchParams = Promise<{ msg?: string; err?: string }>;
 export default async function FormsPage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
   const { msg, err } = await searchParams;
-  const [result, uploads, students, schoolForms] = await Promise.all([
+  const [result, uploads, students, schoolForms, formFiles] = await Promise.all([
     loadFormsForFamily({
       schoolId: id.parent.school_id,
       familyId: id.parent.family_id,
@@ -34,12 +34,36 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
        WHERE school_id = $1 AND is_active = true ORDER BY position, display_name`,
       [id.parent.school_id],
     ).then((r) => r.rows),
+    // Files this family attached INSIDE portal-form submissions (e.g. the
+    // enrollment agreement's custody-documentation upload). They live in
+    // portal_form_submission_files, not parent_uploads — without this the
+    // documents page silently omitted them and parents assumed the upload
+    // was lost.
+    query<{
+      id: string; display_name: string; original_filename: string;
+      mime_type: string; size_bytes: number; uploaded_at: string;
+      form_name: string; student_name: string | null;
+    }>(
+      `SELECT f.id, f.display_name, f.original_filename, f.mime_type, f.size_bytes,
+              to_char(f.uploaded_at AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS uploaded_at,
+              d.display_name AS form_name,
+              NULLIF(CONCAT_WS(' ', COALESCE(NULLIF(st.preferred_name, ''), st.first_name), st.last_name), '') AS student_name
+         FROM portal_form_submission_files f
+         JOIN portal_form_submissions s ON s.id = f.submission_id
+         JOIN portal_form_definitions d ON d.id = s.form_definition_id
+         LEFT JOIN students st ON st.id = s.student_id
+        WHERE s.school_id = $1
+          AND (s.family_id = $2 OR s.student_id IN (SELECT id FROM students WHERE family_id = $2))
+          AND COALESCE(s.status, 'submitted') <> 'voided'
+        ORDER BY f.uploaded_at DESC`,
+      [id.parent.school_id, id.parent.family_id],
+    ).then((r) => r.rows),
   ]);
 
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold text-gray-900">Forms &amp; Documents</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">{id.branding.nav_labels?.['/forms'] ?? 'Forms & Documents'}</h1>
         <p className="mt-1 text-sm text-gray-600">
           {result.total === 0
             ? 'No forms configured by your school yet.'
@@ -90,7 +114,7 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
       {/* Documents area — real uploads */}
       <section className="rounded-lg border border-gray-200 bg-white">
         <div className="flex items-baseline justify-between border-b border-gray-100 px-5 py-3">
-          <h2 className="text-base font-semibold text-gray-900">Documents</h2>
+          <h2 className="text-base font-semibold text-gray-900">{id.branding.nav_labels?.['/forms'] ?? 'Documents'}</h2>
           <span className="text-[11px] text-gray-500">
             {uploads.length} upload{uploads.length === 1 ? '' : 's'} · max 10 MB per file
           </span>
@@ -177,6 +201,43 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
             {uploads.map((u) => <UploadRowItem key={u.id} u={u} />)}
           </ul>
         )}
+
+        {/* Files attached inside form submissions — read-only (they're part
+            of the submitted form; redo the form to replace one). */}
+        {formFiles.length > 0 ? (
+          <div className="border-t border-gray-100">
+            <div className="px-5 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              Submitted with your forms
+            </div>
+            <ul className="divide-y divide-gray-100">
+              {formFiles.map((f) => (
+                <li key={f.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+                  <Paperclip className="h-4 w-4 shrink-0 text-gray-400" />
+                  <div className="min-w-0 flex-1">
+                    <a
+                      href={`/api/portal-forms/file/${f.id}?inline=1`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-medium text-gray-900 hover:underline"
+                    >
+                      {f.original_filename}
+                    </a>
+                    <div className="mt-0.5 text-[11px] text-gray-500">
+                      {fmtBytes(f.size_bytes)} · submitted with &ldquo;{f.form_name}&rdquo;
+                      {f.student_name ? ` · for ${f.student_name}` : ''}
+                    </div>
+                  </div>
+                  <a
+                    href={`/api/portal-forms/file/${f.id}`}
+                    className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50"
+                  >
+                    <Download className="h-3 w-3" /> Download
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
     </div>
   );

@@ -55,7 +55,7 @@ export default async function ResourcesPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-gray-900">Important Documents</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">{id.branding.nav_labels?.['/resources'] ?? 'Important Documents'}</h1>
         <p className="text-sm text-gray-600">
           Helpful reference materials from {id.school.name} — calendars,
           handbooks, supply lists, schedules, and other docs to keep handy.

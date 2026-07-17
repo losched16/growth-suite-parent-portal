@@ -31,7 +31,11 @@ export default async function PortalLayout({ children }: { children: React.React
   // "Portal menus" settings (school_branding.portal_hidden_nav). Empty =
   // every menu shows. Source of truth is the DB, not code.
   const hidden = new Set(b.hidden_nav ?? []);
-  const navItems = NAV_ITEMS.filter((item) => !hidden.has(item.href));
+  const navItems = NAV_ITEMS
+    .filter((item) => !hidden.has(item.href))
+    // Per-school label overrides (e.g. DGM: 'School Documents' /
+    // 'Parent Documents') — defaults stay for schools without overrides.
+    .map((item) => ({ ...item, label: b.nav_labels?.[item.href] ?? item.label }));
 
   // Unread in-portal notification count → badge on the Notifications nav item.
   const { rows: unreadRows } = await query<{ n: string }>(

@@ -20,6 +20,10 @@ export interface PortalBranding {
   // .portal_hidden_nav). Empty = show every menu. The layout filters
   // NAV_ITEMS by this.
   hidden_nav: string[];
+  // Per-school nav label overrides keyed by href (school_branding
+  // .portal_nav_labels). e.g. DGM renames '/resources' → 'School
+  // Documents' and '/forms' → 'Parent Documents'. Missing key = default.
+  nav_labels: Record<string, string>;
 }
 
 export interface ParentIdentity {
@@ -82,6 +86,7 @@ async function loadIdentity(claims: ParentClaims): Promise<ParentIdentity | null
     b_primary_color_fg: string | null;
     b_support_email: string | null; b_support_phone: string | null; b_footer_html: string | null;
     b_portal_hidden_nav: string[] | null;
+    b_portal_nav_labels: Record<string, string> | null;
   }>(
     `SELECT
        p.id AS p_id, p.family_id AS p_family_id, p.school_id AS p_school_id,
@@ -94,7 +99,8 @@ async function loadIdentity(claims: ParentClaims): Promise<ParentIdentity | null
        b.primary_color AS b_primary_color, b.primary_color_soft AS b_primary_color_soft,
        b.primary_color_fg AS b_primary_color_fg,
        b.support_email AS b_support_email, b.support_phone AS b_support_phone,
-       b.footer_html AS b_footer_html, b.portal_hidden_nav AS b_portal_hidden_nav
+       b.footer_html AS b_footer_html, b.portal_hidden_nav AS b_portal_hidden_nav,
+       b.portal_nav_labels AS b_portal_nav_labels
      FROM parents p
      JOIN families f ON f.id = p.family_id
      JOIN schools s ON s.id = p.school_id
@@ -139,6 +145,7 @@ async function loadIdentity(claims: ParentClaims): Promise<ParentIdentity | null
       support_phone: r.b_support_phone,
       footer_html: r.b_footer_html,
       hidden_nav: r.b_portal_hidden_nav ?? [],
+      nav_labels: r.b_portal_nav_labels ?? {},
     },
   };
 }

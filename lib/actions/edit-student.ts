@@ -58,6 +58,18 @@ async function editStudentInner(
     const student = await getStudentOwned(studentId, session.family_id);
     if (!student) return { ok: false, error: 'Student not found in your family.' };
 
+    // Office-vetted allergies (parent_editable_allergies=false, e.g. DGM):
+    // strip the allergy fields from the submission so a hand-crafted POST
+    // can't change them — the visible form doesn't render the inputs.
+    {
+      const { loadSchoolSettings } = await import('@/lib/school-settings');
+      const settings = await loadSchoolSettings(session.school_id);
+      if (!settings.parent_editable_allergies) {
+        formData.delete('allergy');
+        formData.delete('allergy_notes');
+      }
+    }
+
     // Slot lookup — two metadata shapes supported:
     //   • student.metadata.ghl_slot   (DG-era)
     //   • student.metadata.slot       (Wooster-era / current sync)

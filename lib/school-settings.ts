@@ -27,6 +27,11 @@ export interface SchoolSettings {
   // direct POSTs). Editing/deactivating existing people stays available
   // either way. DGM runs false: admissions@ vets every new pickup person.
   parent_managed_pickups: boolean;
+  // Can parents edit student ALLERGY info on the Family page? Default true.
+  // false = read-only display + "contact the admissions coordinator" notice
+  // (DGM: allergy changes must be vetted by the office). Other health
+  // fields (provider, phone) stay parent-editable either way.
+  parent_editable_allergies: boolean;
 }
 
 export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
@@ -36,6 +41,7 @@ export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
   promote_parent2: false,
   roster_tag_filter: [],
   parent_managed_pickups: true,
+  parent_editable_allergies: true,
 };
 
 export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
@@ -52,6 +58,7 @@ export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
       : [],
     // Opt-out flag: anything but an explicit false stays enabled.
     parent_managed_pickups: r.parent_managed_pickups !== false,
+    parent_editable_allergies: r.parent_editable_allergies !== false,
   };
 }
 

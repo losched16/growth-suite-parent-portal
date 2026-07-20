@@ -100,6 +100,14 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
     }),
     loadSchoolSettings(id.parent.school_id),
   ]);
+  // Admissions/office email for the allergies notice (allergy edits are
+  // office-vetted for schools with parent_editable_allergies=false).
+  const officeEmail = settings.parent_editable_allergies ? null : (await query<{ e: string | null }>(
+    `SELECT COALESCE(NULLIF(btrim(admin_change_notification_email), ''), NULLIF(btrim(support_email), '')) AS e
+       FROM school_branding WHERE school_id = $1`,
+    [id.parent.school_id],
+  )).rows[0]?.e ?? null;
+
 
   // Pretty-print "applies to" for the cards. 'all' (or empty after a
   // legacy submission predates the new field) → "All students"; specific
@@ -168,7 +176,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
           </div>
         ) : (
           <div className="space-y-4">
-            {students.map((s) => <StudentCard key={s.id} student={s} />)}
+            {students.map((s) => <StudentCard key={s.id} student={s} allergiesEditable={settings.parent_editable_allergies} officeEmail={officeEmail} />)}
           </div>
         )}
       </section>
@@ -531,7 +539,7 @@ function ParentCard({
   );
 }
 
-function StudentCard({ student }: { student: StudentRow }) {
+function StudentCard({ student, allergiesEditable, officeEmail }: { student: StudentRow; allergiesEditable: boolean; officeEmail: string | null }) {
   const md = student.metadata;
   const allergy = (md.allergy as string) ?? '';
   const allergyNotes = (md.allergyNotes as string) ?? '';
@@ -580,6 +588,8 @@ function StudentCard({ student }: { student: StudentRow }) {
         <input type="hidden" name="student_id" value={student.id} />
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {allergiesEditable ? (
+          <>
           <label className="block">
             <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Allergies (yes/no/none)</span>
             <input
@@ -598,6 +608,18 @@ function StudentCard({ student }: { student: StudentRow }) {
               className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-emerald-600 focus:outline-none"
             />
           </label>
+          </>
+          ) : (
+          <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Allergies on file</div>
+            <div className="mt-0.5 text-sm text-gray-900">{allergy || '—'}{allergyNotes ? ` — ${allergyNotes}` : ''}</div>
+            <p className="mt-1 text-[11px] text-amber-800">
+              Please contact our admissions coordinator{officeEmail ? (
+                <> at <a href={`mailto:${officeEmail}`} className="font-medium underline">{officeEmail}</a></>
+              ) : null} if you would like to update your student&rsquo;s allergy information.
+            </p>
+          </div>
+          )}
           {/* Emergency contacts intentionally NOT shown per-student
               here — they're family-level on the new Emergency Contacts
               card above (which supports up to 3). Keeping the legacy

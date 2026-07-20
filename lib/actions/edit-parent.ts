@@ -35,6 +35,14 @@ async function editParentInner(formData: FormData): Promise<EditParentResult> {
     const session = await readSession();
     if (!session) return { ok: false, error: 'Not signed in.' };
 
+    {
+      const { loadSchoolSettings } = await import('@/lib/school-settings');
+      const settings = await loadSchoolSettings(session.school_id);
+      if (!settings.parent_editable_family) {
+        return { ok: false, error: 'Contact the school office to update your information.' };
+      }
+    }
+
     const parentId = String(formData.get('parent_id') ?? '');
     if (parentId !== session.parent_id) {
       return { ok: false, error: 'You can only edit your own contact info.' };

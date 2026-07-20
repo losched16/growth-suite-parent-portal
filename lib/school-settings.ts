@@ -32,6 +32,11 @@ export interface SchoolSettings {
   // (DGM: allergy changes must be vetted by the office). Other health
   // fields (provider, phone) stay parent-editable either way.
   parent_editable_allergies: boolean;
+  // Can parents edit ANY family info in the portal (their own contact
+  // info, student health fields, per-student assignment)? Default true.
+  // false = the whole Family section is read-only with a "contact the
+  // office" notice (DGM: every change goes through the office/CRM).
+  parent_editable_family: boolean;
 }
 
 export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
@@ -42,6 +47,7 @@ export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
   roster_tag_filter: [],
   parent_managed_pickups: true,
   parent_editable_allergies: true,
+  parent_editable_family: true,
 };
 
 export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
@@ -59,6 +65,7 @@ export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
     // Opt-out flag: anything but an explicit false stays enabled.
     parent_managed_pickups: r.parent_managed_pickups !== false,
     parent_editable_allergies: r.parent_editable_allergies !== false,
+    parent_editable_family: r.parent_editable_family !== false,
   };
 }
 

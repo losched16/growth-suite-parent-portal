@@ -64,6 +64,9 @@ async function editStudentInner(
     {
       const { loadSchoolSettings } = await import('@/lib/school-settings');
       const settings = await loadSchoolSettings(session.school_id);
+      if (!settings.parent_editable_family) {
+        return { ok: false, error: 'Contact the school office to update your student’s information.' };
+      }
       if (!settings.parent_editable_allergies) {
         formData.delete('allergy');
         formData.delete('allergy_notes');

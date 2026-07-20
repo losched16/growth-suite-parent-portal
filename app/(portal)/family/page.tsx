@@ -102,7 +102,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
   ]);
   // Admissions/office email for the allergies notice (allergy edits are
   // office-vetted for schools with parent_editable_allergies=false).
-  const officeEmail = settings.parent_editable_allergies ? null : (await query<{ e: string | null }>(
+  const officeEmail = (settings.parent_editable_allergies && settings.parent_editable_family) ? null : (await query<{ e: string | null }>(
     `SELECT COALESCE(NULLIF(btrim(admin_change_notification_email), ''), NULLIF(btrim(support_email), '')) AS e
        FROM school_branding WHERE school_id = $1`,
     [id.parent.school_id],
@@ -148,6 +148,8 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
                 isMe={p.id === id.parent.id}
                 students={students}
                 assignments={myAssignments}
+                editable={settings.parent_editable_family}
+                officeEmail={officeEmail}
               />
             );
           })}
@@ -176,7 +178,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
           </div>
         ) : (
           <div className="space-y-4">
-            {students.map((s) => <StudentCard key={s.id} student={s} allergiesEditable={settings.parent_editable_allergies} officeEmail={officeEmail} />)}
+            {students.map((s) => <StudentCard key={s.id} student={s} allergiesEditable={settings.parent_editable_allergies} familyEditable={settings.parent_editable_family} officeEmail={officeEmail} />)}
           </div>
         )}
       </section>
@@ -317,7 +319,7 @@ function Banner({ kind, children }: { kind: 'success' | 'error'; children: React
 }
 
 function ParentCard({
-  parent, isMe, students, assignments,
+  parent, isMe, students, assignments, editable, officeEmail,
 }: {
   parent: ParentRow;
   isMe: boolean;
@@ -325,6 +327,8 @@ function ParentCard({
   // Assignment rows for THIS parent. Empty → applies to every kid in
   // the family (the back-compat default).
   assignments: ParentStudentAssignment[];
+  editable: boolean;
+  officeEmail: string | null;
 }) {
   // Render the per-student assignment summary. Always at least
   // "applies to all" — never blank.
@@ -337,6 +341,31 @@ function ParentCard({
     }).filter(Boolean) as string[];
     if (named.length === 0) return `All children (${students.length})`;
     return named.join(', ');
+  }
+
+  // Office-managed schools: every parent card is read-only — changes go
+  // through the office so the CRM stays the source of truth.
+  if (!editable) {
+    return (
+      <article className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="text-sm font-medium text-gray-900">
+          {parent.first_name} {parent.last_name}{isMe ? ' (you)' : ''}
+          {parent.is_primary ? <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-800">primary</span> : null}
+        </div>
+        <div className="mt-1 space-y-0.5 text-[12px] text-gray-600">
+          <div><Mail className="mr-1 inline-block h-3 w-3" />{parent.email ?? '(no email)'}</div>
+          {parent.phone ? <div><Phone className="mr-1 inline-block h-3 w-3" />{parent.phone}</div> : null}
+          <div className="text-[11px] text-gray-500">Parent of: {assignmentLabel()}</div>
+        </div>
+        {isMe ? (
+          <p className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-2 py-1.5 text-[11px] text-amber-800">
+            To update your contact information, please contact the school office{officeEmail ? (
+              <> at <a href={`mailto:${officeEmail}`} className="font-medium underline">{officeEmail}</a></>
+            ) : null}.
+          </p>
+        ) : null}
+      </article>
+    );
   }
 
   if (isMe) {
@@ -539,7 +568,7 @@ function ParentCard({
   );
 }
 
-function StudentCard({ student, allergiesEditable, officeEmail }: { student: StudentRow; allergiesEditable: boolean; officeEmail: string | null }) {
+function StudentCard({ student, allergiesEditable, familyEditable, officeEmail }: { student: StudentRow; allergiesEditable: boolean; familyEditable: boolean; officeEmail: string | null }) {
   const md = student.metadata;
   const allergy = (md.allergy as string) ?? '';
   const allergyNotes = (md.allergyNotes as string) ?? '';
@@ -583,7 +612,26 @@ function StudentCard({ student, allergiesEditable, officeEmail }: { student: Stu
         ) : null}
       </div>
 
-      {/* Editable health/emergency form */}
+      {/* Office-managed schools: health/emergency info is read-only. */}
+      {!familyEditable ? (
+        <div className="space-y-2 p-4 text-sm">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Allergies on file</div>
+              <div className="text-sm text-gray-900">{allergy || '—'}{allergyNotes ? ` — ${allergyNotes}` : ''}</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wide text-gray-600">Health care provider</div>
+              <div className="text-sm text-gray-900">{hcp || '—'}{hcpPhone ? ` · ${hcpPhone}` : ''}</div>
+            </div>
+          </div>
+          <p className="rounded-md border border-amber-200 bg-amber-50/60 px-2 py-1.5 text-[11px] text-amber-800">
+            Please contact our admissions coordinator{officeEmail ? (
+              <> at <a href={`mailto:${officeEmail}`} className="font-medium underline">{officeEmail}</a></>
+            ) : null} to update your student&rsquo;s information.
+          </p>
+        </div>
+      ) : (
       <form action={editStudentAction} className="space-y-3 p-4 text-sm">
         <input type="hidden" name="student_id" value={student.id} />
 
@@ -659,6 +707,7 @@ function StudentCard({ student, allergiesEditable, officeEmail }: { student: Stu
           </button>
         </div>
       </form>
+      )}
     </article>
   );
 }

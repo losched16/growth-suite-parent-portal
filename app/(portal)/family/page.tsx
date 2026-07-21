@@ -206,11 +206,21 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
                     : `${emergencyContacts.slots.length} emergency contact${emergencyContacts.slots.length === 1 ? '' : 's'} on file${emergencyContacts.additional ? ' (+ extras)' : ''}`}
                 </div>
                 <div className="mt-0.5 text-xs text-gray-600">
-                  Up to five structured contacts who can be reached if we can&rsquo;t get to you,
-                  plus a free-form section for any extras. Stored on your Emergency Medical form.
+                  {settings.parent_editable_family
+                    ? 'Up to five structured contacts who can be reached if we can’t get to you, plus a free-form section for any extras. Stored on your Emergency Medical form.'
+                    : 'People we can reach if we can’t get to you.'}
                 </div>
+                {!settings.parent_editable_family ? (
+                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-2 py-1.5 text-[11px] text-amber-800">
+                    To add or update emergency contacts or authorized pickup people, please contact
+                    admissions{officeEmail ? (
+                      <> at <a href={`mailto:${officeEmail}`} className="font-medium underline">{officeEmail}</a></>
+                    ) : null}.
+                  </p>
+                ) : null}
               </div>
             </div>
+            {settings.parent_editable_family ? (
             <Link
               href="/forms-v2/emergency-medical"
               className="rounded-md px-3 py-1.5 text-sm font-medium text-white whitespace-nowrap"
@@ -218,6 +228,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
             >
               {emergencyContacts.slots.length === 0 ? 'Add contacts' : 'Edit / add more'}
             </Link>
+            ) : null}
           </div>
           {emergencyContacts.slots.length > 0 || emergencyContacts.additional ? (
             <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
@@ -242,7 +253,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
               ))}
               {/* Empty placeholder card prompting them to add one more
                   (capped at 3 placeholders to keep the grid tidy). */}
-              {Array.from({ length: Math.max(0, 3 - emergencyContacts.slots.length) }).map((_, i) => {
+              {settings.parent_editable_family ? Array.from({ length: Math.max(0, 3 - emergencyContacts.slots.length) }).map((_, i) => {
                 const nextSlot = emergencyContacts.slots.length + i + 1;
                 return (
                   <li key={`empty-${nextSlot}`} className="rounded-md border-2 border-dashed border-gray-200 bg-white px-3 py-2 text-xs text-gray-400 italic">
@@ -252,7 +263,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
                     </Link>
                   </li>
                 );
-              })}
+              }) : null}
               {emergencyContacts.additional ? (
                 <li className="rounded-md border border-amber-200 bg-amber-50/40 px-3 py-2 text-sm sm:col-span-2 md:col-span-3">
                   <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold">

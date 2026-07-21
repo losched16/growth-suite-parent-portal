@@ -140,6 +140,34 @@ async function uploadDocumentInner(
     });
 
     revalidatePath('/forms');
+    // Notify the office — parents upload immunization records, IEP/504
+    // docs, custody papers etc. and the office had no signal beyond
+    // checking the uploads screen. Best-effort; never blocks the upload.
+    try {
+      const { rows: br } = await query<{ email: string | null; fam: string | null }>(
+        `SELECT COALESCE(NULLIF(btrim(b.admin_change_notification_email), ''), NULLIF(btrim(b.support_email), '')) AS email,
+                f.display_name AS fam
+           FROM school_branding b, families f
+          WHERE b.school_id = $1 AND f.id = $2`,
+        [session.school_id, session.family_id],
+      );
+      const officeEmail = br[0]?.email;
+      if (officeEmail) {
+        const { sendBrandedEmail } = await import('@/lib/email');
+        await sendBrandedEmail({
+          to: officeEmail,
+          schoolId: session.school_id,
+          subject: `New document uploaded — ${br[0]?.fam ?? 'a family'}`,
+          text: `${br[0]?.fam ?? 'A family'} uploaded "${displayName}" (${formatBytes(buf.length)}, ${file.type}) in the parent portal.
+
+Review it on the family's page or the uploads screen.`,
+          html: `<p><strong>${br[0]?.fam ?? 'A family'}</strong> uploaded &ldquo;${displayName}&rdquo; (${formatBytes(buf.length)}, ${file.type}) in the parent portal.</p><p>Review it on the family&rsquo;s page or the uploads screen.</p>`,
+        });
+      }
+    } catch (e) {
+      console.warn('[upload-document] office notification failed:', e instanceof Error ? e.message : String(e));
+    }
+
     return { ok: true, message: `Uploaded "${displayName}" (${formatBytes(buf.length)}).` };
   } catch (err) {
     return {

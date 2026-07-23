@@ -28,21 +28,24 @@ type Phase =
 
 const RESET_AFTER_DONE_S = 8;
 
-export function KioskCheckInOut({ schoolId }: { schoolId: string }) {
+export interface CurbSlotOption { value: string; label: string }
+
+export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string; curbSlots?: CurbSlotOption[] }) {
   const [phase, setPhase] = useState<Phase>({ name: 'pin' });
   const [pin, setPin] = useState('');
   const [err, setErr] = useState<string | null>(null);
   // Selection state for the 'select' phase
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pickupTimes, setPickupTimes] = useState<Record<string, string>>({});
-  const [curbside, setCurbside] = useState(false);
-  const [curbsideSlot, setCurbsideSlot] = useState('');
+  // Per-kid curbside time -- choosing a time IS the curbside opt-in.
+  const [curbTimes, setCurbTimes] = useState<Record<string, string>>({});
+  const [frontDeskNote, setFrontDeskNote] = useState('');
 
   const reset = useCallback(() => {
     setPhase({ name: 'pin' });
     setPin(''); setErr(null);
     setSelected(new Set()); setPickupTimes({});
-    setCurbside(false); setCurbsideSlot('');
+    setCurbTimes({}); setFrontDeskNote('');
   }, []);
 
   // Auto-reset countdown on the done screen.
@@ -115,8 +118,9 @@ export function KioskCheckInOut({ schoolId }: { schoolId: string }) {
             action: s.checked_in ? 'check_out' : 'check_in',
             ...(s.checked_in ? {} : {
               pickup_time: pickupTimes[s.id],
-              curbside,
-              curbside_slot: curbside ? curbsideSlot : undefined,
+              curbside: !!curbTimes[s.id],
+              curbside_slot: curbTimes[s.id] || undefined,
+              notes: frontDeskNote.trim() || undefined,
             }),
           })),
         }),
@@ -263,6 +267,24 @@ export function KioskCheckInOut({ schoolId }: { schoolId: string }) {
                       </button>
                     ))}
                   </div>
+                  {curbSlots.length > 0 ? (
+                    <div className="mt-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-violet-800 mb-1 flex items-center gap-1">
+                        <Car className="h-3.5 w-3.5" /> Curbside pickup &mdash; select a time if using curbside
+                      </div>
+                      <select
+                        value={curbTimes[s.id] ?? ''}
+                        disabled={busy}
+                        onChange={(e) => setCurbTimes((m) => ({ ...m, [s.id]: e.target.value }))}
+                        className="w-full max-w-xs rounded-lg border-2 border-violet-300 bg-white px-3 py-2 text-sm font-semibold text-violet-900"
+                      >
+                        <option value="">Not using curbside</option>
+                        {curbSlots.map((slot) => (
+                          <option key={slot.value} value={slot.value}>{slot.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -270,30 +292,19 @@ export function KioskCheckInOut({ schoolId }: { schoolId: string }) {
         })}
       </div>
 
-      {/* Curbside intent — applies to all selected check-ins */}
+      {/* Optional note for the front desk -- applies to all selected check-ins */}
       {anyCheckIns ? (
-        <label className="flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3">
+        <label className="block rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <span className="text-sm font-medium text-slate-800">Note for the front desk (optional)</span>
           <input
-            type="checkbox"
-            checked={curbside}
-            onChange={(e) => setCurbside(e.target.checked)}
+            type="text"
+            value={frontDeskNote}
+            onChange={(e) => setFrontDeskNote(e.target.value)}
+            maxLength={500}
             disabled={busy}
-            className="h-5 w-5 rounded border-violet-300"
+            placeholder="e.g. Grandma picking up today -- silver Honda"
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-          <span className="flex items-center gap-1.5 text-sm text-slate-800">
-            <Car className="h-4 w-4 text-violet-600" /> Curbside pickup today
-          </span>
-          {curbside ? (
-            <input
-              type="text"
-              value={curbsideSlot}
-              onChange={(e) => setCurbsideSlot(e.target.value)}
-              placeholder="Slot #"
-              maxLength={16}
-              disabled={busy}
-              className="ml-auto w-20 rounded-md border border-violet-300 px-2 py-1 text-sm"
-            />
-          ) : null}
         </label>
       ) : null}
 

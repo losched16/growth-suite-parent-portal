@@ -10,6 +10,7 @@
 
 import { notFound } from 'next/navigation';
 import { resolveKioskSchool } from '@/lib/kiosk/kiosk';
+import { resolveCurbsideSlots } from '@/lib/attendance/curbside-slots';
 import { KioskCheckInOut } from './KioskCheckInOut';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,7 @@ export default async function KioskPage({ params }: { params: Params }) {
   const { schoolId } = await params;
   const school = await resolveKioskSchool(schoolId);
   if (!school) notFound();
+  const curbSlots = await resolveCurbsideSlots(school.id);
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center px-4 py-8">
@@ -27,7 +29,7 @@ export default async function KioskPage({ params }: { params: Params }) {
         <div className="text-xs uppercase tracking-wider text-slate-500">Check-in / Check-out</div>
         <h1 className="mt-1 text-3xl font-semibold text-slate-900">{school.name}</h1>
       </header>
-      <KioskCheckInOut schoolId={schoolId} />
+      <KioskCheckInOut schoolId={schoolId} curbSlots={curbSlots} />
       <p className="mt-8 text-[11px] text-slate-400 text-center max-w-md">
         Parents: set your PIN in the parent portal under Settings → Pickup People.
         Grandparents &amp; sitters: ask the parent to generate a PIN for you.

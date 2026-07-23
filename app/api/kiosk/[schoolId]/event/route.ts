@@ -34,6 +34,7 @@ interface ActionInput {
   pickup_time?: unknown;
   curbside?: unknown;
   curbside_slot?: unknown;
+  notes?: unknown;
 }
 
 export async function POST(request: NextRequest, { params }: { params: Params }) {
@@ -100,9 +101,12 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     if (action === 'check_in' && !pickupTime) {
       return NextResponse.json({ error: 'pickup_time_required', detail: `Pick a pickup time for ${studentName}.` }, { status: 400 });
     }
-    const curbside = a.curbside === true;
-    const curbsideSlot = curbside && typeof a.curbside_slot === 'string'
+    // Choosing a curbside time IS the opt-in (checkbox kept for
+    // back-compat with cached kiosk clients).
+    const curbsideSlot = typeof a.curbside_slot === 'string'
       ? a.curbside_slot.trim().slice(0, 16) || null : null;
+    const curbside = a.curbside === true || curbsideSlot !== null;
+    const kioskNotes = typeof a.notes === 'string' ? a.notes.trim().slice(0, 500) || null : null;
 
     const isParent = claims.person_type === 'parent';
     await query(
@@ -110,9 +114,9 @@ export async function POST(request: NextRequest, { params }: { params: Params })
          school_id, student_id, event_type,
          performed_by_parent_id, performed_by_pickup_person_id, performed_by_name_snapshot,
          picked_up_by_parent_id, picked_up_by_pickup_person_id, picked_up_by_name_snapshot,
-         curbside, curbside_slot, pickup_time,
+         curbside, curbside_slot, pickup_time, notes,
          source, ip_address, user_agent
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'kiosk', $13, $14)`,
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'kiosk', $14, $15)`,
       [
         school.id, studentId, action,
         isParent ? claims.person_id : null,
@@ -123,6 +127,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         action === 'check_out' ? claims.person_name : null,
         curbside, curbsideSlot,
         action === 'check_in' ? pickupTime : null,
+        kioskNotes,
         ip, ua,
       ],
     );

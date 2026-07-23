@@ -8,6 +8,7 @@ import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { SignatureCanvasField } from '../_signature-canvas';
 import { eligiblePickupTimes } from '@/lib/attendance/pickup-times';
+import { resolveCurbsideSlots } from '@/lib/attendance/curbside-slots';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,7 @@ interface StudentRow {
 
 export default async function CheckInPage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
+  const curbSlots = await resolveCurbsideSlots(id.parent.school_id);
   const sp = await searchParams;
   const studentId = sp.student_id ?? '';
   if (!studentId) redirect('/attendance');
@@ -125,39 +127,25 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
           />
         </label>
 
-        {/* Curbside pickup intent. Flagged in the morning so teachers can
-            see at a glance who's curbside before dismissal. The slot
-            number is what the parent gets given when they pull up — they
-            type it here so the teacher can match. */}
-        <fieldset className="rounded-md border border-violet-200 bg-violet-50/30 p-3 space-y-2">
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              name="curbside"
-              value="1"
-              className="mt-0.5 h-4 w-4 rounded border-violet-300"
-            />
-            <span>
-              <strong>Curbside pickup today</strong>
-              <span className="block text-[11px] text-gray-600 mt-0.5">
-                Check if you&apos;ll be picking up at the curb (no walking in). Teachers will get the heads-up.
-              </span>
-            </span>
-          </label>
-          <label className="block ml-6">
-            <span className="text-[11px] uppercase tracking-wide text-gray-600">Slot # (optional)</span>
-            <input
-              type="text"
-              name="curbside_slot"
-              maxLength={16}
-              placeholder="e.g. 3"
-              className="mt-0.5 block w-32 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-violet-600 focus:outline-none focus:ring-1 focus:ring-violet-200"
-            />
-            <span className="block text-[10px] text-gray-500 mt-0.5">
-              If your school assigns parking slots, enter yours so the teacher can walk your student out to the right car.
-            </span>
-          </label>
-        </fieldset>
+        {/* Curbside pickup — ONE control: picking a time IS opting in.
+            (The old checkbox + free-text "Slot #" confused everyone; the
+            school works off published curbside time windows.) */}
+        <label className="block rounded-md border border-violet-200 bg-violet-50/30 p-3">
+          <span className="text-sm font-medium text-gray-800">Curbside pickup</span>
+          <span className="block text-[11px] text-gray-600 mt-0.5">
+            Please select a curbside pickup time if you&apos;ll be using curbside today — the school preps the dismissal line from this.
+          </span>
+          <select
+            name="curbside_slot"
+            className="mt-1 block w-64 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm focus:border-violet-600 focus:outline-none focus:ring-1 focus:ring-violet-200"
+            defaultValue=""
+          >
+            <option value="">Not using curbside today</option>
+            {curbSlots.map((slot) => (
+              <option key={slot.value} value={slot.value}>{slot.label}</option>
+            ))}
+          </select>
+        </label>
 
         <SignatureCanvasField
           label={`Sign to confirm drop-off for ${displayName}`}

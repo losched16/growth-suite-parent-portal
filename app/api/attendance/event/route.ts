@@ -61,12 +61,15 @@ export async function POST(request: NextRequest) {
   const studentId = String(fd.get('student_id') ?? '').trim();
   const eventType = String(fd.get('event_type') ?? '').trim();
   const signaturePng = String(fd.get('signature_png') ?? '').trim();
-  const curbside = fd.get('curbside') === '1';
+  // Curbside = the legacy checkbox OR (new UI) a chosen curbside time —
+  // selecting a time IS the opt-in.
+  const curbsideBox = fd.get('curbside') === '1';
   // Parking slot tag — typed in by the parent during morning drop-off
   // (or at check-out). Stored as-is, capped at 16 chars to keep the
   // staff dashboard readable. Only persisted when curbside=true.
   const curbsideSlotRaw = String(fd.get('curbside_slot') ?? '').trim().slice(0, 16);
-  const curbsideSlot = curbside && curbsideSlotRaw ? curbsideSlotRaw : null;
+  const curbside = curbsideBox || curbsideSlotRaw !== '';
+  const curbsideSlot = curbsideSlotRaw || null;
   const pickedUpByRaw = String(fd.get('picked_up_by') ?? '').trim();
   // Optional free-form note attached to the event. Capped at 500 chars
   // server-side regardless of what the client sends.

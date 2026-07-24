@@ -65,7 +65,7 @@ export async function loadStudentsForFamily(familyId: string): Promise<StudentRo
        e.status AS enrollment_status,
        e.classroom_id,
        c.name AS classroom_name,
-       c.lead_teacher_name,
+       COALESCE(NULLIF(s.metadata->>'lead_teacher', ''), c.lead_teacher_name) AS lead_teacher_name,
        e.schedule,
        e.academic_year
      FROM students s
@@ -126,7 +126,7 @@ export async function getStudentOwned(studentId: string, familyId: string): Prom
        e.status AS enrollment_status,
        e.classroom_id,
        c.name AS classroom_name,
-       c.lead_teacher_name,
+       COALESCE(NULLIF(s.metadata->>'lead_teacher', ''), c.lead_teacher_name) AS lead_teacher_name,
        e.schedule,
        e.academic_year
      FROM students s

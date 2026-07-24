@@ -21,6 +21,39 @@ export interface UploadRow {
   ghl_sync_error: string | null;
 }
 
+// Documents the OFFICE shared with this family — student_documents rows
+// (uploaded from the school dashboard) flagged visible_to_parent. Without
+// this read, the dashboard's "show in parent portal" checkbox wrote a flag
+// nothing on the parent side ever consumed.
+export interface SchoolDocRow {
+  id: string;
+  title: string;
+  category: string | null;
+  description: string | null;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  uploaded_at: string;
+  student_name: string | null;
+}
+
+export async function loadSchoolDocumentsForFamily(familyId: string): Promise<SchoolDocRow[]> {
+  const { rows } = await query<SchoolDocRow>(
+    `SELECT
+       d.id, d.title, d.category, d.description,
+       d.file_name, d.mime_type, d.size_bytes,
+       to_char(d.uploaded_at AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS uploaded_at,
+       NULLIF(CONCAT_WS(' ', COALESCE(NULLIF(s.preferred_name, ''), s.first_name), s.last_name), '') AS student_name
+     FROM student_documents d
+     JOIN students s ON s.id = d.student_id
+     WHERE s.family_id = $1
+       AND d.visible_to_parent = true
+     ORDER BY d.uploaded_at DESC`,
+    [familyId],
+  );
+  return rows;
+}
+
 export async function loadFamilyUploads(familyId: string): Promise<UploadRow[]> {
   const { rows } = await query<UploadRow>(
     `SELECT

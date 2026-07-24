@@ -117,7 +117,7 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
         <div className="flex items-baseline justify-between border-b border-gray-100 px-5 py-3">
           <h2 className="text-base font-semibold text-gray-900">{id.branding.nav_labels?.['/forms'] ?? 'Documents'}</h2>
           <span className="text-[11px] text-gray-500">
-            {uploads.length} upload{uploads.length === 1 ? '' : 's'} · max 10 MB per file
+            {uploads.length + formFiles.length} document{uploads.length + formFiles.length === 1 ? '' : 's'} · max 10 MB per file
           </span>
         </div>
 
@@ -193,10 +193,16 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
 
         {/* List */}
         {uploads.length === 0 ? (
-          <div className="px-5 py-6 text-center text-sm text-gray-500">
-            No documents uploaded yet. Use the form above to send the school an immunization record,
-            custody paper, medical form, or anything else they&apos;ve asked for.
-          </div>
+          formFiles.length === 0 ? (
+            <div className="px-5 py-6 text-center text-sm text-gray-500">
+              No documents uploaded yet. Use the form above to send the school an immunization record,
+              custody paper, medical form, or anything else they&apos;ve asked for.
+            </div>
+          ) : (
+            <div className="px-5 py-3 text-center text-xs text-gray-400">
+              Documents you submitted with your forms are listed below. Use the form above to send anything else.
+            </div>
+          )
         ) : (
           <ul className="divide-y divide-gray-100">
             {uploads.map((u) => <UploadRowItem key={u.id} u={u} />)}

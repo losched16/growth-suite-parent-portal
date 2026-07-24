@@ -37,6 +37,10 @@ export interface SchoolSettings {
   // false = the whole Family section is read-only with a "contact the
   // office" notice (DGM: every change goes through the office/CRM).
   parent_editable_family: boolean;
+  // Who gets the "new parent upload" email. Empty = fall back to
+  // school_branding.admin_change_notification_email / support_email.
+  // DGM: admissions@ + Henderson + Blanken.
+  upload_notification_emails: string[];
 }
 
 export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
@@ -48,6 +52,7 @@ export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
   parent_managed_pickups: true,
   parent_editable_allergies: true,
   parent_editable_family: true,
+  upload_notification_emails: [],
 };
 
 export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
@@ -66,6 +71,9 @@ export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
     parent_managed_pickups: r.parent_managed_pickups !== false,
     parent_editable_allergies: r.parent_editable_allergies !== false,
     parent_editable_family: r.parent_editable_family !== false,
+    upload_notification_emails: Array.isArray(r.upload_notification_emails)
+      ? r.upload_notification_emails.map((e) => String(e ?? '').trim()).filter((e) => e.includes('@'))
+      : [],
   };
 }
 

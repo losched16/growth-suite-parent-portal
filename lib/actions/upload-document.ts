@@ -144,25 +144,55 @@ async function uploadDocumentInner(
     // docs, custody papers etc. and the office had no signal beyond
     // checking the uploads screen. Best-effort; never blocks the upload.
     try {
-      const { rows: br } = await query<{ email: string | null; fam: string | null }>(
+      const { rows: br } = await query<{
+        email: string | null; fam: string | null; parent_name: string | null;
+        student_name: string | null; form_name: string | null;
+      }>(
         `SELECT COALESCE(NULLIF(btrim(b.admin_change_notification_email), ''), NULLIF(btrim(b.support_email), '')) AS email,
-                f.display_name AS fam
+                f.display_name AS fam,
+                (SELECT first_name || ' ' || last_name FROM parents WHERE id = $3) AS parent_name,
+                (SELECT COALESCE(NULLIF(preferred_name, ''), first_name) || ' ' || last_name
+                   FROM students WHERE id = $4::uuid) AS student_name,
+                (SELECT display_name FROM school_forms WHERE id = $5::uuid) AS form_name
            FROM school_branding b, families f
           WHERE b.school_id = $1 AND f.id = $2`,
-        [session.school_id, session.family_id],
+        [session.school_id, session.family_id, session.parent_id, studentId, formId],
       );
-      const officeEmail = br[0]?.email;
-      if (officeEmail) {
+      // Recipients: the school's configured upload-notification list, or the
+      // office/support address as the fallback. Each gets their own copy.
+      const { loadSchoolSettings } = await import('@/lib/school-settings');
+      const settings = await loadSchoolSettings(session.school_id);
+      const recipients = settings.upload_notification_emails.length > 0
+        ? settings.upload_notification_emails
+        : (br[0]?.email ? [br[0].email] : []);
+      if (recipients.length > 0) {
         const { sendBrandedEmail } = await import('@/lib/email');
-        await sendBrandedEmail({
-          to: officeEmail,
-          schoolId: session.school_id,
-          subject: `New document uploaded — ${br[0]?.fam ?? 'a family'}`,
-          text: `${br[0]?.fam ?? 'A family'} uploaded "${displayName}" (${formatBytes(buf.length)}, ${file.type}) in the parent portal.
+        const fam = br[0]?.fam ?? 'A family';
+        const lines = [
+          `Family: ${fam}`,
+          br[0]?.parent_name ? `Uploaded by: ${br[0].parent_name}` : null,
+          `Document: ${displayName}`,
+          `File: ${file.name} (${formatBytes(buf.length)}, ${file.type})`,
+          br[0]?.student_name ? `For student: ${br[0].student_name}` : null,
+          br[0]?.form_name ? `For form: ${br[0].form_name}` : null,
+          notes ? `Parent's note: ${notes}` : null,
+        ].filter((l): l is string => !!l);
+        const subject = `New document uploaded — ${fam}${br[0]?.student_name ? ` (${br[0].student_name})` : ''}`;
+        const text = `A parent uploaded a document in the parent portal.
 
-Review it on the family's page or the uploads screen.`,
-          html: `<p><strong>${br[0]?.fam ?? 'A family'}</strong> uploaded &ldquo;${displayName}&rdquo; (${formatBytes(buf.length)}, ${file.type}) in the parent portal.</p><p>Review it on the family&rsquo;s page or the uploads screen.</p>`,
-        });
+${lines.join('\n')}
+
+Review and download it from the Portal Forms dashboard (Uploaded Docs column) or the family's forms page.`;
+        const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const html = `<p>A parent uploaded a document in the parent portal.</p><table style="border-collapse:collapse">${
+          lines.map((l) => {
+            const i = l.indexOf(': ');
+            return `<tr><td style="padding:2px 12px 2px 0;color:#6b7280">${esc(l.slice(0, i))}</td><td style="padding:2px 0"><strong>${esc(l.slice(i + 2))}</strong></td></tr>`;
+          }).join('')
+        }</table><p>Review and download it from the Portal Forms dashboard (Uploaded Docs column) or the family&rsquo;s forms page.</p>`;
+        for (const to of recipients) {
+          await sendBrandedEmail({ to, schoolId: session.school_id, subject, text, html });
+        }
       }
     } catch (e) {
       console.warn('[upload-document] office notification failed:', e instanceof Error ? e.message : String(e));

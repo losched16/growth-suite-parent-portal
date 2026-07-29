@@ -8,12 +8,14 @@
 // the form schema, and the co-sign page all agree on the same rule.
 
 // LDMA answers that require BOTH guardians to sign. Per Clint
-// (2026-07-08): only SEPARATED or DIVORCED joint-authority situations
-// need the counter-signature — married or single households sign once.
-// The regex in isCoSignRequired also catches future label variants that
-// mention divorced/separated.
+// (2026-07-08, extended 2026-07-29): any joint-authority household that
+// is NOT a married unit — divorced, separated, or UNMARRIED co-parents
+// (the Russell/Shouse case) — needs the counter-signature. Married or
+// single households sign once. The regex in isCoSignRequired also
+// catches future label variants.
 export const JOINT_LDMA_VALUES: ReadonlySet<string> = new Set([
   'Parents/Guardians share joint LDMA (divorced)',
+  'Parents/Guardians share joint LDMA (unmarried)',
 ]);
 
 // Form field keys involved in the co-sign flow.
@@ -29,5 +31,5 @@ export const COSIGNER_SIGNED_AT_FIELD = 'cosigner_signature_signed_at';
 export function isCoSignRequired(responses: Record<string, unknown>): boolean {
   const v = String(responses[LDMA_FIELD_KEY] ?? '').trim();
   if (JOINT_LDMA_VALUES.has(v)) return true;
-  return /(divorced|separated)/i.test(v);
+  return /\b(divorced|separated|unmarried)\b/i.test(v);
 }

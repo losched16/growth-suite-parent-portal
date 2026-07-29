@@ -10,6 +10,7 @@ import { CheckCircle2, Circle, FileText, ExternalLink, AlertCircle, Upload, Down
 import { requireParent } from '@/lib/identity';
 import { loadFormsForFamily, type FormStatus } from '@/lib/form-tracker';
 import { loadFamilyUploads, loadSchoolDocumentsForFamily, type UploadRow, type SchoolDocRow } from '@/lib/uploads-list';
+import { loadSharedDocsForFamily, type SharedDocRow } from '@/lib/school-shared-docs';
 import { loadStudentsForFamily } from '@/lib/family-data';
 import { uploadDocumentAction, deleteUploadAction } from '@/lib/actions/upload-document';
 import { query } from '@/lib/db';
@@ -21,7 +22,7 @@ type SearchParams = Promise<{ msg?: string; err?: string }>;
 export default async function FormsPage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
   const { msg, err } = await searchParams;
-  const [result, uploads, schoolDocs, students, schoolForms, formFiles] = await Promise.all([
+  const [result, uploads, schoolDocs, sharedDocs, students, schoolForms, formFiles] = await Promise.all([
     loadFormsForFamily({
       schoolId: id.parent.school_id,
       familyId: id.parent.family_id,
@@ -29,6 +30,7 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
     }),
     loadFamilyUploads(id.parent.family_id),
     loadSchoolDocumentsForFamily(id.parent.family_id),
+    loadSharedDocsForFamily(id.parent.school_id, id.parent.family_id),
     loadStudentsForFamily(id.parent.family_id),
     query<{ id: string; display_name: string }>(
       `SELECT id, display_name FROM school_forms
@@ -209,14 +211,16 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
           </ul>
         )}
 
-        {/* Documents the school shared with this family (uploaded by the
-            office/teacher with "show in parent portal" checked). */}
-        {schoolDocs.length > 0 ? (
+        {/* Documents the school shared with this family: school-wide
+            "important documents" (audience-targeted) + per-student files
+            uploaded by the office/teacher with "show in parent portal". */}
+        {schoolDocs.length > 0 || sharedDocs.length > 0 ? (
           <div className="border-t border-gray-100">
             <div className="px-5 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
               From your school
             </div>
             <ul className="divide-y divide-gray-100">
+              {sharedDocs.map((d) => <SharedDocRowItem key={d.id} d={d} />)}
               {schoolDocs.map((d) => <SchoolDocRowItem key={d.id} d={d} />)}
             </ul>
           </div>
@@ -316,6 +320,35 @@ function UploadRowItem({ u }: { u: UploadRow }) {
           <Trash2 className="h-3 w-3" />
         </button>
       </form>
+    </li>
+  );
+}
+
+function SharedDocRowItem({ d }: { d: SharedDocRow }) {
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-5 py-3">
+      <Paperclip className="h-4 w-4 shrink-0 text-gray-400" />
+      <div className="min-w-0 flex-1">
+        <a
+          href={`/api/shared-documents/${d.id}?inline=1`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm font-medium text-gray-900 hover:underline"
+        >
+          {d.title}
+        </a>
+        <div className="mt-0.5 text-[11px] text-gray-500">
+          {fmtBytes(d.size_bytes)} · {fmtMime(d.mime_type)} · shared {fmtRelative(d.uploaded_at)}
+          {d.category ? ` · ${d.category}` : ''}
+        </div>
+        {d.description ? <div className="mt-0.5 text-[11px] text-gray-600 italic">{d.description}</div> : null}
+      </div>
+      <a
+        href={`/api/shared-documents/${d.id}`}
+        className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50"
+      >
+        <Download className="h-3 w-3" /> Download
+      </a>
     </li>
   );
 }

@@ -127,9 +127,10 @@ export default async function FormThanksPage({ params, searchParams }: { params:
           </p>
         )}
 
-        {/* The grade + student ID the parent needs to set up FACTS — shown
-            only when we have them on file for this submission's student. */}
-        {(r.student_grade || r.student_sid) ? (
+        {/* The grade + student ID the parent needs to set up FACTS — ONLY
+            on enrollment-agreement submissions (Clint 2026-07-30: the
+            FACTS setup messaging must never appear on other forms). */}
+        {/enrollment-agreement/.test(r.form_slug) && (r.student_grade || r.student_sid) ? (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             <div className="font-semibold mb-1.5">For your FACTS account setup:</div>
             <dl className="grid grid-cols-1 sm:grid-cols-3 gap-y-1 gap-x-4">

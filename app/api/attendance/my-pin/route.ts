@@ -17,6 +17,21 @@ import { cookies } from 'next/headers';
 import { PARENT_SESSION_COOKIE, verifySession } from '@/lib/auth/session';
 import { query } from '@/lib/db';
 import { hashPin, pinLookup, validateChosenPin } from '@/lib/attendance/pickup-pin';
+import crypto from 'node:crypto';
+
+// Office-viewable copy: encrypted with the platform key so school admins
+// can read a family's PIN back to them from the roster (kiosk PINs are
+// low-sensitivity convenience codes; the office is trusted staff).
+function encryptPin(pin: string): { ct: Buffer; iv: Buffer; tag: Buffer } | null {
+  const raw = process.env.ENCRYPTION_KEY;
+  if (!raw) return null;
+  const key = Buffer.from(raw, 'base64');
+  if (key.length !== 32) return null;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ct = Buffer.concat([cipher.update(pin, 'utf8'), cipher.final()]);
+  return { ct, iv, tag: cipher.getAuthTag() };
+}
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -55,11 +70,14 @@ export async function POST(request: NextRequest) {
   }
 
   const hash = await hashPin(pin);
+  const enc = encryptPin(pin);
   await query(
     `UPDATE parents
-        SET pin_hash = $1, pin_lookup = $2, pin_set_at = now(), updated_at = now()
+        SET pin_hash = $1, pin_lookup = $2, pin_set_at = now(), updated_at = now(),
+            pin_encrypted = $5, pin_iv = $6, pin_tag = $7
       WHERE id = $3 AND school_id = $4`,
-    [hash, lookup, session.parent_id, session.school_id],
+    [hash, lookup, session.parent_id, session.school_id,
+     enc?.ct ?? null, enc?.iv ?? null, enc?.tag ?? null],
   );
 
   return NextResponse.json({ ok: true });
@@ -72,7 +90,7 @@ export async function DELETE() {
 
   await query(
     `UPDATE parents
-        SET pin_hash = NULL, pin_lookup = NULL, pin_set_at = NULL, updated_at = now()
+        SET pin_hash = NULL, pin_lookup = NULL, pin_set_at = NULL, pin_encrypted = NULL, pin_iv = NULL, pin_tag = NULL, updated_at = now()
       WHERE id = $1 AND school_id = $2`,
     [session.parent_id, session.school_id],
   );

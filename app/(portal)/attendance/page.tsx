@@ -11,7 +11,7 @@
 // flow.
 
 import Link from 'next/link';
-import { Settings, UserCheck, LogOut, AlertCircle } from 'lucide-react';
+import { Settings, UserCheck, LogOut, AlertCircle, KeyRound } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 
@@ -86,6 +86,14 @@ export default async function AttendancePage() {
     [id.parent.family_id, id.parent.school_id, today],
   );
 
+  // Does THIS parent have a kiosk check-in PIN yet? Drives the setup
+  // banner below — the office kept fielding "where do I set my PIN?"
+  const { rows: pinRows } = await query<{ has_pin: boolean }>(
+    `SELECT pin_hash IS NOT NULL AS has_pin FROM parents WHERE id = $1`,
+    [id.parent.id],
+  );
+  const hasPin = pinRows[0]?.has_pin === true;
+
   return (
     <div className="space-y-4">
       <header className="flex items-baseline justify-between gap-3 flex-wrap">
@@ -102,9 +110,38 @@ export default async function AttendancePage() {
           href="/settings/pickup-people"
           className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
         >
-          <Settings className="h-3.5 w-3.5" /> Manage pickup people
+          <Settings className="h-3.5 w-3.5" /> Pickup people &amp; PIN
         </Link>
       </header>
+
+      {!hasPin ? (
+        <div className="rounded-xl border-2 px-4 py-4 sm:px-5" style={{ borderColor: 'var(--brand)', background: 'color-mix(in srgb, var(--brand) 6%, white)' }}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-base font-semibold text-gray-900">
+                <KeyRound className="h-5 w-5" style={{ color: 'var(--brand)' }} />
+                Set up your check-in PIN
+              </div>
+              <p className="mt-1 text-sm text-gray-700 max-w-xl">
+                Your 4-digit PIN is how you check your child in and out on the school&apos;s
+                kiosk at drop-off and pick-up. It takes under a minute:
+              </p>
+              <ol className="mt-1.5 text-sm text-gray-700 list-decimal list-inside space-y-0.5">
+                <li>Tap <strong>Set up my PIN</strong></li>
+                <li>Scroll to <strong>My check-in PIN</strong> and choose a 4-digit code</li>
+                <li>Use that code on the kiosk at school</li>
+              </ol>
+            </div>
+            <Link
+              href="/settings/pickup-people"
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm"
+              style={{ background: 'var(--brand)' }}
+            >
+              <KeyRound className="h-4 w-4" /> Set up my PIN
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {rows.length === 0 ? (
         <div className="rounded border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900 flex items-start gap-2">

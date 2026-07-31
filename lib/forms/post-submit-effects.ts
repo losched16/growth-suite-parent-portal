@@ -58,14 +58,37 @@ export interface FireOpts {
   coSignComplete?: boolean;
 }
 
+// Resolve who gets the office notification. null = notifications are
+// DISABLED for this form → nobody. A non-empty list is used as-is. An
+// EMPTY list (notifications enabled but nobody configured — the default
+// for newly created forms) falls back to the school's office address so
+// a freshly published form never collects submissions silently.
+async function resolveNotifyEmails(schoolId: string, notifyEmails: string[] | null): Promise<string[]> {
+  if (notifyEmails === null) return [];
+  if (notifyEmails.length > 0) return notifyEmails;
+  try {
+    const { rows } = await query<{ email: string | null }>(
+      `SELECT COALESCE(NULLIF(btrim(admin_change_notification_email), ''), NULLIF(btrim(support_email), '')) AS email
+         FROM school_branding WHERE school_id = $1`,
+      [schoolId],
+    );
+    return rows[0]?.email ? [rows[0].email] : [];
+  } catch {
+    return [];
+  }
+}
+
 // Single entry point — call this once at the end of a real (non-test)
 // submission. Returns immediately; both branches are detached.
 export function firePostSubmitEffects(opts: FireOpts): void {
-  if (opts.notifyEmails && opts.notifyEmails.length > 0) {
-    sendOfficeNotification(opts).catch((e) => {
+  resolveNotifyEmails(opts.schoolId, opts.notifyEmails)
+    .then((emails) => {
+      if (emails.length === 0) return;
+      return sendOfficeNotification({ ...opts, notifyEmails: emails });
+    })
+    .catch((e) => {
       console.error('[post-submit] office notification failed:', e);
     });
-  }
   if (opts.webhookUrls && opts.webhookUrls.length > 0) {
     fanoutWebhooks(opts).catch((e) => {
       console.error('[post-submit] webhook fan-out failed:', e);
@@ -89,7 +112,8 @@ export async function sendCoSignAwaitingNotice(opts: {
   cosignerName: string | null;
   cosignerEmail: string | null;
 }): Promise<void> {
-  if (!opts.notifyEmails || opts.notifyEmails.length === 0) return;
+  const emails = await resolveNotifyEmails(opts.schoolId, opts.notifyEmails);
+  if (emails.length === 0) return;
   const { rows } = await query<{
     family_label: string; submitter: string | null; student_label: string | null;
   }>(
@@ -129,7 +153,7 @@ ${submitter} signed the ${opts.formDisplayName}${childLine}. Because the guardia
 Family: ${meta.family_label}${meta.student_label ? `\nStudent: ${meta.student_label}` : ''}
 Status: Awaiting Parent/Guardian 2 signature`;
 
-  await Promise.allSettled(opts.notifyEmails.map((to) =>
+  await Promise.allSettled(emails.map((to) =>
     sendBrandedEmail({ to, schoolId: opts.schoolId, subject, html, text })));
 }
 

@@ -824,12 +824,12 @@ export async function POST(request: NextRequest) {
     // Interim office notice: the first signature is in and a counter-signature
     // was requested, so the office knows it's "awaiting" (the full "fully
     // signed" notification fires from the co-sign route once Parent 2 signs).
-    if (def.notifications_enabled !== false && def.notify_emails && def.notify_emails.length > 0) {
+    if (def.notifications_enabled !== false) {
       try {
         const pe = await import('@/lib/forms/post-submit-effects');
         await pe.sendCoSignAwaitingNotice({
           schoolId: session.school_id,
-          notifyEmails: def.notify_emails,
+          notifyEmails: def.notify_emails ?? [],
           formDisplayName: def.display_name,
           familyId: session.family_id,
           submitterParentId: session.parent_id,

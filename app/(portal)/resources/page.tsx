@@ -10,10 +10,12 @@ import Link from 'next/link';
 import { FileText, FileImage, FileSpreadsheet, Download, BookOpen, Folder } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
+import { loadSharedDocsForFamily } from '@/lib/school-shared-docs';
 
 export const dynamic = 'force-dynamic';
 
 interface DocRow {
+  kind?: 'resource' | 'shared';
   id: string;
   title: string;
   description: string | null;
@@ -37,9 +39,26 @@ export default async function ResourcesPage() {
     [id.parent.school_id],
   );
 
+  // Audience-targeted "important documents" (school_shared_documents,
+  // uploaded from Portal Forms → Important documents) — merged into the
+  // same category groups so this page is THE one place parents find
+  // school documents. Only the docs this family's audience includes.
+  const shared = await loadSharedDocsForFamily(id.parent.school_id, id.parent.family_id);
+  const sharedRows: DocRow[] = shared.map((d) => ({
+    kind: 'shared',
+    id: d.id,
+    title: d.title,
+    description: d.description,
+    category: d.category,
+    original_filename: d.file_name,
+    mime_type: d.mime_type,
+    size_bytes: d.size_bytes,
+    uploaded_at: d.uploaded_at,
+  }));
+
   // Group by category; items with null/empty category land in "Other".
   const byCategory = new Map<string, DocRow[]>();
-  for (const d of rows) {
+  for (const d of [...sharedRows, ...rows]) {
     const cat = d.category && d.category.trim() ? d.category : 'Other';
     const ex = byCategory.get(cat) ?? [];
     ex.push(d);
@@ -63,7 +82,7 @@ export default async function ResourcesPage() {
         </p>
       </header>
 
-      {rows.length === 0 ? (
+      {rows.length + sharedRows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center">
           <Folder className="mx-auto mb-3 h-10 w-10 text-gray-300" />
           <h2 className="text-base font-semibold text-gray-900">Nothing here yet</h2>
@@ -95,8 +114,8 @@ export default async function ResourcesPage() {
 
 function DocRow({ doc }: { doc: DocRow }) {
   const Icon = pickIcon(doc.mime_type);
-  const viewHref = `/api/school-resources/${doc.id}`;
-  const downloadHref = `/api/school-resources/${doc.id}?download=1`;
+  const viewHref = doc.kind === 'shared' ? `/api/shared-documents/${doc.id}?inline=1` : `/api/school-resources/${doc.id}`;
+  const downloadHref = doc.kind === 'shared' ? `/api/shared-documents/${doc.id}` : `/api/school-resources/${doc.id}?download=1`;
   return (
     <li>
       <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 hover:border-gray-300 hover:bg-gray-50/50 transition">

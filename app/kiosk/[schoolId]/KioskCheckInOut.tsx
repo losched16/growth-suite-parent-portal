@@ -1,14 +1,16 @@
 'use client';
 
-// Kiosk client flow: PIN pad → student selection → confirm → done.
+// Kiosk client flow: PIN pad → student selection + signature → confirm → done.
 //
 // Built for an iPad propped at the front door: huge touch targets,
 // no keyboard needed, auto-resets to the PIN pad after each person so
 // the next family can walk up. PIN is the identity proof (verified
-// server-side); no signature step.
+// server-side); the drawn signature is REQUIRED on every check-in and
+// check-out and is stored on each attendance event for the audit trail.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Delete, LogIn, LogOut, CheckCircle2, Loader2, Car } from 'lucide-react';
+import SignatureCanvas from 'react-signature-canvas';
+import { Delete, LogIn, LogOut, CheckCircle2, Loader2, Car, RotateCcw } from 'lucide-react';
 
 interface PickupTimeOption { value: string; label: string; programs_short: string }
 interface KioskStudent {
@@ -40,13 +42,30 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
   // Per-kid curbside time -- choosing a time IS the curbside opt-in.
   const [curbTimes, setCurbTimes] = useState<Record<string, string>>({});
   const [frontDeskNote, setFrontDeskNote] = useState('');
+  const sigRef = useRef<SignatureCanvas | null>(null);
+  const sigWrapRef = useRef<HTMLDivElement | null>(null);
+  const [hasInk, setHasInk] = useState(false);
+  // Canvas needs a real pixel width — CSS stretching skews the pen position.
+  const [sigWidth, setSigWidth] = useState(400);
 
   const reset = useCallback(() => {
     setPhase({ name: 'pin' });
     setPin(''); setErr(null);
     setSelected(new Set()); setPickupTimes({});
     setCurbTimes({}); setFrontDeskNote('');
+    setHasInk(false);
   }, []);
+
+  // Size the signature canvas to its container whenever it's on screen.
+  useEffect(() => {
+    function resize() {
+      const w = sigWrapRef.current?.getBoundingClientRect().width;
+      if (w) setSigWidth(Math.max(200, Math.floor(w)));
+    }
+    resize();
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [phase.name]);
 
   // Auto-reset countdown on the done screen.
   const doneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,6 +124,13 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
         return;
       }
     }
+    // Signature is required for every kiosk action (check-in AND check-out).
+    const sig = sigRef.current;
+    if (!sig || sig.isEmpty()) {
+      setErr('Please sign in the box to confirm.');
+      return;
+    }
+    const signaturePng = sig.getCanvas().toDataURL('image/png');
     setErr(null);
     setPhase({ ...phase, name: 'submitting' });
     try {
@@ -113,6 +139,7 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token: phase.token,
+          signature_png: signaturePng,
           actions: chosen.map((s) => ({
             student_id: s.id,
             action: s.checked_in ? 'check_out' : 'check_in',
@@ -307,6 +334,40 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
           />
         </label>
       ) : null}
+
+      {/* Required signature — every kiosk check-in/out is signed */}
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-800">
+            Sign with your finger to confirm <span className="text-rose-600">*</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => { sigRef.current?.clear(); setHasInk(false); }}
+            disabled={busy || !hasInk}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <RotateCcw className="h-3 w-3" /> Clear
+          </button>
+        </div>
+        <div
+          ref={sigWrapRef}
+          className={`rounded-xl border-2 bg-white ${hasInk ? 'border-emerald-400' : 'border-dashed border-slate-300'}`}
+          style={{ touchAction: 'none' }}
+        >
+          <SignatureCanvas
+            ref={sigRef}
+            penColor="#0f172a"
+            canvasProps={{
+              width: sigWidth,
+              height: 150,
+              className: 'rounded-xl',
+              style: { width: '100%', height: 150, display: 'block', touchAction: 'none' },
+            }}
+            onBegin={() => setHasInk(true)}
+          />
+        </div>
+      </div>
 
       {err ? (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 text-center">{err}</div>

@@ -2,6 +2,7 @@
 //
 // Body: {
 //   token,                      // from /verify, 10-min JWT
+//   signature_png,              // REQUIRED data: URL — drawn at the kiosk
 //   actions: [{
 //     student_id,
 //     action: 'check_in' | 'check_out',
@@ -10,8 +11,9 @@
 //   }]
 // }
 //
-// The PIN was the identity proof at /verify — no signature here. Every
-// event row carries source='kiosk' + performed_by_* attribution so the
+// The PIN is the identity proof (from /verify); the drawn signature is
+// additionally REQUIRED on every kiosk action and stored on each event
+// row. Rows carry source='kiosk' + performed_by_* attribution so the
 // audit trail says exactly who tapped the screen. Check-outs also set
 // picked_up_by_* (same person — they're physically present).
 
@@ -42,13 +44,20 @@ export async function POST(request: NextRequest, { params }: { params: Params })
   const school = await resolveKioskSchool(rawSchoolId);
   if (!school) return NextResponse.json({ error: 'school_not_found' }, { status: 404 });
 
-  let body: { token?: unknown; actions?: unknown };
+  let body: { token?: unknown; actions?: unknown; signature_png?: unknown };
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: 'invalid_json' }, { status: 400 }); }
 
   const claims = await verifyKioskToken(typeof body.token === 'string' ? body.token : null);
   if (!claims || claims.school_id !== school.id) {
     return NextResponse.json({ error: 'session_expired', detail: 'Your kiosk session expired — enter your PIN again.' }, { status: 401 });
+  }
+
+  // Signature is mandatory for every kiosk check-in/out (~10-40KB PNG;
+  // 500KB cap guards against garbage payloads).
+  const signaturePng = typeof body.signature_png === 'string' ? body.signature_png.trim() : '';
+  if (!signaturePng.startsWith('data:image/') || signaturePng.length > 500_000) {
+    return NextResponse.json({ error: 'signature_required', detail: 'Please sign in the box to confirm.' }, { status: 400 });
   }
 
   const rawActions = Array.isArray(body.actions) ? (body.actions as ActionInput[]) : [];
@@ -115,8 +124,8 @@ export async function POST(request: NextRequest, { params }: { params: Params })
          performed_by_parent_id, performed_by_pickup_person_id, performed_by_name_snapshot,
          picked_up_by_parent_id, picked_up_by_pickup_person_id, picked_up_by_name_snapshot,
          curbside, curbside_slot, pickup_time, notes,
-         source, ip_address, user_agent
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'kiosk', $14, $15)`,
+         signature_png, source, ip_address, user_agent
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'kiosk', $15, $16)`,
       [
         school.id, studentId, action,
         isParent ? claims.person_id : null,
@@ -128,6 +137,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         curbside, curbsideSlot,
         action === 'check_in' ? pickupTime : null,
         kioskNotes,
+        signaturePng,
         ip, ua,
       ],
     );

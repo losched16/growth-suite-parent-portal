@@ -99,10 +99,11 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
         setPhase({ name: 'pin' }); setPin('');
         return;
       }
-      // Pre-select every student (the common case is "all my kids"),
-      // and prefill each check-in's pickup time when their program
-      // maps to a single wave.
-      setSelected(new Set(students.map((s) => s.id)));
+      // Start with NO ONE selected — the parent taps the kids they're
+      // dropping off / picking up (office request: selecting is more
+      // intuitive than unselecting). Pickup times still prefill when a
+      // program maps to a single wave.
+      setSelected(new Set());
       const prefill: Record<string, string> = {};
       for (const s of students) {
         if (!s.checked_in && s.pickup_times.length === 1) prefill[s.id] = s.pickup_times[0].value;

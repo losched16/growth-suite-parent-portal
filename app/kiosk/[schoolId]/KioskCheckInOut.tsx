@@ -41,7 +41,9 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
   const [pickupTimes, setPickupTimes] = useState<Record<string, string>>({});
   // Per-kid curbside time -- choosing a time IS the curbside opt-in.
   const [curbTimes, setCurbTimes] = useState<Record<string, string>>({});
-  const [frontDeskNote, setFrontDeskNote] = useState('');
+  // Per-kid note to the front desk — each child gets their own (office
+  // request: not one note for all kids), on check-in AND check-out.
+  const [kidNotes, setKidNotes] = useState<Record<string, string>>({});
   const sigRef = useRef<SignatureCanvas | null>(null);
   const sigWrapRef = useRef<HTMLDivElement | null>(null);
   const [hasInk, setHasInk] = useState(false);
@@ -52,7 +54,7 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
     setPhase({ name: 'pin' });
     setPin(''); setErr(null);
     setSelected(new Set()); setPickupTimes({});
-    setCurbTimes({}); setFrontDeskNote('');
+    setCurbTimes({}); setKidNotes({});
     setHasInk(false);
   }, []);
 
@@ -143,11 +145,11 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
           actions: chosen.map((s) => ({
             student_id: s.id,
             action: s.checked_in ? 'check_out' : 'check_in',
+            notes: kidNotes[s.id]?.trim() || undefined,
             ...(s.checked_in ? {} : {
               pickup_time: pickupTimes[s.id],
               curbside: !!curbTimes[s.id],
               curbside_slot: curbTimes[s.id] || undefined,
-              notes: frontDeskNote.trim() || undefined,
             }),
           })),
         }),
@@ -238,7 +240,6 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
   // ── Student selection ──────────────────────────────────────────────
   const busy = phase.name === 'submitting';
   const chosen = phase.students.filter((s) => selected.has(s.id));
-  const anyCheckIns = chosen.some((s) => !s.checked_in);
 
   return (
     <div className="w-full max-w-md space-y-4">
@@ -314,26 +315,24 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
                   ) : null}
                 </div>
               ) : null}
+              {/* Per-kid note — each child gets their own, on check-in AND check-out */}
+              {on ? (
+                <div className={`border-t px-4 py-2 ${s.checked_in ? 'border-sky-200' : 'border-emerald-200'}`}>
+                  <input
+                    type="text"
+                    value={kidNotes[s.id] ?? ''}
+                    onChange={(e) => setKidNotes((m) => ({ ...m, [s.id]: e.target.value }))}
+                    maxLength={500}
+                    disabled={busy}
+                    placeholder={`Note for the front desk about ${s.name.split(' ')[0]} (optional)`}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              ) : null}
             </div>
           );
         })}
       </div>
-
-      {/* Optional note for the front desk -- applies to all selected check-ins */}
-      {anyCheckIns ? (
-        <label className="block rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <span className="text-sm font-medium text-slate-800">Note for the front desk (optional)</span>
-          <input
-            type="text"
-            value={frontDeskNote}
-            onChange={(e) => setFrontDeskNote(e.target.value)}
-            maxLength={500}
-            disabled={busy}
-            placeholder="e.g. Grandma picking up today -- silver Honda"
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-        </label>
-      ) : null}
 
       {/* Required signature — every kiosk check-in/out is signed */}
       <div>

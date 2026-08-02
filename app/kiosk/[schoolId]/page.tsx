@@ -32,7 +32,7 @@ export default async function KioskPage({ params }: { params: Params }) {
       <KioskCheckInOut schoolId={schoolId} curbSlots={curbSlots} />
       <p className="mt-8 text-[11px] text-slate-400 text-center max-w-md">
         Parents: set your PIN in the parent portal under Settings → Pickup People.
-        Grandparents &amp; sitters: ask the parent to generate a PIN for you.
+        Additional pickup people must be authorized in advance through the school office.
       </p>
     </main>
   );

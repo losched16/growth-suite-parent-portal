@@ -128,13 +128,15 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <label className="block">
               <span className="text-[11px] font-medium uppercase tracking-wide text-gray-600">File</span>
+              {/* file:bg-[var(--brand)] — the button MUST have a background;
+                  white text on the default transparent button is invisible,
+                  and parents couldn't find where to pick a file. */}
               <input
                 type="file"
                 name="file"
                 required
                 accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,.doc,.docx,.xls,.xlsx,.txt,application/pdf,image/*,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain"
-                className="mt-0.5 block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white"
-                style={{ ['--file-bg' as string]: 'var(--brand)' }}
+                className="mt-0.5 block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--brand)] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:opacity-90"
               />
             </label>
             <label className="block">

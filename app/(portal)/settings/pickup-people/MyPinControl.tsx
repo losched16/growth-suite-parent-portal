@@ -2,14 +2,17 @@
 
 // Parent's own kiosk PIN. Self-scoped — each parent (including each
 // parent of a divorced household, from their own login) manages only
-// their own PIN here. PINs are never displayed back once set; the
-// parent picks a new one to change it.
+// their own PIN here. The current PIN is displayed back (behind a
+// Show toggle); PINs set before the viewable upgrade show as
+// "set — change it to see it here".
 
 import { useState } from 'react';
 import { KeyRound, Loader2, CheckCircle2 } from 'lucide-react';
+import { PinReveal } from '@/components/PinReveal';
 
-export function MyPinControl({ pinSet }: { pinSet: boolean }) {
+export function MyPinControl({ pinSet, currentPin = null }: { pinSet: boolean; currentPin?: string | null }) {
   const [hasPin, setHasPin] = useState(pinSet);
+  const [shownPin, setShownPin] = useState<string | null>(currentPin);
   const [editing, setEditing] = useState(false);
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
@@ -26,7 +29,7 @@ export function MyPinControl({ pinSet }: { pinSet: boolean }) {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setErr(j.detail || j.error || `HTTP ${r.status}`); setBusy(false); return; }
-      setHasPin(true); setEditing(false); setPin(''); setSaved(true);
+      setHasPin(true); setShownPin(pin); setEditing(false); setPin(''); setSaved(true);
       setTimeout(() => setSaved(false), 4000);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -40,7 +43,7 @@ export function MyPinControl({ pinSet }: { pinSet: boolean }) {
     try {
       const r = await fetch('/api/attendance/my-pin', { method: 'DELETE' });
       if (!r.ok) { setErr(`HTTP ${r.status}`); setBusy(false); return; }
-      setHasPin(false); setEditing(false); setPin('');
+      setHasPin(false); setShownPin(null); setEditing(false); setPin('');
     } finally {
       setBusy(false);
     }
@@ -64,10 +67,14 @@ export function MyPinControl({ pinSet }: { pinSet: boolean }) {
           ) : null}
 
           {!editing ? (
-            <div className="mt-2 flex items-center gap-2">
-              <span className={`text-xs font-medium ${hasPin ? 'text-emerald-800' : 'text-slate-500'}`}>
-                {hasPin ? 'PIN is set ✓' : 'No PIN set yet'}
-              </span>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              {hasPin && shownPin ? (
+                <PinReveal pin={shownPin} />
+              ) : (
+                <span className={`text-xs font-medium ${hasPin ? 'text-emerald-800' : 'text-slate-500'}`}>
+                  {hasPin ? 'PIN is set ✓ (created before PINs were viewable — change it to see it here)' : 'No PIN set yet'}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => { setEditing(true); setErr(null); }}

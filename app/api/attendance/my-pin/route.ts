@@ -17,21 +17,7 @@ import { cookies } from 'next/headers';
 import { PARENT_SESSION_COOKIE, verifySession } from '@/lib/auth/session';
 import { query } from '@/lib/db';
 import { hashPin, pinLookup, validateChosenPin } from '@/lib/attendance/pickup-pin';
-import crypto from 'node:crypto';
-
-// Office-viewable copy: encrypted with the platform key so school admins
-// can read a family's PIN back to them from the roster (kiosk PINs are
-// low-sensitivity convenience codes; the office is trusted staff).
-function encryptPin(pin: string): { ct: Buffer; iv: Buffer; tag: Buffer } | null {
-  const raw = process.env.ENCRYPTION_KEY;
-  if (!raw) return null;
-  const key = Buffer.from(raw, 'base64');
-  if (key.length !== 32) return null;
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const ct = Buffer.concat([cipher.update(pin, 'utf8'), cipher.final()]);
-  return { ct, iv, tag: cipher.getAuthTag() };
-}
+import { encryptPin } from '@/lib/attendance/pin-crypto';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

@@ -12,6 +12,8 @@
 
 import Link from 'next/link';
 import { Settings, UserCheck, LogOut, AlertCircle, KeyRound } from 'lucide-react';
+import { PinReveal } from '@/components/PinReveal';
+import { decryptPin } from '@/lib/attendance/pin-crypto';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 
@@ -88,11 +90,16 @@ export default async function AttendancePage() {
 
   // Does THIS parent have a kiosk check-in PIN yet? Drives the setup
   // banner below — the office kept fielding "where do I set my PIN?"
-  const { rows: pinRows } = await query<{ has_pin: boolean }>(
-    `SELECT pin_hash IS NOT NULL AS has_pin FROM parents WHERE id = $1`,
+  // When set, we also decrypt their own PIN so they can see it here
+  // (PINs set before the viewable upgrade decrypt to null).
+  const { rows: pinRows } = await query<{ has_pin: boolean; pin_encrypted: Buffer | null; pin_iv: Buffer | null; pin_tag: Buffer | null }>(
+    `SELECT pin_hash IS NOT NULL AS has_pin, pin_encrypted, pin_iv, pin_tag FROM parents WHERE id = $1`,
     [id.parent.id],
   );
   const hasPin = pinRows[0]?.has_pin === true;
+  const myPin = hasPin
+    ? decryptPin(pinRows[0].pin_encrypted, pinRows[0].pin_iv, pinRows[0].pin_tag)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -141,7 +148,28 @@ export default async function AttendancePage() {
             </Link>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-2 text-sm font-medium text-gray-800">
+            <KeyRound className="h-4 w-4" style={{ color: 'var(--brand)' }} />
+            Your kiosk check-in PIN:
+          </span>
+          {myPin ? (
+            <PinReveal pin={myPin} />
+          ) : (
+            <span className="text-sm text-gray-600">
+              set ✓ — it was created before PINs became viewable here, so we can&apos;t display it.{' '}
+              <Link href="/settings/pickup-people" className="underline" style={{ color: 'var(--brand-fg)' }}>
+                Change it
+              </Link>{' '}
+              to make it visible.
+            </span>
+          )}
+          <Link href="/settings/pickup-people" className="ml-auto text-xs text-gray-500 hover:text-gray-700 underline">
+            Change PIN
+          </Link>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <div className="rounded border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900 flex items-start gap-2">

@@ -17,6 +17,7 @@ import { loadSchoolSettings } from '@/lib/school-settings';
 import { SetPinControl } from './SetPinControl';
 import { EditAuthorizedStudents } from './EditAuthorizedStudents';
 import { MyPinControl } from './MyPinControl';
+import { decryptPin } from '@/lib/attendance/pin-crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,13 +93,17 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
   const active = rows.filter((r) => r.active);
   const inactive = rows.filter((r) => !r.active);
 
-  // The caller's own kiosk PIN state (set / not set). Self-scoped —
-  // co-parents' PIN status is intentionally not surfaced here.
-  const { rows: myPinRows } = await query<{ pin_set: boolean }>(
-    `SELECT (pin_hash IS NOT NULL) AS pin_set FROM parents WHERE id = $1`,
+  // The caller's own kiosk PIN — state AND (when the encrypted copy
+  // exists) the PIN itself, so the parent can see it. Self-scoped —
+  // co-parents' PINs are never surfaced here.
+  const { rows: myPinRows } = await query<{ pin_set: boolean; pin_encrypted: Buffer | null; pin_iv: Buffer | null; pin_tag: Buffer | null }>(
+    `SELECT (pin_hash IS NOT NULL) AS pin_set, pin_encrypted, pin_iv, pin_tag FROM parents WHERE id = $1`,
     [id.parent.id],
   );
   const myPinSet = myPinRows[0]?.pin_set ?? false;
+  const myPin = myPinSet
+    ? decryptPin(myPinRows[0].pin_encrypted, myPinRows[0].pin_iv, myPinRows[0].pin_tag)
+    : null;
 
   return (
     <div className="space-y-5">
@@ -115,7 +120,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
         </p>
       </header>
 
-      <MyPinControl pinSet={myPinSet} />
+      <MyPinControl pinSet={myPinSet} currentPin={myPin} />
 
       {sp.new_pin && sp.pin_for ? (
         <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4">

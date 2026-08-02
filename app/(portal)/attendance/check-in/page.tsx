@@ -45,9 +45,10 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
     ? `${s.preferred_name} ${s.last_name}`
     : `${s.first_name} ${s.last_name}`;
 
-  // Pickup-time options gated by the student's program. If we got back
-  // a single option (most common), we still render it as a radio so the
-  // parent has to consciously confirm the time — not silently pre-checked.
+  // Pickup-time options gated by the student's program. Single option
+  // (most common): shown as a plain statement + hidden input — the
+  // signature is the confirmation, a one-choice radio just added a tap
+  // (office request, Aug 2026). Multiple options: parent picks.
   const pickupOptions = eligiblePickupTimes(s.program);
   const singleProgramMatch = pickupOptions.length === 1;
 
@@ -83,33 +84,43 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
           <legend className="px-1 text-sm font-semibold text-emerald-900 inline-flex items-center gap-1">
             <Clock className="h-4 w-4" /> Pickup time today
           </legend>
-          <p className="text-[11px] text-emerald-900/70">
-            {singleProgramMatch ? (
-              <>This is {displayName}&apos;s dismissal wave based on their classroom. Confirm to continue.</>
-            ) : (
-              <>Pick the dismissal wave for {displayName} today.</>
-            )}
-          </p>
-          <div className="grid gap-2">
-            {pickupOptions.map((opt) => (
-              <label
-                key={opt.value}
-                className="flex items-start gap-2 rounded-md border border-emerald-200 bg-white px-3 py-2 cursor-pointer hover:border-emerald-400"
-              >
-                <input
-                  type="radio"
-                  name="pickup_time"
-                  value={opt.value}
-                  required
-                  className="mt-1 h-4 w-4 border-emerald-300 text-emerald-700 focus:ring-emerald-300"
-                />
-                <span className="flex-1">
-                  <span className="block text-base font-semibold text-emerald-900">{opt.label}</span>
-                  <span className="block text-[11px] text-emerald-900/70">{opt.programs_short}</span>
+          {singleProgramMatch ? (
+            <>
+              <input type="hidden" name="pickup_time" value={pickupOptions[0].value} />
+              <div className="rounded-md border border-emerald-200 bg-white px-3 py-2">
+                <span className="block text-base font-semibold text-emerald-900">{pickupOptions[0].label}</span>
+                <span className="block text-[11px] text-emerald-900/70">
+                  {displayName}&apos;s dismissal time, based on their classroom. If today&apos;s plan is different, let the front desk know.
                 </span>
-              </label>
-            ))}
-          </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] text-emerald-900/70">
+                Pick the dismissal wave for {displayName} today.
+              </p>
+              <div className="grid gap-2">
+                {pickupOptions.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className="flex items-start gap-2 rounded-md border border-emerald-200 bg-white px-3 py-2 cursor-pointer hover:border-emerald-400"
+                  >
+                    <input
+                      type="radio"
+                      name="pickup_time"
+                      value={opt.value}
+                      required
+                      className="mt-1 h-4 w-4 border-emerald-300 text-emerald-700 focus:ring-emerald-300"
+                    />
+                    <span className="flex-1">
+                      <span className="block text-base font-semibold text-emerald-900">{opt.label}</span>
+                      <span className="block text-[11px] text-emerald-900/70">{opt.programs_short}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
         </fieldset>
 
         {/* Notes — optional. Saved on the event row and visible to staff. */}

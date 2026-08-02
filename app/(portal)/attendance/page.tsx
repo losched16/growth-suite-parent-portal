@@ -123,12 +123,12 @@ export default async function AttendancePage() {
                 Set up your check-in PIN
               </div>
               <p className="mt-1 text-sm text-gray-700 max-w-xl">
-                Your 4-digit PIN is how you check your child in and out on the school&apos;s
+                Your PIN (4-8 digits) is how you check your child in and out on the school&apos;s
                 kiosk at drop-off and pick-up. It takes under a minute:
               </p>
               <ol className="mt-1.5 text-sm text-gray-700 list-decimal list-inside space-y-0.5">
                 <li>Tap <strong>Set up my PIN</strong></li>
-                <li>Scroll to <strong>My check-in PIN</strong> and choose a 4-digit code</li>
+                <li>Scroll to <strong>My check-in PIN</strong> and choose a 4-8 digit code</li>
                 <li>Use that code on the kiosk at school</li>
               </ol>
             </div>

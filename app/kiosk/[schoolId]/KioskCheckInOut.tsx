@@ -253,7 +253,11 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
         {phase.students.map((s) => {
           const on = selected.has(s.id);
           return (
-            <div key={s.id} className={`rounded-xl border-2 ${on ? (s.checked_in ? 'border-sky-400 bg-sky-50' : 'border-emerald-400 bg-emerald-50') : 'border-slate-200 bg-white opacity-60'}`}>
+            // Unselected tiles stay plain white but keep their action chip
+            // at FULL color — the solid green "Check in" is the obvious
+            // thing to tap. Selection is signaled by the colored border +
+            // tinted background + ✓ on the chip, not by graying out.
+            <div key={s.id} className={`rounded-xl border-2 ${on ? (s.checked_in ? 'border-sky-400 bg-sky-50' : 'border-emerald-400 bg-emerald-50') : 'border-slate-200 bg-white'}`}>
               <button
                 type="button"
                 disabled={busy}
@@ -268,10 +272,10 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
                   <div className="text-lg font-semibold text-slate-900">{s.name}</div>
                   <div className="text-xs text-slate-500">{s.checked_in ? 'Currently here' : 'Not checked in yet'}</div>
                 </div>
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold ${
-                  s.checked_in ? 'bg-sky-600 text-white' : 'bg-emerald-600 text-white'
-                } ${on ? '' : 'opacity-30'}`}>
-                  {s.checked_in ? <LogOut className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-white shadow-sm ${
+                  s.checked_in ? 'bg-sky-600' : 'bg-emerald-600'
+                }`}>
+                  {on ? <CheckCircle2 className="h-4 w-4" /> : s.checked_in ? <LogOut className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
                   {s.checked_in ? 'Check out' : 'Check in'}
                 </span>
               </button>

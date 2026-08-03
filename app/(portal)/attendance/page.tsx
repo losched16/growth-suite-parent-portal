@@ -27,6 +27,7 @@ interface StudentStatus {
   classroom: string | null;
   status: 'not_yet' | 'present' | 'checked_out' | 'absent' | 'partial';
   first_check_in_at: string | null;
+  last_check_in_at: string | null;
   last_check_out_at: string | null;
   picked_up_by_name: string | null;
   curbside_pickup: boolean | null;
@@ -52,6 +53,7 @@ export default async function AttendancePage() {
        COALESCE(s.metadata->>'homeroom', s.metadata->>'classroom_name') AS classroom,
        COALESCE(da.status, 'not_yet') AS status,
        da.first_check_in_at,
+       da.last_check_in_at,
        da.last_check_out_at,
        da.picked_up_by_name,
        da.curbside_pickup,
@@ -216,10 +218,17 @@ function StudentCard({ s }: { s: StudentStatus }) {
           ) : null}
           {s.last_check_out_at ? (
             <div>
-              Picked up at <span className="font-medium">{fmtTime(s.last_check_out_at)}</span>
+              Checked out at <span className="font-medium">{fmtTime(s.last_check_out_at)}</span>
               {s.picked_up_by_name ? <> by <span className="font-medium">{s.picked_up_by_name}</span></> : null}
               {s.curbside_pickup ? <> · curbside</> : null}
               {s.checked_out_via_kiosk ? <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-800">kiosk</span> : null}
+            </div>
+          ) : null}
+          {/* Multi-cycle day: left and came back — show the return leg. */}
+          {s.last_check_in_at && s.last_check_out_at
+            && new Date(s.last_check_in_at) > new Date(s.last_check_out_at) ? (
+            <div>
+              Back in at <span className="font-medium">{fmtTime(s.last_check_in_at)}</span>
             </div>
           ) : null}
         </div>
@@ -257,10 +266,21 @@ function ActionButton({ status, studentId }: { status: StudentStatus['status']; 
     );
   }
   if (status === 'checked_out') {
+    // NOT a dead end: a student can leave mid-day (doctor's appointment)
+    // and come back — offer the return trip alongside the status.
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800">
-        Picked up — done for today
-      </span>
+      <>
+        <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800">
+          Checked out
+        </span>
+        <Link
+          href={`/attendance/check-in?student_id=${studentId}`}
+          className="inline-flex items-center gap-1.5 rounded-md border px-4 py-2 text-sm font-semibold hover:opacity-90"
+          style={{ borderColor: 'var(--brand)', color: 'var(--brand-fg)' }}
+        >
+          <UserCheck className="h-4 w-4" /> Check back in
+        </Link>
+      </>
     );
   }
   // absent

@@ -18,6 +18,11 @@ interface KioskStudent {
   name: string;
   program: string | null;
   checked_in: boolean;
+  // When not checked in but they WERE here earlier today: the checkout
+  // time, for the "back from the appointment" subtitle.
+  checked_out_at: string | null;
+  // The dismissal wave chosen earlier today — prefilled on re-check-in.
+  today_pickup_time: string | null;
   pickup_times: PickupTimeOption[];
 }
 
@@ -101,12 +106,18 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
       }
       // Start with NO ONE selected — the parent taps the kids they're
       // dropping off / picking up (office request: selecting is more
-      // intuitive than unselecting). Pickup times still prefill when a
-      // program maps to a single wave.
+      // intuitive than unselecting). Pickup times prefill from the wave
+      // chosen earlier today (re-check-in after an appointment) or when
+      // the program maps to a single wave.
       setSelected(new Set());
       const prefill: Record<string, string> = {};
       for (const s of students) {
-        if (!s.checked_in && s.pickup_times.length === 1) prefill[s.id] = s.pickup_times[0].value;
+        if (s.checked_in) continue;
+        if (s.today_pickup_time && s.pickup_times.some((o) => o.value === s.today_pickup_time)) {
+          prefill[s.id] = s.today_pickup_time;
+        } else if (s.pickup_times.length === 1) {
+          prefill[s.id] = s.pickup_times[0].value;
+        }
       }
       setPickupTimes(prefill);
       setPhase({ name: 'select', token: j.token, person: j.person_name, students });
@@ -270,7 +281,13 @@ export function KioskCheckInOut({ schoolId, curbSlots = [] }: { schoolId: string
               >
                 <div>
                   <div className="text-lg font-semibold text-slate-900">{s.name}</div>
-                  <div className="text-xs text-slate-500">{s.checked_in ? 'Currently here' : 'Not checked in yet'}</div>
+                  <div className="text-xs text-slate-500">
+                    {s.checked_in
+                      ? 'Currently here'
+                      : s.checked_out_at
+                        ? `Checked out at ${s.checked_out_at} — back again?`
+                        : 'Not checked in yet'}
+                  </div>
                 </div>
                 <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-white shadow-sm ${
                   s.checked_in ? 'bg-sky-600' : 'bg-emerald-600'

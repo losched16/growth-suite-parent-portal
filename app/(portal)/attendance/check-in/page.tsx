@@ -45,6 +45,20 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
     ? `${s.preferred_name} ${s.last_name}`
     : `${s.first_name} ${s.last_name}`;
 
+  // Re-entry? (already checked in earlier today, left, and is coming
+  // back — works for any reason). Carries the dismissal wave they
+  // picked this morning so the parent doesn't re-decide it.
+  const { rows: priorRows } = await query<{ pickup_time: string | null }>(
+    `SELECT pickup_time FROM attendance_events
+      WHERE student_id = $1 AND school_id = $2 AND event_type = 'check_in'
+        AND (performed_at AT TIME ZONE 'America/Phoenix')::date
+            = (now() AT TIME ZONE 'America/Phoenix')::date
+      ORDER BY performed_at DESC LIMIT 1`,
+    [s.id, s.school_id],
+  );
+  const isReturn = priorRows.length > 0;
+  const priorPickup = priorRows[0]?.pickup_time ?? null;
+
   // Pickup-time options gated by the student's program. Single option
   // (most common): shown as a plain statement + hidden input — the
   // signature is the confirmation, a one-choice radio just added a tap
@@ -59,9 +73,11 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
       </Link>
 
       <header>
-        <h1 className="text-2xl font-semibold text-gray-900">Check in {displayName}</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">
+          {isReturn ? <>Check {displayName} back in</> : <>Check in {displayName}</>}
+        </h1>
         <p className="mt-1 text-sm text-gray-600">
-          Confirm by signing below. We&apos;ll record the time as your drop-off.
+          Confirm by signing below. We&apos;ll record the time as your {isReturn ? 'return' : 'drop-off'}.
         </p>
       </header>
 
@@ -110,6 +126,7 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
                       name="pickup_time"
                       value={opt.value}
                       required
+                      defaultChecked={priorPickup === opt.value}
                       className="mt-1 h-4 w-4 border-emerald-300 text-emerald-700 focus:ring-emerald-300"
                     />
                     <span className="flex-1">

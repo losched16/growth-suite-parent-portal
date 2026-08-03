@@ -172,16 +172,28 @@ export async function POST(request: NextRequest, { params }: { params: Params })
   const { rows: students } = await query<{
     id: string; name: string; program: string | null;
     att_status: string | null; last_check_out_at: string | null;
+    today_pickup_time: string | null;
   }>(
     `SELECT s.id,
             CONCAT_WS(' ', COALESCE(NULLIF(s.preferred_name, ''), s.first_name), s.last_name) AS name,
             s.metadata->>'program' AS program,
             da.status AS att_status,
-            da.last_check_out_at
+            to_char(da.last_check_out_at AT TIME ZONE '${TZ}', 'HH12:MI AM') AS last_check_out_at,
+            pt.pickup_time AS today_pickup_time
        FROM students s
        LEFT JOIN daily_attendance da
               ON da.school_id = s.school_id AND da.student_id = s.id
              AND da.date = (now() AT TIME ZONE '${TZ}')::date
+       LEFT JOIN LATERAL (
+         -- Today's most recent chosen pickup time — carried into a
+         -- re-check-in (doctor's appointment and back) so the parent
+         -- doesn't have to re-pick their dismissal wave.
+         SELECT pickup_time FROM attendance_events
+          WHERE student_id = s.id AND school_id = s.school_id
+            AND event_type = 'check_in' AND pickup_time IS NOT NULL
+            AND (performed_at AT TIME ZONE '${TZ}')::date = (now() AT TIME ZONE '${TZ}')::date
+          ORDER BY performed_at DESC LIMIT 1
+       ) pt ON true
       WHERE s.family_id = $1 AND s.school_id = $2 AND s.status = 'active'
       ORDER BY s.date_of_birth NULLS LAST`,
     [match.family_id, school.id],
@@ -205,12 +217,20 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     person_name: match.person_name,
     person_type: match.person_type,
     students: allowed.map((s) => {
-      const checkedIn = (s.att_status === 'present' || s.att_status === 'partial') && !s.last_check_out_at;
+      // Latest-event truth (daily_attendance status is now cycle-aware):
+      // 'present'/'partial' = currently in → offer Check out;
+      // anything else (incl. checked_out mid-day) → offer Check in.
+      // A student can cycle in → out (appointment) → back in all day.
+      const checkedIn = s.att_status === 'present' || s.att_status === 'partial';
       return {
         id: s.id,
         name: s.name,
         program: s.program,
         checked_in: checkedIn,
+        // For the "out for an appointment, now back" tile subtitle.
+        checked_out_at: !checkedIn ? s.last_check_out_at : null,
+        // Prefill for re-check-ins — the wave they picked this morning.
+        today_pickup_time: s.today_pickup_time,
         pickup_times: eligiblePickupTimes(s.program),
       };
     }),

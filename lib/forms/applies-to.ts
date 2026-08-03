@@ -66,6 +66,16 @@ export interface FormAppliesTo {
   // office push (open invite) still overrides, so a school can always
   // send the form to a specific excluded family deliberately.
   tag_exclude?: string[];
+
+  // PER-STUDENT exclusion by metadata value (case-insensitive exact
+  // match, same shape as metadata_match). Evaluated before inclusions,
+  // per student — so a family-level tag rule can admit the family while
+  // individual kids are vetoed. The canonical use (Friend family,
+  // Aug 2026): a new sibling puts the family in "pending", which shows
+  // the enrollment agreement — but the ALREADY-ENROLLED siblings
+  // (metadata enrollment_status = "Enrolled") must not be asked to
+  // sign again. e.g. { enrollment_status: ["Enrolled"] }.
+  metadata_exclude?: Record<string, string[]>;
 }
 
 export interface AppliesToContext {
@@ -96,6 +106,14 @@ export function studentMatchesAppliesTo(
   if (rule.tag_exclude?.length && ctx.tags.length) {
     const have = new Set(ctx.tags.map((t) => t.toLowerCase()));
     if (rule.tag_exclude.some((t) => have.has(t.toLowerCase()))) return false;
+  }
+
+  // Per-student metadata exclusion also wins over every inclusion.
+  if (rule.metadata_exclude) {
+    for (const [k, vals] of Object.entries(rule.metadata_exclude)) {
+      const v = stringField(ctx.metadata[k]).toLowerCase();
+      if (v && vals.some((vv) => vv.toLowerCase() === v)) return false;
+    }
   }
 
   if (isEmptyRule(rule)) return true;

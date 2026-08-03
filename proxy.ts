@@ -64,6 +64,9 @@ export const config = {
     // `forgot-password` + `reset-password` excluded: both are used by
     // parents who, by definition, can't sign in. The reset page's auth is
     // the single-use emailed token.
-    '/((?!login|forgot-password|reset-password|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|cosign|api/portal-forms/cosign|_next/static|_next/image|favicon.ico|robots.txt).*)',
+    // `api/portal-forms/resend-office-notice` excluded: operator replay
+    // tool, self-authenticated via HMAC of the platform secret (no
+    // parent session involved).
+    '/((?!login|forgot-password|reset-password|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|cosign|api/portal-forms/cosign|api/portal-forms/resend-office-notice|_next/static|_next/image|favicon.ico|robots.txt).*)',
   ],
 };

@@ -79,21 +79,28 @@ async function resolveNotifyEmails(schoolId: string, notifyEmails: string[] | nu
 }
 
 // Single entry point — call this once at the end of a real (non-test)
-// submission. Returns immediately; both branches are detached.
-export function firePostSubmitEffects(opts: FireOpts): void {
-  resolveNotifyEmails(opts.schoolId, opts.notifyEmails)
-    .then((emails) => {
-      if (emails.length === 0) return;
-      return sendOfficeNotification({ ...opts, notifyEmails: emails });
-    })
-    .catch((e) => {
-      console.error('[post-submit] office notification failed:', e);
-    });
-  if (opts.webhookUrls && opts.webhookUrls.length > 0) {
-    fanoutWebhooks(opts).catch((e) => {
-      console.error('[post-submit] webhook fan-out failed:', e);
-    });
-  }
+// submission. Returns a promise the caller MUST await (bounded) before
+// responding: on Vercel a detached promise dies when the instance is
+// frozen after the response, which is exactly how two tech-agreement
+// notifications silently vanished (Kennedi Patrick Jul 31, Leo
+// Champagne Aug 1). Internal failures are caught + logged — awaiting
+// never rejects and never fails the submit.
+export async function firePostSubmitEffects(opts: FireOpts): Promise<void> {
+  await Promise.allSettled([
+    resolveNotifyEmails(opts.schoolId, opts.notifyEmails)
+      .then((emails) => {
+        if (emails.length === 0) return;
+        return sendOfficeNotification({ ...opts, notifyEmails: emails });
+      })
+      .catch((e) => {
+        console.error('[post-submit] office notification failed:', e);
+      }),
+    (opts.webhookUrls && opts.webhookUrls.length > 0)
+      ? fanoutWebhooks(opts).catch((e) => {
+          console.error('[post-submit] webhook fan-out failed:', e);
+        })
+      : Promise.resolve(),
+  ]);
 }
 
 // Office notice fired when Parent 1 submits an agreement that still needs a
@@ -159,8 +166,10 @@ Status: Awaiting Parent/Guardian 2 signature`;
 
 // ─── Office notification email ─────────────────────────────────────
 
-async function sendOfficeNotification(opts: FireOpts): Promise<void> {
-  if (!opts.notifyEmails || opts.notifyEmails.length === 0) return;
+// Exported for the resend-office-notice replay endpoint (manual
+// re-delivery when a notification is reported missing).
+export async function sendOfficeNotification(opts: FireOpts): Promise<{ sent: string[]; failed: string[] }> {
+  if (!opts.notifyEmails || opts.notifyEmails.length === 0) return { sent: [], failed: [] };
 
   // Resolve some friendly labels for the email body.
   const { rows } = await query<{
@@ -340,8 +349,9 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
 
   // sendBrandedEmail takes one recipient at a time — fan out so each
   // office address gets its own message (and one failure doesn't
-  // suppress the others).
-  await Promise.allSettled(opts.notifyEmails.map((to) =>
+  // suppress the others). Per-recipient failures are LOGGED — silent
+  // allSettled swallowing made missing notifications undiagnosable.
+  const results = await Promise.allSettled(opts.notifyEmails.map((to) =>
     sendBrandedEmail({
       to,
       schoolId: opts.schoolId,
@@ -350,6 +360,15 @@ async function sendOfficeNotification(opts: FireOpts): Promise<void> {
       text,
     }),
   ));
+  const sent: string[] = [];
+  const failed: string[] = [];
+  results.forEach((r, i) => {
+    const to = opts.notifyEmails![i];
+    if (r.status === 'fulfilled') { sent.push(to); return; }
+    failed.push(to);
+    console.error(`[post-submit] office notification to ${to} FAILED (submission ${opts.submissionId}):`, r.reason);
+  });
+  return { sent, failed };
 }
 
 // ─── Webhook fan-out ──────────────────────────────────────────────

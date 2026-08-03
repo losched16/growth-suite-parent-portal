@@ -1127,12 +1127,19 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 11. PDF receipt email for enrollment submissions. Fire-and-forget —
-  //     never blocks the parent's redirect.
+  // Effects 11-14 below are collected here and AWAITED (with a hard
+  // time cap) before the response goes out. They used to be detached —
+  // but Vercel freezes the instance once the response is sent, so a
+  // detached email occasionally just died (two tech-agreement office
+  // notifications vanished that way). Each effect still catches its own
+  // errors; a failure delays nothing and never fails the submit.
+  const postEffects: Promise<unknown>[] = [];
+
+  // 11. PDF receipt email for enrollment submissions.
   if (paymentRequired) {
-    sendEnrollmentReceiptEmail(submissionId, session.school_id).catch((e) => {
+    postEffects.push(sendEnrollmentReceiptEmail(submissionId, session.school_id).catch((e) => {
       console.error('[portal-forms/submit] receipt email failed:', e);
-    });
+    }));
   }
 
   // 12. Admin notification when the parent updated their info. Fires
@@ -1140,7 +1147,7 @@ export async function POST(request: NextRequest) {
   //     file in the `parents` table (or if pg2_* info was provided).
   //     For DGM, this email goes to admissions so they can update TC.
   if (Object.keys(responses).some((k) => k.startsWith('pg1_') || k.startsWith('pg2_'))) {
-    import('@/lib/billing/admin-change-notification').then((m) =>
+    postEffects.push(import('@/lib/billing/admin-change-notification').then((m) =>
       m.notifyAdminOfParentChanges({
         schoolId: session.school_id,
         submissionId,
@@ -1148,13 +1155,12 @@ export async function POST(request: NextRequest) {
         responses,
         formDisplayName: def.display_name,
       })
-    ).catch((e) => console.error('[portal-forms/submit] admin notify failed:', e));
+    ).catch((e) => console.error('[portal-forms/submit] admin notify failed:', e)));
   }
 
   // 13. Configurable post-submit effects (migrations 040 + 042):
   //     - Office notification email → notify_emails
   //     - Webhook fan-out → webhook_urls
-  // Both are fire-and-forget; they NEVER block the parent's redirect.
   //
   // DEFERRED for co-sign: when a second guardian still has to sign, the
   // agreement isn't fully executed yet — so we hold the office notification
@@ -1162,7 +1168,7 @@ export async function POST(request: NextRequest) {
   // co-sign API instead). Otherwise the office would be pinged "complete"
   // before it actually is.
   if (!deferForCosign) {
-    import('@/lib/forms/post-submit-effects').then((m) =>
+    postEffects.push(import('@/lib/forms/post-submit-effects').then((m) =>
       m.firePostSubmitEffects({
         submissionId,
         schoolId: session.school_id,
@@ -1179,21 +1185,28 @@ export async function POST(request: NextRequest) {
         notifyEmails: def.notifications_enabled === false ? null : (def.notify_emails ?? null),
         webhookUrls: def.webhook_urls ?? null,
       })
-    ).catch((e) => console.error('[portal-forms/submit] post-submit effects scheduling failed:', e));
+    ).catch((e) => console.error('[portal-forms/submit] post-submit effects scheduling failed:', e)));
 
     // 14. If this submission brings the family to 100% completion, write
     //     the school's configured "forms completed" tag to every active
     //     parent's GHL contact. Wooster uses this to power their
     //     "forms completed - 26/27" segmentation. Opt-in per school via
-    //     school_branding.completion_tag — empty → no-op. Fire-and-forget,
-    //     idempotent on the GHL side, never blocks the parent's redirect.
-    import('@/lib/forms/completion-tag').then((m) =>
+    //     school_branding.completion_tag — empty → no-op. Idempotent on
+    //     the GHL side.
+    postEffects.push(import('@/lib/forms/completion-tag').then((m) =>
       m.maybeApplyCompletionTag({
         schoolId: session.school_id,
         familyId: session.family_id,
       })
-    ).catch((e) => console.error('[portal-forms/submit] completion-tag effect failed:', e));
+    ).catch((e) => console.error('[portal-forms/submit] completion-tag effect failed:', e)));
   }
+
+  // Wait for the effects — capped at 15s so a hung SMTP/GHL call can't
+  // stall the parent's redirect indefinitely.
+  await Promise.race([
+    Promise.allSettled(postEffects),
+    new Promise((resolve) => setTimeout(resolve, 15_000)),
+  ]);
 
   return NextResponse.json({
     id: submissionId,

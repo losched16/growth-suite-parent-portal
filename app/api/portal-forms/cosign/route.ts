@@ -93,31 +93,39 @@ export async function POST(request: NextRequest) {
   );
   const def = defRows[0];
   if (def) {
-    import('@/lib/forms/post-submit-effects').then((m) =>
-      m.firePostSubmitEffects({
-        submissionId: sub.id,
-        schoolId: sub.school_id,
-        formId: sub.form_definition_id,
-        formSlug: def.slug,
-        formDisplayName: def.display_name,
-        formCategory: def.category,
-        familyId: sub.family_id ?? '',
-        parentId: sub.parent_id ?? '',
-        studentId: sub.student_id,
-        responses,
-        notifyEmails: def.notifications_enabled === false ? null : (def.notify_emails ?? null),
-        webhookUrls: def.webhook_urls ?? null,
-        // Frame the office email as "fully signed by both guardians" — this is
-        // the completion notice the office is waiting on after the awaiting one.
-        coSignComplete: true,
-      })
-    ).catch((e) => console.error('[portal-forms/cosign] post-submit effects failed:', e));
-
+    // AWAITED (bounded) — detached effects die when Vercel freezes the
+    // instance after the response; the office's "fully signed" notice
+    // must not be droppable.
+    const effects: Promise<unknown>[] = [
+      import('@/lib/forms/post-submit-effects').then((m) =>
+        m.firePostSubmitEffects({
+          submissionId: sub.id,
+          schoolId: sub.school_id,
+          formId: sub.form_definition_id,
+          formSlug: def.slug,
+          formDisplayName: def.display_name,
+          formCategory: def.category,
+          familyId: sub.family_id ?? '',
+          parentId: sub.parent_id ?? '',
+          studentId: sub.student_id,
+          responses,
+          notifyEmails: def.notifications_enabled === false ? null : (def.notify_emails ?? null),
+          webhookUrls: def.webhook_urls ?? null,
+          // Frame the office email as "fully signed by both guardians" — this is
+          // the completion notice the office is waiting on after the awaiting one.
+          coSignComplete: true,
+        })
+      ).catch((e) => console.error('[portal-forms/cosign] post-submit effects failed:', e)),
+    ];
     if (sub.family_id) {
-      import('@/lib/forms/completion-tag').then((m) =>
+      effects.push(import('@/lib/forms/completion-tag').then((m) =>
         m.maybeApplyCompletionTag({ schoolId: sub.school_id, familyId: sub.family_id! })
-      ).catch((e) => console.error('[portal-forms/cosign] completion-tag failed:', e));
+      ).catch((e) => console.error('[portal-forms/cosign] completion-tag failed:', e)));
     }
+    await Promise.race([
+      Promise.allSettled(effects),
+      new Promise((resolve) => setTimeout(resolve, 15_000)),
+    ]);
   }
 
   // Tell Parent 1 it's fully executed. Awaited so it reliably sends before

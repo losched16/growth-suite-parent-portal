@@ -130,15 +130,7 @@ export default async function AttendancePage() {
         </Link>
       </header>
 
-      {!hasPin && officeManagedPins ? (
-        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-start gap-2">
-          <KeyRound className="h-4 w-4 mt-0.5 shrink-0" style={{ color: 'var(--brand)' }} />
-          <p className="text-sm text-gray-700">
-            Your kiosk check-in PIN is set by the school office. Contact the office to get
-            your family&apos;s PIN — once set, it will show here.
-          </p>
-        </div>
-      ) : !hasPin ? (
+      {!hasPin ? (
         <div className="rounded-xl border-2 px-4 py-4 sm:px-5" style={{ borderColor: 'var(--brand)', background: 'color-mix(in srgb, var(--brand) 6%, white)' }}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -175,7 +167,7 @@ export default async function AttendancePage() {
             <PinReveal pin={myPin} />
           ) : officeManagedPins ? (
             <span className="text-sm text-gray-600">
-              set ✓ — ask the school office to re-set it to make it viewable here.
+              set ✓ — ask the school office to re-set it if you need to see or change it.
             </span>
           ) : (
             <span className="text-sm text-gray-600">

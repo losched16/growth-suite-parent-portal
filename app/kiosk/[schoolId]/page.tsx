@@ -31,9 +31,8 @@ export default async function KioskPage({ params }: { params: Params }) {
       </header>
       <KioskCheckInOut schoolId={schoolId} curbSlots={curbSlots} />
       <p className="mt-8 text-[11px] text-slate-400 text-center max-w-md">
-        Parents: view your PIN in the parent portal on the Attendance page — PINs are set
-        by the school office. Additional pickup people must be authorized in advance
-        through the school office.
+        Parents: set or view your PIN in the parent portal on the Attendance page.
+        To change a PIN or your pickup people, contact the school office.
       </p>
     </main>
   );

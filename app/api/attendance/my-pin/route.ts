@@ -28,17 +28,23 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   // Office-managed schools (parent_managed_pickups=false, e.g. DGM):
-  // PINs are set BY THE OFFICE (Student Roster family panel), never by
-  // parents. Keeps one office-known PIN per person and routes every
-  // change through admissions.
+  // parents may set their PIN ONCE (first-time setup stays self-serve),
+  // but changing it afterward goes through the office so admissions
+  // always knows the family's active PIN.
   {
     const { loadSchoolSettings } = await import('@/lib/school-settings');
     const settings = await loadSchoolSettings(session.school_id);
     if (!settings.parent_managed_pickups) {
-      return NextResponse.json(
-        { error: 'office_managed', detail: 'PINs are set by the school office — please contact admissions.' },
-        { status: 403 },
+      const { rows } = await query<{ has_pin: boolean }>(
+        `SELECT pin_hash IS NOT NULL AS has_pin FROM parents WHERE id = $1`,
+        [session.parent_id],
       );
+      if (rows[0]?.has_pin) {
+        return NextResponse.json(
+          { error: 'office_managed', detail: 'Your PIN is already set — contact the school office to change it.' },
+          { status: 403 },
+        );
+      }
     }
   }
 

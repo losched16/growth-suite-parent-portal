@@ -27,6 +27,21 @@ export async function POST(request: NextRequest) {
   const session = await verifySession(ck.get(PARENT_SESSION_COOKIE)?.value);
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
+  // Office-managed schools (parent_managed_pickups=false, e.g. DGM):
+  // PINs are set BY THE OFFICE (Student Roster family panel), never by
+  // parents. Keeps one office-known PIN per person and routes every
+  // change through admissions.
+  {
+    const { loadSchoolSettings } = await import('@/lib/school-settings');
+    const settings = await loadSchoolSettings(session.school_id);
+    if (!settings.parent_managed_pickups) {
+      return NextResponse.json(
+        { error: 'office_managed', detail: 'PINs are set by the school office — please contact admissions.' },
+        { status: 403 },
+      );
+    }
+  }
+
   const body = await request.json().catch(() => ({} as Record<string, unknown>));
   const pin = typeof body.pin === 'string' ? body.pin.trim() : '';
 
@@ -73,6 +88,16 @@ export async function DELETE() {
   const ck = await cookies();
   const session = await verifySession(ck.get(PARENT_SESSION_COOKIE)?.value);
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  {
+    const { loadSchoolSettings } = await import('@/lib/school-settings');
+    const settings = await loadSchoolSettings(session.school_id);
+    if (!settings.parent_managed_pickups) {
+      return NextResponse.json(
+        { error: 'office_managed', detail: 'PINs are managed by the school office — please contact admissions.' },
+        { status: 403 },
+      );
+    }
+  }
 
   await query(
     `UPDATE parents

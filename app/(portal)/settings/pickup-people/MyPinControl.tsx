@@ -10,7 +10,14 @@ import { useState } from 'react';
 import { KeyRound, Loader2, CheckCircle2 } from 'lucide-react';
 import { PinReveal } from '@/components/PinReveal';
 
-export function MyPinControl({ pinSet, currentPin = null }: { pinSet: boolean; currentPin?: string | null }) {
+export function MyPinControl({ pinSet, currentPin = null, officeManaged = false, officeEmail = null }: {
+  pinSet: boolean;
+  currentPin?: string | null;
+  // Office-managed schools (DGM): parents can only VIEW their PIN here —
+  // setting/changing/removing goes through the school office.
+  officeManaged?: boolean;
+  officeEmail?: string | null;
+}) {
   const [hasPin, setHasPin] = useState(pinSet);
   const [shownPin, setShownPin] = useState<string | null>(currentPin);
   const [editing, setEditing] = useState(false);
@@ -47,6 +54,38 @@ export function MyPinControl({ pinSet, currentPin = null }: { pinSet: boolean; c
     } finally {
       setBusy(false);
     }
+  }
+
+  if (officeManaged) {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+        <div className="flex items-start gap-3">
+          <KeyRound className="h-5 w-5 text-emerald-700 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold text-slate-900">My kiosk check-in PIN</h2>
+            <p className="text-[11px] text-slate-600 mt-0.5">
+              Use this PIN at the front-door kiosk to check your kids in and out — no login needed.
+            </p>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              {hasPin && shownPin ? (
+                <PinReveal pin={shownPin} />
+              ) : (
+                <span className="text-xs font-medium text-slate-500">
+                  {hasPin ? 'PIN is set — ask the school office to re-set it to make it viewable here.' : 'No PIN set yet.'}
+                </span>
+              )}
+            </div>
+            <p className="mt-2 text-[11px] text-slate-600">
+              PINs are set by the school office. To get one or change yours, contact{' '}
+              {officeEmail ? (
+                <a href={`mailto:${officeEmail}`} className="font-medium underline">{officeEmail}</a>
+              ) : ('the school office')}
+              .
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -23,6 +23,14 @@ interface OwnershipRow {
   school_id: string;
 }
 
+// Office-vetted schools (parent_managed_pickups=false): parents can't
+// touch pickup-person PINs — the office manages them.
+async function officeManaged(schoolId: string): Promise<boolean> {
+  const { loadSchoolSettings } = await import('@/lib/school-settings');
+  const settings = await loadSchoolSettings(schoolId);
+  return !settings.parent_managed_pickups;
+}
+
 async function loadOwnedPickupPerson(
   pickupPersonId: string,
   parentId: string,
@@ -45,6 +53,9 @@ export async function POST(request: NextRequest) {
   const ck = await cookies();
   const session = await verifySession(ck.get(PARENT_SESSION_COOKIE)?.value);
   if (!session) return new NextResponse('unauthorized', { status: 401 });
+  if (await officeManaged(session.school_id)) {
+    return new NextResponse('Pickup-person PINs are managed by the school office — please contact the school.', { status: 403 });
+  }
 
   let pickupPersonId = '';
   let expiresAt: string | null = null;
@@ -140,6 +151,9 @@ export async function DELETE(request: NextRequest) {
   const ck = await cookies();
   const session = await verifySession(ck.get(PARENT_SESSION_COOKIE)?.value);
   if (!session) return new NextResponse('unauthorized', { status: 401 });
+  if (await officeManaged(session.school_id)) {
+    return new NextResponse('Pickup-person PINs are managed by the school office — please contact the school.', { status: 403 });
+  }
 
   const id = request.nextUrl.searchParams.get('id')?.trim();
   if (!id) return new NextResponse('id required', { status: 400 });

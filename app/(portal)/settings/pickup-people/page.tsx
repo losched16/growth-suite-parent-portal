@@ -114,13 +114,19 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
       <header>
         <h1 className="text-2xl font-semibold text-gray-900">Authorized pickup people</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Anyone listed here can pick up your child. Set a PIN for non-parent pickup
-          people so they can sign out at the school&rsquo;s check-in kiosk without needing a parent
-          portal account.
+          {parentAddsAllowed ? (
+            <>Anyone listed here can pick up your child. Set a PIN for non-parent pickup
+            people so they can sign out at the school&rsquo;s check-in kiosk without needing a parent
+            portal account.</>
+          ) : (
+            <>Anyone listed here can pick up your child. This list is managed by the school
+            office — additions, removals, and PINs all go through them so the school always
+            knows who is authorized.</>
+          )}
         </p>
       </header>
 
-      <MyPinControl pinSet={myPinSet} currentPin={myPin} />
+      <MyPinControl pinSet={myPinSet} currentPin={myPin} officeManaged={!parentAddsAllowed} officeEmail={officeEmail} />
 
       {sp.new_pin && sp.pin_for ? (
         <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4">
@@ -160,7 +166,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
         ) : (
           <ul className="divide-y divide-gray-100">
             {active.map((p) => (
-              <PersonRow key={p.id} person={p} kids={kids} kidLabel={kidLabel} />
+              <PersonRow key={p.id} person={p} kids={kids} kidLabel={kidLabel} readOnly={!parentAddsAllowed} />
             ))}
           </ul>
         )}
@@ -174,7 +180,8 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
             Need to add someone new?
           </div>
           <p className="text-sm text-gray-700">
-            For your children&rsquo;s safety, new authorized pickup people are added by the school office.
+            For your children&rsquo;s safety, all pickup-list changes — adding someone,
+            removing someone, or changing a PIN — are handled by the school office.
             {officeEmail ? (
               <> Please contact{' '}
                 <a href={`mailto:${officeEmail}`} className="font-medium underline" style={{ color: 'var(--brand-fg)' }}>
@@ -290,7 +297,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
   );
 }
 
-function PersonRow({ person: p, kids, kidLabel }: { person: PickupPersonRow; kids: StudentLite[]; kidLabel: (s: StudentLite) => string }) {
+function PersonRow({ person: p, kids, kidLabel, readOnly = false }: { person: PickupPersonRow; kids: StudentLite[]; kidLabel: (s: StudentLite) => string; readOnly?: boolean }) {
   const hasPin = !!p.pin_set_at;
   const pinExpired = p.pin_expires_at && new Date(p.pin_expires_at) < new Date();
   // Empty junction = all kids. When the parent restricted to specific
@@ -334,7 +341,7 @@ function PersonRow({ person: p, kids, kidLabel }: { person: PickupPersonRow; kid
                 </span>
               ))
             )}
-            {p.active ? (
+            {p.active && !readOnly ? (
               <EditAuthorizedStudents
                 pickupPersonId={p.id}
                 kids={kids.map((k) => ({ id: k.id, label: kidLabel(k) }))}
@@ -354,6 +361,7 @@ function PersonRow({ person: p, kids, kidLabel }: { person: PickupPersonRow; kid
           Added by {p.added_by_self ? 'you' : `${p.added_by_first_name} ${p.added_by_last_name}`}
         </div>
       </div>
+      {readOnly ? null : (
       <div className="flex items-center gap-1 flex-wrap">
         {p.active ? (
           <>
@@ -384,6 +392,7 @@ function PersonRow({ person: p, kids, kidLabel }: { person: PickupPersonRow; kid
           </form>
         )}
       </div>
+      )}
     </li>
   );
 }

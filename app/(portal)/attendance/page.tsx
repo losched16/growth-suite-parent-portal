@@ -16,6 +16,7 @@ import { PinReveal } from '@/components/PinReveal';
 import { decryptPin } from '@/lib/attendance/pin-crypto';
 import { notAttendingSql } from '@/lib/attendance/enrollment';
 import { requireParent } from '@/lib/identity';
+import { loadSchoolSettings } from '@/lib/school-settings';
 import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -104,6 +105,10 @@ export default async function AttendancePage() {
   const myPin = hasPin
     ? decryptPin(pinRows[0].pin_encrypted, pinRows[0].pin_iv, pinRows[0].pin_tag)
     : null;
+  // Office-managed schools (DGM): parents can't set/change PINs — the
+  // office does. Swaps the self-serve setup banner for a "contact the
+  // office" note and drops the change links.
+  const officeManagedPins = !(await loadSchoolSettings(id.parent.school_id)).parent_managed_pickups;
 
   return (
     <div className="space-y-4">
@@ -125,7 +130,15 @@ export default async function AttendancePage() {
         </Link>
       </header>
 
-      {!hasPin ? (
+      {!hasPin && officeManagedPins ? (
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-start gap-2">
+          <KeyRound className="h-4 w-4 mt-0.5 shrink-0" style={{ color: 'var(--brand)' }} />
+          <p className="text-sm text-gray-700">
+            Your kiosk check-in PIN is set by the school office. Contact the office to get
+            your family&apos;s PIN — once set, it will show here.
+          </p>
+        </div>
+      ) : !hasPin ? (
         <div className="rounded-xl border-2 px-4 py-4 sm:px-5" style={{ borderColor: 'var(--brand)', background: 'color-mix(in srgb, var(--brand) 6%, white)' }}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -160,6 +173,10 @@ export default async function AttendancePage() {
           </span>
           {myPin ? (
             <PinReveal pin={myPin} />
+          ) : officeManagedPins ? (
+            <span className="text-sm text-gray-600">
+              set ✓ — ask the school office to re-set it to make it viewable here.
+            </span>
           ) : (
             <span className="text-sm text-gray-600">
               set ✓ — it was created before PINs became viewable here, so we can&apos;t display it.{' '}
@@ -169,9 +186,13 @@ export default async function AttendancePage() {
               to make it visible.
             </span>
           )}
-          <Link href="/settings/pickup-people" className="ml-auto text-xs text-gray-500 hover:text-gray-700 underline">
-            Change PIN
-          </Link>
+          {officeManagedPins ? (
+            <span className="ml-auto text-xs text-gray-500">PIN changes: contact the school office</span>
+          ) : (
+            <Link href="/settings/pickup-people" className="ml-auto text-xs text-gray-500 hover:text-gray-700 underline">
+              Change PIN
+            </Link>
+          )}
         </div>
       )}
 

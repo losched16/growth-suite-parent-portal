@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { Settings, UserCheck, LogOut, AlertCircle, KeyRound } from 'lucide-react';
 import { PinReveal } from '@/components/PinReveal';
 import { decryptPin } from '@/lib/attendance/pin-crypto';
+import { notAttendingSql } from '@/lib/attendance/enrollment';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 
@@ -86,6 +87,7 @@ export default async function AttendancePage() {
      WHERE s.family_id = $1
        AND s.school_id = $2
        AND s.status = 'active'
+       AND ${notAttendingSql('s')}
      ORDER BY s.first_name`,
     [id.parent.family_id, id.parent.school_id, today],
   );

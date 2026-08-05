@@ -19,6 +19,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyPin, pinLookup } from '@/lib/attendance/pickup-pin';
+import { notAttendingSql } from '@/lib/attendance/enrollment';
 import { resolveKioskSchool, mintKioskToken } from '@/lib/kiosk/kiosk';
 import { eligiblePickupTimes } from '@/lib/attendance/pickup-times';
 
@@ -195,6 +196,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
           ORDER BY performed_at DESC LIMIT 1
        ) pt ON true
       WHERE s.family_id = $1 AND s.school_id = $2 AND s.status = 'active'
+        AND ${notAttendingSql('s')}
       ORDER BY s.date_of_birth NULLS LAST`,
     [match.family_id, school.id],
   );

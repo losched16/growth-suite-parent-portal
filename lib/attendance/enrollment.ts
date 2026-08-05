@@ -7,5 +7,5 @@
 
 export function notAttendingSql(alias: string): string {
   return `lower(coalesce(${alias}.metadata->>'enrollment_status', ''))
-    NOT IN ('hold', 'on hold', 'on_hold', 'withdrawn', 'withdrew', 'graduated', 'declined')`;
+    NOT IN ('hold', 'on hold', 'on_hold', 'withdrawn', 'withdrew', 'graduated', 'declined', 'alumni', 'alum')`;
 }

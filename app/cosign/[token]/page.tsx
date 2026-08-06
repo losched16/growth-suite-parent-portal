@@ -13,6 +13,7 @@ import { CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { query } from '@/lib/db';
 import { loadBrandingByHost } from '@/lib/branding';
 import type { FormFieldBlock } from '@/lib/forms/types';
+import { FormattedText } from '@/lib/forms/rich-text';
 
 export const dynamic = 'force-dynamic';
 
@@ -198,7 +199,7 @@ function ReadOnlyBlock({
     ) : null;
   }
   if (b.type === 'paragraph') {
-    return b.text ? <p className="text-xs leading-relaxed text-zinc-500 whitespace-pre-wrap">{b.text}</p> : null;
+    return b.text ? <FormattedText text={b.text} className="text-xs leading-relaxed text-zinc-500" /> : null;
   }
   if (!b.key) return null;
 

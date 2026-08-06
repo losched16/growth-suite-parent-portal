@@ -15,6 +15,7 @@ import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import type { FormFieldBlock } from '@/lib/forms/types';
 import { PrintButton } from './PrintButton';
+import { FormattedText } from '@/lib/forms/rich-text';
 
 export const dynamic = 'force-dynamic';
 
@@ -249,7 +250,7 @@ function PrintBlock({
     case 'header':
       return <h2 className="text-base font-semibold border-b border-gray-100 pb-1 mt-4">{block.text}</h2>;
     case 'paragraph':
-      return <p className="text-xs text-gray-700 whitespace-pre-wrap">{block.text}</p>;
+      return <FormattedText text={block.text ?? ''} className="text-xs text-gray-700" />;
     case 'section':
       return (
         <div className="border-t border-gray-200 pt-2">

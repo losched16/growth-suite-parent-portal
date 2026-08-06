@@ -21,6 +21,7 @@ import { PdfPaperFields } from './PdfPaperFields';
 import { PaymentMethodGate } from './PaymentMethodGate';
 import { evaluatePayment } from '@/lib/forms/payment-eval';
 import { fmtCents } from '@/lib/billing/fee-math';
+import { FormattedText } from '@/lib/forms/rich-text';
 
 interface StudentOption {
   id: string;
@@ -1567,8 +1568,10 @@ function BlockRenderer({
       const cls =
         block.emphasis === 'warning' ? 'rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900' :
         block.emphasis === 'note'    ? 'rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700' :
-                                       'text-sm text-gray-700 whitespace-pre-wrap';
-      return <p className={cls}>{block.text}</p>;
+                                       'text-sm text-gray-700';
+      // Formatting support: **bold**, *italic*, [link](url), - bullets,
+      // ## subheading — rendered safely (never raw HTML).
+      return <FormattedText text={block.text ?? ''} className={cls} />;
     }
     case 'section':
       // Section heading — must be visually prominent. Originally it was a

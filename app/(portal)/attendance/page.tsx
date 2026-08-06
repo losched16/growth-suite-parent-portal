@@ -88,9 +88,12 @@ export default async function AttendancePage() {
      WHERE s.family_id = $1
        AND s.school_id = $2
        AND s.status = 'active'
+       AND (NOT EXISTS (SELECT 1 FROM parent_student_assignments psa WHERE psa.parent_id = $4::uuid)
+            OR EXISTS (SELECT 1 FROM parent_student_assignments psa
+                        WHERE psa.parent_id = $4::uuid AND psa.student_id = s.id))
        AND ${notAttendingSql('s')}
      ORDER BY s.first_name`,
-    [id.parent.family_id, id.parent.school_id, today],
+    [id.parent.family_id, id.parent.school_id, today, id.parent.id],
   );
 
   // Does THIS parent have a kiosk check-in PIN yet? Drives the setup

@@ -57,7 +57,13 @@ export async function loadParentsForFamily(familyId: string): Promise<ParentRow[
   return rows;
 }
 
-export async function loadStudentsForFamily(familyId: string): Promise<StudentRow[]> {
+export async function loadStudentsForFamily(
+  familyId: string,
+  // When set, applies per-parent student scoping: a parent with rows in
+  // parent_student_assignments sees ONLY those students (blended-family
+  // co-parents). Absent/unassigned parents see the whole family.
+  opts?: { forParentId?: string },
+): Promise<StudentRow[]> {
   const { rows } = await query<StudentRow>(
     `SELECT
        s.id, s.family_id, s.school_id, s.first_name, s.last_name, s.preferred_name,
@@ -76,8 +82,13 @@ export async function loadStudentsForFamily(familyId: string): Promise<StudentRo
      ) e ON true
      LEFT JOIN classrooms c ON c.id = e.classroom_id
      WHERE s.family_id = $1 AND s.status = 'active'
+       AND ($2::uuid IS NULL OR NOT EXISTS (
+              SELECT 1 FROM parent_student_assignments psa WHERE psa.parent_id = $2::uuid)
+            OR EXISTS (
+              SELECT 1 FROM parent_student_assignments psa
+               WHERE psa.parent_id = $2::uuid AND psa.student_id = s.id))
      ORDER BY s.first_name`,
-    [familyId],
+    [familyId, opts?.forParentId ?? null],
   );
   return rows;
 }

@@ -125,7 +125,7 @@ export default async function FormPage({
   // to students who actually match (e.g. K-only forms hide siblings in
   // Primary). Fetched here once and used in both the FormRenderer and
   // the "no applicable students" guard below.
-  const allStudents = await loadStudentsForFamily(id.parent.family_id);
+  const allStudents = await loadStudentsForFamily(id.parent.family_id, { forParentId: id.parent.id });
   let students = allStudents;
   // Family's GHL contact tags (for applies_to.tag_match).
   const { rows: tagRows } = await query<{ tag: string }>(

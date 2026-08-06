@@ -101,7 +101,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
          display_name`,
       [id.parent.school_id, id.parent.family_id],
     ).then((r) => r.rows),
-    loadStudentsForFamily(id.parent.family_id),
+    loadStudentsForFamily(id.parent.family_id, { forParentId: id.parent.id }),
     // Include legacy_imported as "submitted" for completion-tracking purposes.
     // Drop the year filter so legacy submissions (whatever year they were
     // stamped with) still count.

@@ -49,7 +49,7 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
 
   const [parents, students, assignments, pickupCount, emergencyContacts, settings] = await Promise.all([
     loadParentsForFamily(id.family.id),
-    loadStudentsForFamily(id.family.id),
+    loadStudentsForFamily(id.family.id, { forParentId: id.parent.id }),
     loadParentStudentAssignments(id.family.id),
     query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM pickup_persons pp

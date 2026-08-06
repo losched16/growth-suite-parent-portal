@@ -101,6 +101,12 @@ export async function POST(request: NextRequest) {
   if (s.family_id !== session.family_id || s.school_id !== session.school_id) {
     return new NextResponse('forbidden', { status: 403 });
   }
+  {
+    const { parentMayAccessStudent } = await import('@/lib/family-scope');
+    if (!(await parentMayAccessStudent(session.parent_id, s.id))) {
+      return new NextResponse('forbidden', { status: 403 });
+    }
+  }
 
   // Resolve picked_up_by
   let pickedUpByParentId: string | null = null;

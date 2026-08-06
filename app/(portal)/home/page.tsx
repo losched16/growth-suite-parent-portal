@@ -71,8 +71,11 @@ export default async function HomePage() {
        ) e ON true
        LEFT JOIN classrooms c ON c.id = e.classroom_id
        WHERE s.family_id = $1 AND s.status = 'active'
+         AND (NOT EXISTS (SELECT 1 FROM parent_student_assignments psa WHERE psa.parent_id = $2::uuid)
+              OR EXISTS (SELECT 1 FROM parent_student_assignments psa
+                          WHERE psa.parent_id = $2::uuid AND psa.student_id = s.id))
        ORDER BY s.first_name`,
-      [familyId],
+      [familyId, id.parent.id],
     ),
     query<ParentSummary>(
       `SELECT id, first_name, last_name, email, is_primary
@@ -84,7 +87,7 @@ export default async function HomePage() {
     // Active forms this family hasn't submitted yet (this academic year).
     // Categorize by per_student vs. per_family so the banner can show
     // which students still need to be covered.
-    loadPendingForms({ schoolId, familyId }),
+    loadPendingForms({ schoolId, familyId, parentId: id.parent.id }),
     // The enrollment form's confirmation message doubles as the school's
     // tuition-setup (FACTS) instructions. We re-show it on Home so a parent
     // who already submitted can come back and find their grade, Student ID,
@@ -390,8 +393,8 @@ function QuickLink({
 // home page. An open invite (office push) overrides the rule, so a pushed
 // form still shows here.
 async function loadPendingForms({
-  schoolId, familyId,
-}: { schoolId: string; familyId: string }): Promise<PendingForm[]> {
+  schoolId, familyId, parentId,
+}: { schoolId: string; familyId: string; parentId: string }): Promise<PendingForm[]> {
   const { rows } = await query<{
     id: string;
     slug: string;
@@ -446,8 +449,11 @@ async function loadPendingForms({
   // Active students on this family — used to compute missing-student-ids
   // for per-student forms (metadata feeds applies_to matching).
   const { rows: activeStudents } = await query<{ id: string; metadata: Record<string, unknown> | null }>(
-    `SELECT id, metadata FROM students WHERE family_id = $1 AND status = 'active'`,
-    [familyId],
+    `SELECT id, metadata FROM students WHERE family_id = $1 AND status = 'active'
+        AND (NOT EXISTS (SELECT 1 FROM parent_student_assignments psa WHERE psa.parent_id = $2::uuid)
+             OR EXISTS (SELECT 1 FROM parent_student_assignments psa
+                         WHERE psa.parent_id = $2::uuid AND psa.student_id = students.id))`,
+    [familyId, parentId],
   );
   const activeStudentIds = activeStudents.map((s) => s.id);
 

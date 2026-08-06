@@ -31,7 +31,7 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
     loadFamilyUploads(id.parent.family_id),
     loadSchoolDocumentsForFamily(id.parent.family_id),
     loadSharedDocsForFamily(id.parent.school_id, id.parent.family_id),
-    loadStudentsForFamily(id.parent.family_id),
+    loadStudentsForFamily(id.parent.family_id, { forParentId: id.parent.id }),
     query<{ id: string; display_name: string }>(
       `SELECT id, display_name FROM school_forms
        WHERE school_id = $1 AND is_active = true ORDER BY position, display_name`,

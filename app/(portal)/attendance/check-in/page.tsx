@@ -40,6 +40,10 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
   if (rows.length === 0) notFound();
   const s = rows[0];
   if (s.family_id !== id.parent.family_id || s.school_id !== id.parent.school_id) notFound();
+  {
+    const { parentMayAccessStudent } = await import('@/lib/family-scope');
+    if (!(await parentMayAccessStudent(id.parent.id, s.id))) notFound();
+  }
 
   const displayName = s.preferred_name?.trim()
     ? `${s.preferred_name} ${s.last_name}`

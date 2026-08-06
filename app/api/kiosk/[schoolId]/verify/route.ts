@@ -92,7 +92,12 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         person_id: p.id,
         person_name: `${p.first_name} ${p.last_name}`.trim(),
         family_id: p.family_id,
-        authorized_student_ids: [],
+        // Per-parent scoping: a parent with assignment rows may only act
+        // on those students (blended-family co-parents). Empty = all.
+        authorized_student_ids: (await query<{ student_id: string }>(
+          `SELECT student_id FROM parent_student_assignments WHERE parent_id = $1`,
+          [p.id],
+        )).rows.map((r) => r.student_id),
       };
       break;
     }

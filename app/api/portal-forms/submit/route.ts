@@ -164,6 +164,12 @@ export async function POST(request: NextRequest) {
     if (sRows.length === 0) {
       return NextResponse.json({ error: 'student_not_in_family' }, { status: 403 });
     }
+    {
+      const { parentMayAccessStudent } = await import('@/lib/family-scope');
+      if (!(await parentMayAccessStudent(session.parent_id, sRows[0].id))) {
+        return NextResponse.json({ error: 'student_not_in_family' }, { status: 403 });
+      }
+    }
     studentId = sRows[0].id;
 
     // 2a. Server-side applies_to check. The hub + form page already

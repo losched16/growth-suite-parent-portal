@@ -10,6 +10,7 @@
 
 import Link from 'next/link';
 import { Pencil, ShieldCheck, Phone, Mail, AlertTriangle, Users, ArrowRight, Heart, Lock, UserPlus } from 'lucide-react';
+import { pickupVisibleSql } from '@/lib/attendance/pickup-visibility';
 import { requireParent } from '@/lib/identity';
 import { loadParentsForFamily, loadStudentsForFamily, loadParentStudentAssignments } from '@/lib/family-data';
 import { editParentAction } from '@/lib/actions/edit-parent';
@@ -54,8 +55,9 @@ export default async function FamilyPage({ searchParams }: { searchParams: Searc
     query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM pickup_persons pp
        JOIN parents p ON p.id = pp.added_by_parent_id
-       WHERE pp.school_id = $1 AND p.family_id = $2 AND pp.active = true`,
-      [id.parent.school_id, id.family.id],
+       WHERE pp.school_id = $1 AND p.family_id = $2 AND pp.active = true
+         AND ${pickupVisibleSql('pp', '$3')}`,
+      [id.parent.school_id, id.family.id, id.parent.id],
     ).then((r) => Number(r.rows[0]?.count ?? 0)),
     // Pull emergency contacts from the most recent emergency-medical
     // submission. The form is family-level on Wooster and stores up

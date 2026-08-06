@@ -29,6 +29,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { PARENT_SESSION_COOKIE, verifySession } from '@/lib/auth/session';
+import { pickupVisibleSql } from '@/lib/attendance/pickup-visibility';
 import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -140,8 +141,9 @@ export async function POST(request: NextRequest) {
         `SELECT pp.id, pp.name, p.family_id
          FROM pickup_persons pp
          JOIN parents p ON p.id = pp.added_by_parent_id
-         WHERE pp.id = $1 AND pp.active = true`,
-        [pickupId],
+         WHERE pp.id = $1 AND pp.active = true
+           AND ${pickupVisibleSql('pp', '$2')}`,
+        [pickupId, session.parent_id],
       );
       if (rows.length === 0 || rows[0].family_id !== session.family_id) {
         return new NextResponse('forbidden', { status: 403 });

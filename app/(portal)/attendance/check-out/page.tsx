@@ -13,6 +13,7 @@
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Car } from 'lucide-react';
+import { pickupVisibleSql } from '@/lib/attendance/pickup-visibility';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { SignatureCanvasField } from '../_signature-canvas';
@@ -81,6 +82,7 @@ export default async function CheckOutPage({ searchParams }: { searchParams: Sea
      WHERE pp.school_id = $1
        AND p.family_id = (SELECT family_id FROM parents WHERE id = $2)
        AND pp.active = true
+       AND ${pickupVisibleSql('pp', '$2')}
      ORDER BY pp.name`,
     [id.parent.school_id, id.parent.id],
   );

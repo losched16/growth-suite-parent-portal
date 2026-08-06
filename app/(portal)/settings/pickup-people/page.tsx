@@ -11,6 +11,7 @@
 
 import Link from 'next/link';
 import { ArrowLeft, Mail, UserPlus } from 'lucide-react';
+import { pickupVisibleSql } from '@/lib/attendance/pickup-visibility';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { loadSchoolSettings } from '@/lib/school-settings';
@@ -73,6 +74,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
      JOIN parents p ON p.id = pp.added_by_parent_id
      WHERE pp.school_id = $1
        AND p.family_id = (SELECT family_id FROM parents WHERE id = $2)
+       AND ${pickupVisibleSql('pp', '$2')}
      ORDER BY pp.active DESC, pp.name`,
     [id.parent.school_id, id.parent.id],
   );

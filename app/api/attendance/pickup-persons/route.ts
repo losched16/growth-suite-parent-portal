@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { PARENT_SESSION_COOKIE, verifySession } from '@/lib/auth/session';
+import { pickupVisibleSql } from '@/lib/attendance/pickup-visibility';
 import { query } from '@/lib/db';
 import { notifyAdminOfPickupPersonChange } from '@/lib/attendance/pickup-person-notification';
 
@@ -49,6 +50,7 @@ async function listFamilyPickupPersons(parentId: string, schoolId: string, inclu
      WHERE pp.school_id = $1
        AND p.family_id = (SELECT family_id FROM parents WHERE id = $2)
        ${includeInactive ? '' : 'AND pp.active = true'}
+       AND ${pickupVisibleSql('pp', '$2')}
      ORDER BY pp.active DESC, pp.name`,
     [schoolId, parentId],
   );

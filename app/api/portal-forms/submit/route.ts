@@ -73,6 +73,9 @@ interface DefRow {
   webhook_urls: string[] | null;
   // Migration 048 — per-student visibility rule.
   applies_to: FormAppliesTo | null;
+  // Migration 097 — CRM tags written to the family's parent contacts on
+  // submission (sign-up segmentation, e.g. "flag football 2026").
+  submit_tags: string[] | null;
 }
 
 interface GhlWritebackEntry {
@@ -139,7 +142,7 @@ export async function POST(request: NextRequest) {
             payment_config, allow_addendum,
             confirmation_message, confirmation_redirect_url,
             notify_emails, notifications_enabled, webhook_urls,
-            applies_to
+            applies_to, submit_tags
      FROM portal_form_definitions
      WHERE id = $1 AND school_id = $2 AND is_active = true`,
     [formDefId, session.school_id],
@@ -1205,6 +1208,19 @@ export async function POST(request: NextRequest) {
         familyId: session.family_id,
       })
     ).catch((e) => console.error('[portal-forms/submit] completion-tag effect failed:', e)));
+
+    // 15. Per-form sign-up tags (migration 097) — write the form's
+    //     submit_tags to every parent contact on the family so the
+    //     office can email the group from a CRM tag smart list.
+    if ((def.submit_tags ?? []).length > 0) {
+      postEffects.push(import('@/lib/forms/submit-tags').then((m) =>
+        m.applySubmitTags({
+          schoolId: session.school_id,
+          familyId: session.family_id,
+          tags: def.submit_tags ?? [],
+        })
+      ).catch((e) => console.error('[portal-forms/submit] submit-tags effect failed:', e)));
+    }
   }
 
   // Wait for the effects — capped at 15s so a hung SMTP/GHL call can't

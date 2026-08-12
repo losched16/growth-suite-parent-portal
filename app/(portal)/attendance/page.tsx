@@ -73,6 +73,7 @@ export default async function AttendancePage() {
          FROM attendance_events e
          LEFT JOIN parents p ON p.id = e.performed_by_parent_id
         WHERE e.student_id = s.id AND e.school_id = s.school_id
+          AND e.voided_at IS NULL
           AND e.event_type = 'check_in'
           AND (e.performed_at AT TIME ZONE '${TZ}')::date = $3::date
         ORDER BY e.performed_at ASC LIMIT 1
@@ -81,6 +82,7 @@ export default async function AttendancePage() {
        SELECT (e.source = 'kiosk') AS via_kiosk
          FROM attendance_events e
         WHERE e.student_id = s.id AND e.school_id = s.school_id
+          AND e.voided_at IS NULL
           AND e.event_type = 'check_out'
           AND (e.performed_at AT TIME ZONE '${TZ}')::date = $3::date
         ORDER BY e.performed_at DESC LIMIT 1

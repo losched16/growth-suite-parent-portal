@@ -95,6 +95,7 @@ export default async function CheckOutPage({ searchParams }: { searchParams: Sea
     `SELECT curbside, curbside_slot
        FROM attendance_events
       WHERE student_id = $1
+        AND voided_at IS NULL
         AND event_type = 'check_in'
         AND (performed_at AT TIME ZONE 'America/Phoenix')::date
               = (now() AT TIME ZONE 'America/Phoenix')::date

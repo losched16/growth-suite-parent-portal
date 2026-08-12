@@ -196,6 +196,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
          -- doesn't have to re-pick their dismissal wave.
          SELECT pickup_time FROM attendance_events
           WHERE student_id = s.id AND school_id = s.school_id
+            AND voided_at IS NULL
             AND event_type = 'check_in' AND pickup_time IS NOT NULL
             AND (performed_at AT TIME ZONE '${TZ}')::date = (now() AT TIME ZONE '${TZ}')::date
           ORDER BY performed_at DESC LIMIT 1

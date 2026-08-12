@@ -55,6 +55,7 @@ export default async function CheckInPage({ searchParams }: { searchParams: Sear
   const { rows: priorRows } = await query<{ pickup_time: string | null }>(
     `SELECT pickup_time FROM attendance_events
       WHERE student_id = $1 AND school_id = $2 AND event_type = 'check_in'
+        AND voided_at IS NULL
         AND (performed_at AT TIME ZONE 'America/Phoenix')::date
             = (now() AT TIME ZONE 'America/Phoenix')::date
       ORDER BY performed_at DESC LIMIT 1`,

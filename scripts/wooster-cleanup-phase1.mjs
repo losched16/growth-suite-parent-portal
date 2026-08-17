@@ -17,7 +17,7 @@ import crypto from 'node:crypto';
 
 const S = '2c944223-b2ad-45e1-8ba4-a4b616e4c29a';
 const GHL = 'https://services.leadconnectorhq.com';
-const CSV = 'C:/Users/thelo/Downloads/form status all forms missing 2026-08-17 - GW --_ MSW.csv';
+const CSV = 'C:/Users/thelo/Downloads/form status all forms missing 2026-08-17 - GW --_ MSW (1).csv';
 const ENROLLED_TAG = 'enrolled - 26/27';
 const apply = process.argv.includes('--apply');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -141,7 +141,9 @@ const setStudent = (cid, label, slot, first, last, program, opts = {}) => {
 };
 const notes = [];
 
-// ── 2. specific fixes ─────────────────────────────────────────────────
+// ── 2. specific fixes (already applied 2026-08-17; re-run only with --phase1) ──
+const PHASE1 = process.argv.includes('--phase1');
+if (PHASE1) {
 // A. adds to existing contacts
 setStudent('J1xmzO1NySxGV6g7eNQX', 'Martez Phillips', 2, 'Stacey', 'Adams', 'Middle School program 9 am - 3:30 pm');
 setStudent('J1xmzO1NySxGV6g7eNQX', 'Martez Phillips', 1, null, null, 'Lower Elementary program 9 am - 3:30 pm'); // real child, same name — mark enrolled
@@ -193,6 +195,7 @@ for (const [parent, student, program] of PROGRAM_FIXES) {
   setStudent(c.ghl_contact_id, `${parent}`, slot, null, null, program);
 }
 
+} // end PHASE1
 // Duplicate / prospect contacts that must NEVER be enrolled by the sheet pass
 // (the real family lives on another contact).
 const EXCLUDE = new Set([

@@ -1,31 +1,53 @@
-// When a family reaches 100% form completion, optionally advance them
-// through the admissions pipeline: apply an "enrolled" tag, and move
-// every opportunity card the family owns from a source stage to a
-// target stage. All three levers are per-school (school_branding
-// columns from migration 012); if any of them is NULL/empty, that lever
-// is a no-op — the school opted out.
+// Per-STUDENT advance-on-completion. When a form submission lands, check
+// each student in the family individually: a student is "ready to
+// enroll" when every active per-student form has a submission for THEM
+// and every family-level form has a family submission. For each ready
+// student:
 //
-// Multi-child families: a family typically owns one opportunity per
-// child. This looks up EVERY open opportunity for the primary parent's
-// GHL contact whose current stage matches the configured source stage,
-// and moves each of them. Cards already sitting in the target stage
-// (or any other stage) are left untouched.
+//   1. Write student_[N_]enrollment_status = 'enrolled' on the primary
+//      parent's GHL contact (N = the student's GHL slot). The sync then
+//      flows it into enrollments.status → dashboards update per student.
+//   2. Move THAT student's opportunity card (matched by card name) from
+//      the school's source stage to its target stage. Sibling cards stay
+//      put until their own forms are done.
+//   3. Apply the school's enrollment tag to the parents (fires on the
+//      first ready student — the family now belongs on enrolled-scoped
+//      views).
 //
-// Fired as a fire-and-forget effect from the portal form submit
-// handler, alongside the existing completion-tag effect. Both share the
-// same "is the family fully complete?" definition to stay consistent.
+// Card ↔ student name matching (Wooster convention: cards are named
+// after the student):
+//   - exact "first last" match (case/whitespace-insensitive), else
+//   - a card whose name starts with the student's first name, IF no
+//     other student in the family shares that first name and only one
+//     card matches. Anything ambiguous or misspelled is SKIPPED with a
+//     warning — never guess. The office fixes the card name in GHL and
+//     the next submission (or backfill run) picks it up.
 //
-// Idempotent: writing the same tag or moving an opportunity to the
-// stage it's already in are both no-ops on GHL's side.
+// All levers are per-school via school_branding (migration 012):
+// enrollment_tag, pipeline_move_from_stage, pipeline_move_to_stage.
+// NULL/empty → that lever is off. The status-field write additionally
+// requires the school's field schema to map enrollmentStatus.
+//
+// Idempotent: re-writing the same field value, re-applying a tag, and
+// re-moving an already-moved card are all no-ops.
 
 import { query } from '@/lib/db';
 import { loadGhlClient, type GhlClient } from '@/lib/ghl/client';
 
 interface FormRow { id: string; per_student: boolean }
-interface StudentRow { id: string }
+interface StudentRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  ghl_slot: number | null;
+}
 interface SubRow { form_definition_id: string; student_id: string | null }
 
-async function isFamilyFullyComplete(schoolId: string, familyId: string): Promise<boolean> {
+const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+// Which students in the family are fully complete? Returns [] when the
+// school has no active forms or the family has no active students.
+async function completedStudents(schoolId: string, familyId: string): Promise<StudentRow[]> {
   const { rows: forms } = await query<FormRow>(
     `SELECT id, per_student
        FROM portal_form_definitions
@@ -34,14 +56,16 @@ async function isFamilyFullyComplete(schoolId: string, familyId: string): Promis
         AND COALESCE(audience, 'parents') = 'parents'`,
     [schoolId],
   );
-  if (forms.length === 0) return false;
+  if (forms.length === 0) return [];
 
   const { rows: students } = await query<StudentRow>(
-    `SELECT id FROM students
+    `SELECT id, first_name, last_name,
+            NULLIF(metadata->>'ghl_slot','')::int AS ghl_slot
+       FROM students
       WHERE school_id = $1 AND family_id = $2 AND status = 'active'`,
     [schoolId, familyId],
   );
-  if (students.length === 0) return false;
+  if (students.length === 0) return [];
   const studentIds = students.map((s) => s.id);
 
   const { rows: subs } = await query<SubRow>(
@@ -60,16 +84,17 @@ async function isFamilyFullyComplete(schoolId: string, familyId: string): Promis
     if (s.student_id) studentSubs.add(`${s.form_definition_id}|${s.student_id}`);
     else familySubs.add(s.form_definition_id);
   }
-  for (const form of forms) {
-    if (form.per_student) {
-      for (const sid of studentIds) {
-        if (!studentSubs.has(`${form.id}|${sid}`)) return false;
-      }
-    } else {
-      if (!familySubs.has(form.id)) return false;
-    }
-  }
-  return true;
+
+  // Family-level forms are shared prerequisites for every student.
+  const familyFormsDone = forms
+    .filter((f) => !f.per_student)
+    .every((f) => familySubs.has(f.id));
+  if (!familyFormsDone) return [];
+
+  const perStudentForms = forms.filter((f) => f.per_student);
+  return students.filter((st) =>
+    perStudentForms.every((f) => studentSubs.has(`${f.id}|${st.id}`)),
+  );
 }
 
 interface AdvanceConfig {
@@ -78,39 +103,24 @@ interface AdvanceConfig {
   pipeline_move_to_stage: string | null;
 }
 
-interface Parent {
-  ghl_contact_id: string;
-  is_primary: boolean;
-}
-
-interface OppRow {
+interface LiveOpp {
   id: string;
-  pipeline_id: string;
-  stage_id: string;
-}
-
-interface TargetStageRow {
-  stage_id: string;
-  pipeline_id: string;
+  name: string;
+  pipelineId: string;
+  pipelineStageId: string;
+  status: string;
 }
 
 export interface AdvanceResult {
   ran: boolean;
   reason?: string;
+  students_ready?: number;
+  status_fields_written?: number;
   tag_applied_to?: number;
   opportunities_moved?: number;
-  opportunities_skipped?: number;
   errors: string[];
 }
 
-/**
- * If the family is fully complete AND the school has advance config:
- *   1) apply enrollment_tag to every parent's GHL contact,
- *   2) move every open opportunity whose current stage matches
- *      pipeline_move_from_stage to pipeline_move_to_stage.
- * Both steps are best-effort and independent — one failing doesn't
- * abort the other.
- */
 export async function maybeAdvanceOnCompletion(opts: {
   schoolId: string;
   familyId: string;
@@ -123,19 +133,37 @@ export async function maybeAdvanceOnCompletion(opts: {
     [opts.schoolId],
   );
   const cfg = brandingRows[0] ?? {
-    enrollment_tag: null,
-    pipeline_move_from_stage: null,
-    pipeline_move_to_stage: null,
+    enrollment_tag: null, pipeline_move_from_stage: null, pipeline_move_to_stage: null,
   };
   const enrollmentTag = (cfg.enrollment_tag ?? '').trim() || null;
   const fromStage = (cfg.pipeline_move_from_stage ?? '').trim() || null;
   const toStage = (cfg.pipeline_move_to_stage ?? '').trim() || null;
-  if (!enrollmentTag && !(fromStage && toStage)) {
+
+  // Status-field lever: on iff the school's field schema maps enrollmentStatus.
+  const { rows: schemaRows } = await query<{ base: string | null }>(
+    `SELECT student_fields->>'enrollmentStatus' AS base
+       FROM school_field_schemas WHERE school_id = $1`,
+    [opts.schoolId],
+  );
+  const statusBase = (schemaRows[0]?.base ?? '').trim() || null;
+
+  if (!enrollmentTag && !(fromStage && toStage) && !statusBase) {
     return { ran: false, reason: 'no_advance_config', errors };
   }
 
-  const complete = await isFamilyFullyComplete(opts.schoolId, opts.familyId);
-  if (!complete) return { ran: false, reason: 'family_not_yet_complete', errors };
+  const ready = await completedStudents(opts.schoolId, opts.familyId);
+  if (ready.length === 0) return { ran: false, reason: 'no_students_complete', errors };
+
+  const { rows: primary } = await query<{ ghl_contact_id: string }>(
+    `SELECT ghl_contact_id FROM parents
+      WHERE school_id = $1 AND family_id = $2 AND is_primary = true
+        AND ghl_contact_id IS NOT NULL LIMIT 1`,
+    [opts.schoolId, opts.familyId],
+  );
+  if (primary.length === 0) {
+    return { ran: false, reason: 'no_primary_parent_with_ghl_contact', errors };
+  }
+  const contactId = primary[0].ghl_contact_id;
 
   let client: GhlClient;
   try {
@@ -144,12 +172,111 @@ export async function maybeAdvanceOnCompletion(opts: {
     return { ran: false, reason: 'ghl_client_load_failed', errors: [String(e)] };
   }
 
-  // Step 1: enrollment tag → every active parent.
+  // ── 1. Per-student enrollment-status field writes ──────────────────
+  let fieldsWritten = 0;
+  if (statusBase) {
+    // Resolve slot → field id from the location's field list. Slot 1 is
+    // the bare key (student_enrollment_status), slots 2+ are prefixed.
+    try {
+      const res = await client.axios.get(`/locations/${client.locationId}/customFields`, {
+        params: { model: 'contact' },
+      });
+      const fields: Array<{ id: string; fieldKey?: string }> = res.data.customFields ?? [];
+      const idByKey = new Map(fields.map((f) => [String(f.fieldKey ?? '').replace(/^contact\./, ''), f.id]));
+      const slotKey = (slot: number) => (slot === 1 ? `student_${statusBase}` : `student_${slot}_${statusBase}`);
+
+      const updates: Array<{ id: string; value: string }> = [];
+      for (const st of ready) {
+        if (!st.ghl_slot) { errors.push(`no ghl_slot for student ${st.first_name} ${st.last_name} — status field skipped`); continue; }
+        const fid = idByKey.get(slotKey(st.ghl_slot));
+        if (!fid) { errors.push(`field ${slotKey(st.ghl_slot)} not found on location — status field skipped`); continue; }
+        updates.push({ id: fid, value: 'enrolled' });
+      }
+      if (updates.length > 0) {
+        await client.axios.put(`/contacts/${contactId}`, { customFields: updates });
+        fieldsWritten = updates.length;
+      }
+    } catch (err) {
+      errors.push(`status-field write: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // ── 2. Per-student opportunity card moves (matched by card name) ───
+  let moved = 0;
+  if (fromStage && toStage) {
+    try {
+      // Live fetch — the cache has no card names and may hold stale stages.
+      const res = await client.axios.get('/opportunities/search', {
+        params: { location_id: client.locationId, contact_id: contactId, limit: 40 },
+      });
+      const opps: LiveOpp[] = (res.data.opportunities ?? []).filter((o: LiveOpp) => o.status === 'open');
+
+      // Stage-name → stage-id maps from our cache (per pipeline).
+      const { rows: stageRows } = await query<{ pipeline_id: string; stage_id: string; stage_name: string }>(
+        `SELECT DISTINCT pipeline_id, stage_id, stage_name
+           FROM ghl_opportunities WHERE school_id = $1`,
+        [opts.schoolId],
+      );
+      const fromIds = new Set(stageRows.filter((r) => r.stage_name === fromStage).map((r) => r.stage_id));
+      const toIdByPipeline = new Map(
+        stageRows.filter((r) => r.stage_name === toStage).map((r) => [r.pipeline_id, r.stage_id]),
+      );
+
+      const candidates = opps.filter((o) => fromIds.has(o.pipelineStageId));
+
+      const firstNameCounts = new Map<string, number>();
+      const { rows: allStudents } = await query<{ first_name: string }>(
+        `SELECT first_name FROM students
+          WHERE school_id = $1 AND family_id = $2 AND status = 'active'`,
+        [opts.schoolId, opts.familyId],
+      );
+      for (const s of allStudents) {
+        const k = norm(s.first_name);
+        firstNameCounts.set(k, (firstNameCounts.get(k) ?? 0) + 1);
+      }
+
+      for (const st of ready) {
+        const full = norm(`${st.first_name} ${st.last_name}`);
+        const first = norm(st.first_name);
+
+        let matches = candidates.filter((o) => norm(o.name) === full);
+        if (matches.length === 0 && (firstNameCounts.get(first) ?? 0) === 1) {
+          // First-name fallback only when the name is unique in the family.
+          matches = candidates.filter((o) => norm(o.name).startsWith(first));
+          if (matches.length > 1) {
+            errors.push(`ambiguous cards for "${st.first_name} ${st.last_name}" (${matches.map((m) => m.name).join(' / ')}) — skipped, fix card names in GHL`);
+            continue;
+          }
+        }
+        if (matches.length === 0) {
+          errors.push(`no ${fromStage} card matches "${st.first_name} ${st.last_name}" — skipped (card may be misspelled, already moved, or missing)`);
+          continue;
+        }
+
+        for (const card of matches) {
+          const targetId = toIdByPipeline.get(card.pipelineId);
+          if (!targetId) { errors.push(`target stage "${toStage}" unknown in pipeline ${card.pipelineId}`); continue; }
+          try {
+            await client.axios.put(`/opportunities/${card.id}`, {
+              pipelineId: card.pipelineId,
+              pipelineStageId: targetId,
+            });
+            moved++;
+          } catch (err) {
+            errors.push(`move card "${card.name}": ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }
+    } catch (err) {
+      errors.push(`opportunity sweep: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // ── 3. Enrollment tag → every active parent (first ready student) ──
   let tagged = 0;
   if (enrollmentTag) {
-    const { rows: parents } = await query<Parent>(
-      `SELECT ghl_contact_id, is_primary
-         FROM parents
+    const { rows: parents } = await query<{ ghl_contact_id: string }>(
+      `SELECT ghl_contact_id FROM parents
         WHERE school_id = $1 AND family_id = $2 AND status = 'active'
           AND ghl_contact_id IS NOT NULL`,
       [opts.schoolId, opts.familyId],
@@ -164,79 +291,15 @@ export async function maybeAdvanceOnCompletion(opts: {
     }
   }
 
-  // Step 2: opportunity moves → every open opp whose current stage matches.
-  let moved = 0;
-  let skipped = 0;
-  if (fromStage && toStage) {
-    // The primary parent's contact is the anchor for opportunities in
-    // Wooster's setup. If we ever hit a school where multiple parents own
-    // separate opportunities we'd sweep all of them — but querying by
-    // primary keeps the safe default of "one family, one opportunity
-    // owner" and avoids double-moving co-parent-mirrored cards.
-    const { rows: primary } = await query<{ ghl_contact_id: string }>(
-      `SELECT ghl_contact_id FROM parents
-        WHERE school_id = $1 AND family_id = $2 AND is_primary = true
-          AND ghl_contact_id IS NOT NULL LIMIT 1`,
-      [opts.schoolId, opts.familyId],
-    );
-    if (primary.length === 0) {
-      errors.push('no_primary_parent_with_ghl_contact');
-    } else {
-      const contactId = primary[0].ghl_contact_id;
-      // Every open opp owned by this contact currently sitting in fromStage.
-      const { rows: opps } = await query<OppRow>(
-        `SELECT id, pipeline_id, stage_id
-           FROM ghl_opportunities
-          WHERE school_id = $1
-            AND ghl_contact_id = $2
-            AND stage_name = $3
-            AND status = 'open'`,
-        [opts.schoolId, contactId, fromStage],
-      );
-      if (opps.length === 0) {
-        skipped = 1;
-      } else {
-        // Resolve target stage id per pipeline (same stage name might exist
-        // in multiple pipelines with different ids).
-        const targetStageByPipeline = new Map<string, string>();
-        for (const opp of opps) {
-          if (targetStageByPipeline.has(opp.pipeline_id)) continue;
-          const { rows: t } = await query<TargetStageRow>(
-            `SELECT DISTINCT stage_id, pipeline_id
-               FROM ghl_opportunities
-              WHERE school_id = $1 AND pipeline_id = $2 AND stage_name = $3
-              LIMIT 1`,
-            [opts.schoolId, opp.pipeline_id, toStage],
-          );
-          if (t.length === 0) {
-            errors.push(`target stage "${toStage}" not found in pipeline ${opp.pipeline_id} (no existing card in it — set one manually first)`);
-            continue;
-          }
-          targetStageByPipeline.set(opp.pipeline_id, t[0].stage_id);
-        }
-        for (const opp of opps) {
-          const targetStageId = targetStageByPipeline.get(opp.pipeline_id);
-          if (!targetStageId) { skipped++; continue; }
-          if (opp.stage_id === targetStageId) { skipped++; continue; }
-          try {
-            await client.axios.put(`/opportunities/${opp.id}`, {
-              pipelineId: opp.pipeline_id,
-              pipelineStageId: targetStageId,
-            });
-            moved++;
-          } catch (err) {
-            errors.push(`move opp ${opp.id}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-      }
-    }
+  if (errors.length > 0) {
+    console.warn('[advance-on-completion]', opts.familyId, errors);
   }
-
   return {
     ran: true,
+    students_ready: ready.length,
+    status_fields_written: fieldsWritten,
     tag_applied_to: tagged,
     opportunities_moved: moved,
-    opportunities_skipped: skipped,
     errors,
   };
 }

@@ -105,6 +105,12 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
   const studentName = sub.student_first_name
     ? `${sub.student_preferred_name || sub.student_first_name} ${sub.student_last_name}`
     : null;
+  // Legacy rows carry `_legacy_answers` — [{key,label,value|file,name}] —
+  // for answers stored under the previous system's keys.
+  const legacyAnswers: Array<{ key: string; label: string; value?: string; file?: string; name?: string }> =
+    Array.isArray((sub.responses as Record<string, unknown>)?._legacy_answers)
+      ? ((sub.responses as Record<string, unknown>)._legacy_answers as Array<{ key: string; label: string; value?: string; file?: string; name?: string }>)
+      : [];
 
   return (
     <div className="bg-white text-gray-900">
@@ -196,6 +202,16 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
             // parent/guardian" toggle when Parent 2 is already on file) stay
             // hidden on the saved/printed copy too.
             .filter((block) => (block as { hidden?: boolean }).hidden !== true)
+            // Legacy rows: skip input blocks with no saved value — the live
+            // form may have fields the old system never asked, and a wall of
+            // "—" reads as "nothing was submitted".
+            .filter((block) => {
+              if (sub.status !== 'legacy_imported') return true;
+              const b = block as { key?: string; type?: string };
+              if (!b.key) return true; // headings / paragraphs
+              const v = (sub.responses as Record<string, unknown>)[b.key];
+              return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
+            })
             .map((block, i) => (
             <PrintBlock
               key={i}
@@ -205,6 +221,32 @@ export default async function PrintSubmissionPage({ params }: { params: PagePara
             />
           ))}
         </div>
+
+        {/* Legacy submissions: answers that came over from the previous form
+            system under the OLD question labels (resolved from the school's
+            GHL field names by scripts/enrich-legacy-submission-answers.mjs).
+            Rendered so the parent sees exactly what they submitted even when
+            the live form's field keys differ. */}
+        {legacyAnswers.length > 0 ? (
+          <section className="mt-6 rounded-md border border-blue-200 bg-blue-50/40 p-4">
+            <h2 className="text-sm font-semibold text-blue-900">
+              {sub.status === 'legacy_imported' ? 'Answers as originally submitted' : 'Additional answers on file'}
+            </h2>
+            <p className="mt-0.5 text-[11px] text-blue-800/80">From the previous form system, shown with the original question wording.</p>
+            <dl className="mt-3 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-x-6 gap-y-2 text-sm">
+              {legacyAnswers.map((a) => (
+                <div key={a.key} className="contents">
+                  <dt className="text-gray-600">{a.label}</dt>
+                  <dd className="text-gray-900 whitespace-pre-wrap break-words">
+                    {a.file ? (
+                      <a href={a.file} target="_blank" rel="noreferrer" className="underline text-blue-800">{a.name ?? 'attachment'}</a>
+                    ) : (a.value ?? '—')}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ) : null}
 
         {/* Second-guardian (co-sign) signature — shows both signatures on the
             saved/printed agreement once the co-signer has added theirs. */}

@@ -268,9 +268,9 @@ export function renderReminderEmail(o: {
     return { label: p.display_name, detail: '' };
   });
   const n = items.length;
-  const subject = n === 1
-    ? `Reminder: 1 form still needed — ${o.schoolLabel}`
-    : `Reminder: ${n} forms still needed — ${o.schoolLabel}`;
+  // No count in the subject — if a school's completion signals are ever
+  // slightly off, a wrong number reads worse than none (Clint, 2026-08-17).
+  const subject = `Reminder: you have forms that still need to be completed — ${o.schoolLabel}`;
 
   const greeting = o.parentFirstName?.trim() ? `Hi ${esc(o.parentFirstName.trim())},` : 'Hello,';
   const support = o.supportEmail
@@ -288,7 +288,7 @@ export function renderReminderEmail(o: {
   <h2 style="margin:0 0 16px;font-size:18px;">${esc(o.schoolLabel)} — a few forms still need your attention</h2>
   <p style="margin:0 0 12px;font-size:14px;line-height:1.5;">${greeting}</p>
   <p style="margin:0 0 12px;font-size:14px;line-height:1.5;">
-    Thanks for getting started in the Family Portal. Our records show the following ${n === 1 ? 'form is' : 'forms are'} still outstanding for your family:
+    Thanks for getting started in the Family Portal. Our records show you still have forms that need to be completed for your family:
   </p>
   <ul style="margin:0 0 20px 20px;padding:0;font-size:14px;line-height:1.5;">${listHtml}</ul>
   <p style="margin:0 0 8px;font-size:14px;line-height:1.5;">Click below to sign in — no password needed — and you'll land right on your checklist. Each form only takes a few minutes.</p>
@@ -304,7 +304,7 @@ export function renderReminderEmail(o: {
 
 ${greeting.replace(/,$/, ',')}
 
-Thanks for getting started in the Family Portal. Our records show the following ${n === 1 ? 'form is' : 'forms are'} still outstanding for your family:
+Thanks for getting started in the Family Portal. Our records show you still have forms that need to be completed for your family:
 
 ${listText}
 

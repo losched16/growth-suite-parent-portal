@@ -1209,6 +1209,18 @@ export async function POST(request: NextRequest) {
       })
     ).catch((e) => console.error('[portal-forms/submit] completion-tag effect failed:', e)));
 
+    // 14b. Advance-on-completion (migration 012): when the family reaches
+    //      100%, optionally apply the school's enrollment tag and move
+    //      every open opportunity card the family owns from a source
+    //      stage to a target stage (e.g. Documents Requested → Enrolled).
+    //      All levers opt-in per school via school_branding columns.
+    postEffects.push(import('@/lib/forms/advance-on-completion').then((m) =>
+      m.maybeAdvanceOnCompletion({
+        schoolId: session.school_id,
+        familyId: session.family_id,
+      })
+    ).catch((e) => console.error('[portal-forms/submit] advance-on-completion effect failed:', e)));
+
     // 15. Per-form sign-up tags (migration 097) — write the form's
     //     submit_tags to every parent contact on the family so the
     //     office can email the group from a CRM tag smart list.

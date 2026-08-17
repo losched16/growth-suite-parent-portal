@@ -121,6 +121,9 @@ export async function POST(request: NextRequest) {
       effects.push(import('@/lib/forms/completion-tag').then((m) =>
         m.maybeApplyCompletionTag({ schoolId: sub.school_id, familyId: sub.family_id! })
       ).catch((e) => console.error('[portal-forms/cosign] completion-tag failed:', e)));
+      effects.push(import('@/lib/forms/advance-on-completion').then((m) =>
+        m.maybeAdvanceOnCompletion({ schoolId: sub.school_id, familyId: sub.family_id! })
+      ).catch((e) => console.error('[portal-forms/cosign] advance-on-completion failed:', e)));
     }
     await Promise.race([
       Promise.allSettled(effects),

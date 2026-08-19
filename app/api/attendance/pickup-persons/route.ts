@@ -138,18 +138,45 @@ export async function POST(request: NextRequest) {
   // insensitive) in the same family AND active=true, treat it as an
   // edit instead of an insert. Migration 045's partial unique index
   // would error otherwise.
-  const ins = await query<{ id: string }>(
-    `INSERT INTO pickup_persons (school_id, added_by_parent_id, family_id, name, relationship, phone, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (school_id, family_id, lower(name)) WHERE active = true
-     DO UPDATE SET relationship = EXCLUDED.relationship,
-                   phone = COALESCE(EXCLUDED.phone, pickup_persons.phone),
-                   notes = COALESCE(EXCLUDED.notes, pickup_persons.notes),
-                   updated_at = now()
-     RETURNING id`,
-    [session.school_id, session.parent_id, familyId, name, relationship, phone, notes],
+  //
+  // NOTE: the unique index that actually exists is
+  //   pickup_persons_no_dupes_active (school_id, family_id, added_by_parent_id, lower(name)) WHERE active
+  // — per ADDING parent. An ON CONFLICT target of (school_id, family_id,
+  // lower(name)) matches no index, so Postgres raised 42P10 and EVERY
+  // parent-side add failed with an error (Wooster, 2026-08-19). Do the
+  // family-level dedupe explicitly, then insert against the real index.
+  const { rows: sameName } = await query<{ id: string }>(
+    `SELECT id FROM pickup_persons
+      WHERE school_id = $1 AND family_id = $2 AND active = true AND lower(name) = lower($3)
+      ORDER BY created_at LIMIT 1`,
+    [session.school_id, familyId, name],
   );
-  const pickupPersonId = ins.rows[0].id;
+  let pickupPersonId: string;
+  if (sameName.length > 0) {
+    pickupPersonId = sameName[0].id;
+    await query(
+      `UPDATE pickup_persons
+          SET relationship = $2,
+              phone = COALESCE($3, phone),
+              notes = COALESCE($4, notes),
+              updated_at = now()
+        WHERE id = $1`,
+      [pickupPersonId, relationship, phone, notes],
+    );
+  } else {
+    const ins = await query<{ id: string }>(
+      `INSERT INTO pickup_persons (school_id, added_by_parent_id, family_id, name, relationship, phone, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (school_id, family_id, added_by_parent_id, lower(name)) WHERE active = true
+       DO UPDATE SET relationship = EXCLUDED.relationship,
+                     phone = COALESCE(EXCLUDED.phone, pickup_persons.phone),
+                     notes = COALESCE(EXCLUDED.notes, pickup_persons.notes),
+                     updated_at = now()
+       RETURNING id`,
+      [session.school_id, session.parent_id, familyId, name, relationship, phone, notes],
+    );
+    pickupPersonId = ins.rows[0].id;
+  }
 
   // Replace the per-student authorization set in one transaction-ish
   // pair: delete + insert. Empty `persistIds` means "all kids".

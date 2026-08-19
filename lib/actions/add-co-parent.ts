@@ -134,7 +134,13 @@ async function inner(formData: FormData): Promise<Result> {
           parent_2_first_name: firstName,
           parent_2_last_name: lastName,
         };
-        if (phone) fields.parent_2_cell_phone = phone;
+        if (phone) { fields.parent_2_cell_phone = phone; fields.parent_2_phone = phone; } // schools map either key; helper skips the missing one
+        // Email MUST reach GHL too — the snapshot sync rebuilds the parent
+        // row from the contact, so a co-parent whose email lives only in our
+        // DB loses it on the next rebuild and can never log in (Wooster,
+        // 2026-08-19: 138 of 140 Parent-2 rows had no email). Schools
+        // without a parent_2_email field just skip it (helper semantics).
+        if (email) fields.parent_2_email = email;
         const r = await updateContactCustomFields(client, inviter.ghl_contact_id, fields);
         ghlWrote = r.updated;
         ghlSkipped = r.skipped;

@@ -26,6 +26,7 @@ interface DefRow {
   category: string | null;
   per_student: boolean;
   required_for: string | null;
+  is_optional: boolean | null;
   fee_amount: string | null;
   one_submission_per_year: boolean;
   resubmission_allowed: boolean;
@@ -70,7 +71,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
   const [defs, students, subs, flagCounts] = await Promise.all([
     query<DefRow>(
       `SELECT id, slug, display_name, description, category, per_student,
-              required_for, fee_amount, one_submission_per_year,
+              required_for, is_optional, fee_amount, one_submission_per_year,
               resubmission_allowed, needs_review, applies_to
        FROM portal_form_definitions
        WHERE school_id = $1 AND is_active = true
@@ -310,8 +311,11 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     ...[...byCategory.keys()].filter((c) => !CATEGORY_ORDER.includes(c)).sort(),
   ];
 
-  const total = visibleDefs.length;
-  const complete = visibleDefs.filter((d) => isFormComplete(d)).length;
+  // Optional forms don't count toward the family's completion — they're
+  // offered, not owed.
+  const requiredDefs = visibleDefs.filter((d) => d.is_optional !== true);
+  const total = requiredDefs.length;
+  const complete = requiredDefs.filter((d) => isFormComplete(d)).length;
   const pct = total ? Math.round((complete / total) * 100) : 0;
 
   return (
@@ -439,6 +443,11 @@ function FormRow({
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-sm font-semibold text-gray-900">{def.display_name}</h3>
             <div className="flex items-center gap-2">
+              {def.is_optional ? (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                  Optional
+                </span>
+              ) : null}
               {def.fee_amount && Number(def.fee_amount) > 0 ? (
                 <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">
                   ${Number(def.fee_amount).toFixed(2)} fee
@@ -461,7 +470,7 @@ function FormRow({
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800">
                   {studentsDone.length}/{totalStudents} done
                 </span>
-              ) : (
+              ) : def.is_optional ? null : (
                 <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-700">
                   <Clock className="inline h-3 w-3 mr-0.5" /> Pending
                 </span>

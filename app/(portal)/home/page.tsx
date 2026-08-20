@@ -141,7 +141,7 @@ export default async function HomePage() {
             <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <h2 className="text-base font-semibold text-amber-900">
-                Pending enrollment forms ({pendingForms.length})
+                Action Items ({pendingForms.length})
               </h2>
               <p className="mt-0.5 text-sm text-amber-800">
                 The school needs you to complete the following form{pendingForms.length === 1 ? '' : 's'}.

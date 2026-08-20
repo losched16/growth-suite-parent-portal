@@ -94,6 +94,9 @@ export async function loadPendingForms(opts: {
       AND d.is_active = true
       AND d.audience IS DISTINCT FROM 'staff'
       AND COALESCE(d.list_in_checklist, true) = true
+      -- Optional forms (migration 102) are offered, never owed: excluded
+      -- from the home Action Items banner AND the reminder emails.
+      AND COALESCE(d.is_optional, false) = false
     ORDER BY
       CASE d.category
         WHEN 'registration' THEN 1

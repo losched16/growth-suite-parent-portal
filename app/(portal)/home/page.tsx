@@ -291,10 +291,10 @@ export default async function HomePage() {
       {/* Quick links */}
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <QuickLink
-          href="/forms"
+          href="/forms-v2"
           icon={<FileText className="h-5 w-5" />}
-          title="Forms & Documents"
-          description="See what's pending and submit re-enrollment, emergency cards, and more."
+          title="Forms"
+          description="See what's pending and submit forms, permission slips, and more."
         />
         {id.branding.support_email ? (
           <a

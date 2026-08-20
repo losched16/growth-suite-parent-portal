@@ -73,6 +73,26 @@ export async function readSession(): Promise<ParentClaims | null> {
   return verifySession(token);
 }
 
+// Like readSession, but re-resolves family_id from the DB. The session JWT is
+// long-lived and carries the family_id from mint time, which goes STALE when a
+// parent is relocated into a different family (e.g. a co-parent household
+// merge). Pages self-heal via loadIdentity; mutation/API routes that authorize
+// by family_id must too, or the parent 403s on their OWN child and any write
+// misfiles under the retired family. Only ever CORRECTS the id — on a missing
+// row or DB hiccup the JWT claim stands (downstream family scoping fails safe).
+export async function readSessionFresh(): Promise<ParentClaims | null> {
+  const claims = await readSession();
+  if (!claims) return null;
+  try {
+    const { rows } = await query<{ family_id: string }>(
+      `SELECT family_id FROM parents WHERE id = $1 AND school_id = $2 AND status = 'active'`,
+      [claims.parent_id, claims.school_id],
+    );
+    if (rows[0]?.family_id) claims.family_id = rows[0].family_id;
+  } catch { /* keep the JWT family_id on a transient DB error */ }
+  return claims;
+}
+
 async function loadIdentity(claims: ParentClaims): Promise<ParentIdentity | null> {
   const { rows } = await query<{
     p_id: string; p_family_id: string; p_school_id: string;

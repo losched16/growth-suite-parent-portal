@@ -24,7 +24,7 @@
 import { NextResponse, after } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { readSession } from '@/lib/identity';
+import { readSessionFresh } from '@/lib/identity';
 import { loadSchoolSettings } from '@/lib/school-settings';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
 import { resolvePrefill, applyPrefillMap, todayString, isBlockVisible, hasPrefillConditions, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
@@ -110,7 +110,11 @@ const HEALTH_PROFILE_FIELDS = new Set([
 ]);
 
 export async function POST(request: NextRequest) {
-  const session = await readSession();
+  // readSessionFresh (not readSession): re-resolve family_id from the DB so a
+  // stale session claim (e.g. after a co-parent household merge relocated this
+  // parent) can't 403 them on their own child or misfile the submission under
+  // the retired family.
+  const session = await readSessionFresh();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   let fd: FormData;

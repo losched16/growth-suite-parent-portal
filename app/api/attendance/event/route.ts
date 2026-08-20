@@ -27,8 +27,7 @@
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { cookies } from 'next/headers';
-import { PARENT_SESSION_COOKIE, verifySession } from '@/lib/auth/session';
+import { readSessionFresh } from '@/lib/identity';
 import { pickupVisibleSql } from '@/lib/attendance/pickup-visibility';
 import { query } from '@/lib/db';
 
@@ -54,8 +53,10 @@ interface PickupRow {
 }
 
 export async function POST(request: NextRequest) {
-  const ck = await cookies();
-  const session = await verifySession(ck.get(PARENT_SESSION_COOKIE)?.value);
+  // readSessionFresh re-resolves family_id from the DB so a stale session claim
+  // (e.g. after a co-parent household merge) can't 403 a parent on their own
+  // child's check-in.
+  const session = await readSessionFresh();
   if (!session) return new NextResponse('unauthorized', { status: 401 });
 
   const fd = await request.formData();

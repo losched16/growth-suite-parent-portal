@@ -82,6 +82,14 @@ export async function loadStudentsForFamily(
      ) e ON true
      LEFT JOIN classrooms c ON c.id = e.classroom_id
      WHERE s.family_id = $1 AND s.status = 'active'
+       -- Hide children who have left. students.status alone isn't enough:
+       -- the GHL snapshot sync rebuilds every student as 'active' and puts
+       -- the real state on the enrollment row, so a withdrawn or graduated
+       -- sibling kept showing up in the parent's family view and in the
+       -- "For which student?" picker on every form (NLMA, 2026-08-19).
+       -- COALESCE keeps students with NO enrollment row visible — schools
+       -- that never create enrollments must keep working unchanged.
+       AND COALESCE(e.status, '') NOT IN ('withdrawn', 'alumni', 'declined')
        AND ($2::uuid IS NULL OR NOT EXISTS (
               SELECT 1 FROM parent_student_assignments psa WHERE psa.parent_id = $2::uuid)
             OR EXISTS (

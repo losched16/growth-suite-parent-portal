@@ -3,7 +3,7 @@
 // CSS custom properties so every page picks it up automatically.
 
 import Link from 'next/link';
-import { Home, Users, FileText, FilePen, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt, HelpCircle, Bell } from 'lucide-react';
+import { Home, Users, FileText, FilePen, FilePlus, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt, HelpCircle, Bell } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 
@@ -31,7 +31,21 @@ export default async function PortalLayout({ children }: { children: React.React
   // "Portal menus" settings (school_branding.portal_hidden_nav). Empty =
   // every menu shows. Source of truth is the DB, not code.
   const hidden = new Set(b.hidden_nav ?? []);
-  const navItems = NAV_ITEMS
+  // Opt-in "New Application" menu (settings.new_application_form_slug):
+  // schools that take additional-child applications through the portal
+  // set the slug and the menu item appears; everyone else is untouched.
+  const { rows: appRows } = await query<{ slug: string | null }>(
+    `SELECT settings->>'new_application_form_slug' AS slug FROM schools WHERE id = $1`,
+    [id.parent.school_id],
+  );
+  const allItems = appRows[0]?.slug
+    ? [
+        ...NAV_ITEMS.slice(0, 5),
+        { href: '/new-application', label: 'New Application', icon: FilePlus },
+        ...NAV_ITEMS.slice(5),
+      ]
+    : NAV_ITEMS;
+  const navItems = allItems
     .filter((item) => !hidden.has(item.href))
     // Per-school label overrides (e.g. DGM: 'School Documents' /
     // 'Parent Documents') — defaults stay for schools without overrides.

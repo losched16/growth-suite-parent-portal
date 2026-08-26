@@ -1003,7 +1003,39 @@ export async function POST(request: NextRequest) {
   const explicit = def.ghl_writeback ?? [];
   const seenWb = new Set(explicit.map((w) => w.field_key));
   const allWriteback = [...explicit, ...schemaWriteback.filter((w) => !seenWb.has(w.field_key))];
-  if (allWriteback.length > 0) {
+
+  // New-application opportunity card: when this form is the school's
+  // configured application form (settings.new_application_form_slug) and
+  // settings.new_application_opportunity names a pipeline + stage, each
+  // submission also creates a student-named opportunity card there —
+  // so the new child shows up on the admissions board immediately.
+  let applicationOpportunity: { pipelineId: string; stageId: string; name: string } | null = null;
+  const { rows: appCfgRows } = await query<{
+    cfg: { pipeline_id?: string; stage_id?: string; name_fields?: string[] } | null;
+    app_slug: string | null;
+  }>(
+    `SELECT settings->'new_application_opportunity' AS cfg,
+            settings->>'new_application_form_slug' AS app_slug
+       FROM schools WHERE id = $1`,
+    [session.school_id],
+  );
+  const appCfg = appCfgRows[0]?.cfg;
+  if (appCfgRows[0]?.app_slug === def.slug && appCfg?.pipeline_id && appCfg?.stage_id) {
+    const nameFields = Array.isArray(appCfg.name_fields) && appCfg.name_fields.length > 0
+      ? appCfg.name_fields
+      : ['child_first_name', 'child_last_name'];
+    const cardName = nameFields
+      .map((k) => String(responses[k] ?? '').trim())
+      .filter(Boolean)
+      .join(' ');
+    applicationOpportunity = {
+      pipelineId: appCfg.pipeline_id,
+      stageId: appCfg.stage_id,
+      name: cardName || def.display_name,
+    };
+  }
+
+  if (allWriteback.length > 0 || applicationOpportunity) {
     // after(): scheduled post-response work the runtime is REQUIRED to finish.
     // A bare fire-and-forget promise gets frozen when the serverless function
     // returns — which silently dropped every GHL writeback (ghl_synced_at
@@ -1018,6 +1050,7 @@ export async function POST(request: NextRequest) {
         writeback: allWriteback,
         fieldSchema: def.field_schema,
         responses,
+        applicationOpportunity,
       }).catch((err) => {
         console.error('[portal-forms/submit] GHL writeback crashed for', submissionId, ':', err);
       }),
@@ -1550,6 +1583,10 @@ interface PushGhlOpts {
   // selected pricing option's amount_cents.
   fieldSchema?: FormFieldBlock[];
   responses: Record<string, unknown>;
+  // New-application submissions: also create a student-named opportunity
+  // card in the school's admissions pipeline (deduped by name — a
+  // resubmission for the same child never doubles the card).
+  applicationOpportunity?: { pipelineId: string; stageId: string; name: string } | null;
 }
 
 async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Promise<void> {
@@ -1705,10 +1742,45 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
       }
       byKey[ghlKey] = v;
     }
+
+    // Application opportunity card — runs even when no fields were written
+    // (e.g. all 4 slots full: the office ESPECIALLY needs the card then).
+    // Deduped: an open card with the same name in the same pipeline on
+    // this contact is not created twice.
+    let opportunityError: string | null = null;
+    if (opts.applicationOpportunity) {
+      const { pipelineId, stageId, name } = opts.applicationOpportunity;
+      try {
+        const { data: search } = await client.axios.get<{
+          opportunities?: Array<{ name?: string; status?: string }>;
+        }>('/opportunities/search', {
+          params: { location_id: client.locationId, contact_id: contactId, pipeline_id: pipelineId },
+        });
+        const dup = (search.opportunities ?? []).some(
+          (o) => o.status === 'open'
+            && String(o.name ?? '').trim().toLowerCase() === name.trim().toLowerCase(),
+        );
+        if (!dup) {
+          await client.axios.post('/opportunities/', {
+            locationId: client.locationId,
+            pipelineId,
+            pipelineStageId: stageId,
+            contactId,
+            name,
+            status: 'open',
+          });
+        }
+      } catch (e) {
+        opportunityError = `opportunity card failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`;
+        console.error('[portal-forms/submit] application opportunity failed for', submissionId, ':', e);
+      }
+    }
+
     if (Object.keys(byKey).length === 0) {
+      const parts = [emptySlotError, opportunityError].filter(Boolean);
       await query(
         `UPDATE portal_form_submissions SET ghl_synced_at = now(), ghl_sync_error = $1 WHERE id = $2`,
-        [emptySlotError, submissionId],
+        [parts.length > 0 ? parts.join('; ') : null, submissionId],
       );
       return;
     }
@@ -1717,6 +1789,7 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
 
     const errParts: string[] = [];
     if (emptySlotError) errParts.push(emptySlotError);
+    if (opportunityError) errParts.push(opportunityError);
     if (result.skipped.length > 0) errParts.push(`skipped keys: ${result.skipped.join(', ')}`);
     await query(
       `UPDATE portal_form_submissions

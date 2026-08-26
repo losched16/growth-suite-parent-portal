@@ -92,6 +92,20 @@ interface GhlWritebackEntry {
   // write_pattern "School Day|Half Day" writes "School Day" to the contact's
   // daily_schedule field. No match → entry is skipped (never writes blank).
   write_pattern?: string;
+  // NEW-STUDENT applications: write into the first EMPTY student slot on
+  // the P1 contact (first N in 1..4 whose student_<N>_first_name has no
+  // value) instead of an existing student's slot. All entries flagged
+  // next_empty_slot share one resolved N per submission, so the whole
+  // application lands on the same slot and existing children are never
+  // overwritten. All 4 slots full → these entries are skipped and the
+  // submission's ghl_sync_error says so (the office adds the child by
+  // hand). Mutually exclusive with per_student in practice.
+  next_empty_slot?: boolean;
+  // Write this FIXED value instead of a form response — e.g. stamping
+  // enrollment_status = "Pending" on a new application. field_key is
+  // ignored (use a descriptive placeholder). Blank const_value never
+  // writes (same skip-blanks rule as responses).
+  const_value?: string;
 }
 
 // student.metadata field-keys we sync to from the health.* prefill slots
@@ -1599,6 +1613,37 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
       }
     }
 
+    // NEW-STUDENT slot resolution (application forms): entries flagged
+    // next_empty_slot target the first slot in 1..4 whose
+    // student_<N>_first_name is EMPTY on the P1 contact — so a new
+    // sibling's application fills the next open slot and can never
+    // overwrite an existing child. Resolved ONCE per submission (before
+    // any write) so every entry lands on the same slot.
+    const client = await loadGhlClient(opts.schoolId);
+    let emptySlotIndex: number | null = null;
+    let emptySlotError: string | null = null;
+    if (opts.writeback.some((wb) => wb.next_empty_slot)) {
+      const { loadFieldKeyIdMap } = await import('@/lib/ghl/writes');
+      const keyToId = await loadFieldKeyIdMap(client);
+      const { data } = await client.axios.get<{
+        contact?: { customFields?: Array<{ id: string; value: unknown }> };
+      }>(`/contacts/${contactId}`);
+      const cfs = data.contact?.customFields ?? [];
+      for (let n = 1; n <= 4; n++) {
+        const fieldId = keyToId.get(`student_${n}_first_name`);
+        if (!fieldId) continue; // slot doesn't exist at this school
+        const val = cfs.find((cf) => cf.id === fieldId)?.value;
+        if (val == null || String(val).trim() === '') {
+          emptySlotIndex = n;
+          break;
+        }
+      }
+      if (emptySlotIndex === null) {
+        emptySlotError =
+          'no empty student slot (all 4 in use) — add the new student to the contact manually';
+      }
+    }
+
     // Build the GHL field key for each writeback entry. Two patterns
     // are supported for per_student forms:
     //
@@ -1610,9 +1655,12 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
     //   (b) No placeholder → prefixes the key with `student_N_`, e.g.
     //         `cafe_worker_permission` → `student_2_cafe_worker_permission`
     //       Matches DG's per-student slot pattern.
+    //
+    // next_empty_slot entries use the same two patterns with the resolved
+    // empty slot number instead of an existing student's slot.
     const byKey: Record<string, string> = {};
     for (const wb of opts.writeback) {
-      const raw = opts.responses[wb.field_key];
+      const raw = wb.const_value != null ? wb.const_value : opts.responses[wb.field_key];
       let v = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw);
       // write_amount: push the selected pricing option's PRICE (whole dollars)
       // instead of the option label — e.g. choosing "Organic Lunch $2,100 —
@@ -1641,7 +1689,12 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
       // amendment that changes just one thing) never wipes existing data.
       if (v.trim() === '') continue;
       let ghlKey: string;
-      if (wb.per_student && slotIndex) {
+      if (wb.next_empty_slot) {
+        if (!emptySlotIndex) continue; // all slots full — recorded below
+        ghlKey = wb.ghl_field_key.includes('{slot}')
+          ? wb.ghl_field_key.replace(/\{slot\}/g, String(emptySlotIndex))
+          : `student_${emptySlotIndex}_${wb.ghl_field_key}`;
+      } else if (wb.per_student && slotIndex) {
         if (wb.ghl_field_key.includes('{slot}')) {
           ghlKey = wb.ghl_field_key.replace(/\{slot\}/g, String(slotIndex));
         } else {
@@ -1654,24 +1707,23 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
     }
     if (Object.keys(byKey).length === 0) {
       await query(
-        `UPDATE portal_form_submissions SET ghl_synced_at = now(), ghl_sync_error = NULL WHERE id = $1`,
-        [submissionId],
+        `UPDATE portal_form_submissions SET ghl_synced_at = now(), ghl_sync_error = $1 WHERE id = $2`,
+        [emptySlotError, submissionId],
       );
       return;
     }
 
-    const client = await loadGhlClient(opts.schoolId);
     const result = await updateContactCustomFields(client, contactId, byKey);
 
+    const errParts: string[] = [];
+    if (emptySlotError) errParts.push(emptySlotError);
+    if (result.skipped.length > 0) errParts.push(`skipped keys: ${result.skipped.join(', ')}`);
     await query(
       `UPDATE portal_form_submissions
          SET ghl_synced_at = now(),
              ghl_sync_error = $1
        WHERE id = $2`,
-      [
-        result.skipped.length > 0 ? `skipped keys: ${result.skipped.join(', ')}` : null,
-        submissionId,
-      ],
+      [errParts.length > 0 ? errParts.join('; ') : null, submissionId],
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

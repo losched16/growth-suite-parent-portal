@@ -36,6 +36,14 @@ async function loadFieldSchemaCached(client: GhlClient): Promise<Map<string, str
   return map;
 }
 
+// Public accessor for the fieldKey → field-id map (same 60s cache).
+// Used by callers that need to READ a contact's current values by key —
+// e.g. the new-application writeback locating the first empty
+// student_<N>_first_name slot before writing.
+export async function loadFieldKeyIdMap(client: GhlClient): Promise<Map<string, string>> {
+  return loadFieldSchemaCached(client);
+}
+
 export interface StandardContactUpdate {
   firstName?: string;
   lastName?: string;

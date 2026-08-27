@@ -34,6 +34,9 @@ export interface PendingForm {
   per_student: boolean;
   missing_student_ids: string[]; // per_student only
   family_missing: boolean;       // per_family only
+  // Office pushed this form to the family (live enrollment_invite):
+  // it renders as non-dismissible in the banner.
+  pushed: boolean;
 }
 
 interface FormRow {
@@ -46,6 +49,7 @@ interface FormRow {
   applies_to: FormAppliesTo | null;
   submitted_student_ids: string[] | null;
   family_has_any: boolean;
+  has_invite: boolean;
 }
 
 interface StudentRow {
@@ -90,7 +94,14 @@ export async function loadPendingForms(opts: {
             AND s.family_id = $1
             AND s.status IN ('submitted', 'paid', 'pending_payment', 'legacy_imported')
             AND COALESCE(s.is_test, false) = false
-       ) AS family_has_any
+       ) AS family_has_any,
+       EXISTS (
+         SELECT 1 FROM enrollment_invites i
+          WHERE i.form_definition_id = d.id
+            AND i.family_id = $1
+            AND i.consumed_at IS NULL
+            AND i.expires_at > now()
+       ) AS has_invite
      FROM portal_form_definitions d
     WHERE d.school_id = $2
       AND d.is_active = true
@@ -111,6 +122,22 @@ export async function loadPendingForms(opts: {
              AND i.family_id = $1
              AND i.consumed_at IS NULL
              AND i.expires_at > now()
+        )
+      )
+      -- Parent dismissals (migration 104): a family that dismissed a
+      -- form stops seeing it in the banner AND stops getting reminders.
+      -- An office push overrides the dismissal - pushed forms always owe.
+      AND (
+        NOT EXISTS (
+          SELECT 1 FROM portal_form_dismissals fd
+           WHERE fd.form_definition_id = d.id AND fd.family_id = $1
+        )
+        OR EXISTS (
+          SELECT 1 FROM enrollment_invites i2
+           WHERE i2.form_definition_id = d.id
+             AND i2.family_id = $1
+             AND i2.consumed_at IS NULL
+             AND i2.expires_at > now()
         )
       )
     ORDER BY
@@ -253,6 +280,7 @@ export async function loadPendingForms(opts: {
           id: r.id, slug: r.slug, display_name: r.display_name,
           description: r.description, category: r.category,
           per_student: true, missing_student_ids: missing, family_missing: false,
+          pushed: r.has_invite,
         });
       }
     } else if (!r.family_has_any && !ghlComplete(r.slug, { familyLevel: true })) {
@@ -267,6 +295,7 @@ export async function loadPendingForms(opts: {
         id: r.id, slug: r.slug, display_name: r.display_name,
         description: r.description, category: r.category,
         per_student: false, missing_student_ids: [], family_missing: true,
+        pushed: r.has_invite,
       });
     }
   }

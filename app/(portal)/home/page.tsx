@@ -170,6 +170,22 @@ export default async function HomePage() {
                         <ArrowRight className="h-4 w-4 text-amber-600 shrink-0" />
                       </div>
                     </Link>
+                    {/* Not-interested escape hatch (e.g. optional sports
+                        registrations). Hides the form from this banner +
+                        reminder emails for the whole family; the form
+                        stays available on the Forms page. Office-pushed
+                        forms are required and can't be dismissed. */}
+                    {!f.pushed ? (
+                      <form action="/api/portal-forms/dismiss" method="POST" className="text-right mt-0.5">
+                        <input type="hidden" name="form_definition_id" value={f.id} />
+                        <button
+                          type="submit"
+                          className="text-[11px] text-amber-700/80 hover:text-amber-900 underline"
+                        >
+                          Not interested &mdash; dismiss
+                        </button>
+                      </form>
+                    ) : null}
                   </li>
                 ))}
               </ul>

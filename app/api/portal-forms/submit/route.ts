@@ -1011,7 +1011,7 @@ export async function POST(request: NextRequest) {
   // so the new child shows up on the admissions board immediately.
   let applicationOpportunity: { pipelineId: string; stageId: string; name: string } | null = null;
   const { rows: appCfgRows } = await query<{
-    cfg: { pipeline_id?: string; stage_id?: string; name_fields?: string[] } | null;
+    cfg: { form_slug?: string; pipeline_id?: string; stage_id?: string; name_fields?: string[] } | null;
     app_slug: string | null;
   }>(
     `SELECT settings->'new_application_opportunity' AS cfg,
@@ -1020,7 +1020,12 @@ export async function POST(request: NextRequest) {
     [session.school_id],
   );
   const appCfg = appCfgRows[0]?.cfg;
-  if (appCfgRows[0]?.app_slug === def.slug && appCfg?.pipeline_id && appCfg?.stage_id) {
+  // The form that triggers the card: the opportunity config's own
+  // form_slug, falling back to the menu setting. Kept separate so a
+  // school can remove the self-serve MENU (office pushes the form
+  // per-family instead) while submissions still create the card.
+  const triggerSlug = appCfg?.form_slug ?? appCfgRows[0]?.app_slug;
+  if (triggerSlug === def.slug && appCfg?.pipeline_id && appCfg?.stage_id) {
     const nameFields = Array.isArray(appCfg.name_fields) && appCfg.name_fields.length > 0
       ? appCfg.name_fields
       : ['child_first_name', 'child_last_name'];

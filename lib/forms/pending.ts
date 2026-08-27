@@ -82,12 +82,14 @@ export async function loadPendingForms(opts: {
             AND s.family_id = $1
             AND s.student_id IS NOT NULL
             AND s.status IN ('submitted', 'paid', 'pending_payment', 'legacy_imported')
+            AND COALESCE(s.is_test, false) = false
        ) AS submitted_student_ids,
        EXISTS (
          SELECT 1 FROM portal_form_submissions s
           WHERE s.form_definition_id = d.id
             AND s.family_id = $1
             AND s.status IN ('submitted', 'paid', 'pending_payment', 'legacy_imported')
+            AND COALESCE(s.is_test, false) = false
        ) AS family_has_any
      FROM portal_form_definitions d
     WHERE d.school_id = $2

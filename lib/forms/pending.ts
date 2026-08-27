@@ -93,10 +93,24 @@ export async function loadPendingForms(opts: {
     WHERE d.school_id = $2
       AND d.is_active = true
       AND d.audience IS DISTINCT FROM 'staff'
-      AND COALESCE(d.list_in_checklist, true) = true
-      -- Optional forms (migration 102) are offered, never owed: excluded
-      -- from the home Action Items banner AND the reminder emails.
-      AND COALESCE(d.is_optional, false) = false
+      -- A form is OWED (yellow Action Items banner + reminders) when:
+      --   (a) it's a listed, non-optional checklist form — the default; OR
+      --   (b) the office PUSHED it to this family (live enrollment_invite).
+      -- (b) is how link-only forms like the New Student Application or a
+      -- one-off amendment become "required" for exactly one family:
+      -- Leslie sends it, the family's yellow box says the form is
+      -- waiting, and nobody else ever sees it (8/26 call).
+      AND (
+        (COALESCE(d.list_in_checklist, true) = true
+         AND COALESCE(d.is_optional, false) = false)
+        OR EXISTS (
+          SELECT 1 FROM enrollment_invites i
+           WHERE i.form_definition_id = d.id
+             AND i.family_id = $1
+             AND i.consumed_at IS NULL
+             AND i.expires_at > now()
+        )
+      )
     ORDER BY
       CASE d.category
         WHEN 'registration' THEN 1

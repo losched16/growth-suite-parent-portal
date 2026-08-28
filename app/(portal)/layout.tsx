@@ -59,6 +59,25 @@ export default async function PortalLayout({ children }: { children: React.React
   );
   const unreadCount = Number(unreadRows[0]?.n ?? 0);
 
+  // Split co-parents: the same email can be a parent in more than one
+  // family at this school (own household + co-parent on the other
+  // household). Logins land in ONE of them — surface the rest as a
+  // switcher so both kids' portals are reachable from one account.
+  const { rows: familyRows } = await query<{ family_id: string; display_name: string | null; kids: string | null }>(
+    `SELECT p.family_id, f.display_name,
+            (SELECT string_agg(s.first_name, ', ' ORDER BY s.first_name)
+               FROM students s WHERE s.family_id = f.id AND s.status = 'active') AS kids
+       FROM parents p
+       JOIN families f ON f.id = p.family_id
+      WHERE p.school_id = $1 AND LOWER(p.email) = LOWER($2) AND p.status = 'active'
+      ORDER BY f.display_name`,
+    [id.parent.school_id, id.parent.email ?? ''],
+  );
+  const otherFamilies = id.parent.email
+    ? familyRows.filter((f) => f.family_id !== id.parent.family_id)
+    : [];
+  const currentFamily = familyRows.find((f) => f.family_id === id.parent.family_id);
+
   return (
     <div
       className="flex min-h-screen flex-col"
@@ -86,6 +105,29 @@ export default async function PortalLayout({ children }: { children: React.React
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {otherFamilies.length > 0 && (
+              <details className="relative">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50 [&::-webkit-details-marker]:hidden">
+                  <span className="max-w-[9rem] truncate">
+                    {currentFamily?.kids || currentFamily?.display_name || 'This family'}
+                  </span>
+                  <span aria-hidden>▾</span>
+                </summary>
+                <div className="absolute right-0 z-20 mt-1 w-56 rounded border border-gray-200 bg-white py-1 shadow-lg">
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-400">Switch family</div>
+                  {otherFamilies.map((f) => (
+                    <a
+                      key={f.family_id}
+                      href={`/api/auth/switch-family?family_id=${encodeURIComponent(f.family_id)}`}
+                      className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                    >
+                      <span className="font-medium">{f.display_name ?? 'Family'}</span>
+                      {f.kids ? <span className="text-gray-500"> — {f.kids}</span> : null}
+                    </a>
+                  ))}
+                </div>
+              </details>
+            )}
             <span className="hidden text-xs text-gray-600 sm:inline">
               {id.parent.first_name} {id.parent.last_name}
             </span>

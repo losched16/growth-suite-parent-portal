@@ -28,6 +28,14 @@ export async function GET(request: NextRequest) {
   const familyId = request.nextUrl.searchParams.get('family_id')?.trim();
   if (!familyId) return NextResponse.json({ error: 'family_id required' }, { status: 400 });
 
+  // Opt-in per school — see the layout note: cross-household visibility
+  // needs the family's OK first (settings.family_switcher = true).
+  const { rows: flag } = await query<{ on: boolean }>(
+    `SELECT settings->>'family_switcher' = 'true' AS on FROM schools WHERE id = $1`,
+    [claims.school_id],
+  );
+  if (!flag[0]?.on) return NextResponse.json({ error: 'family_switcher_disabled' }, { status: 403 });
+
   const { rows } = await query<{ id: string; school_id: string; family_id: string; email: string }>(
     `SELECT p.id, p.school_id, p.family_id, p.email
        FROM parents p

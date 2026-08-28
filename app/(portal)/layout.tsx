@@ -63,19 +63,27 @@ export default async function PortalLayout({ children }: { children: React.React
   // family at this school (own household + co-parent on the other
   // household). Logins land in ONE of them — surface the rest as a
   // switcher so both kids' portals are reachable from one account.
-  const { rows: familyRows } = await query<{ family_id: string; display_name: string | null; kids: string | null }>(
-    `SELECT p.family_id, f.display_name,
-            (SELECT string_agg(s.first_name, ', ' ORDER BY s.first_name)
-               FROM students s WHERE s.family_id = f.id AND s.status = 'active') AS kids
-       FROM parents p
-       JOIN families f ON f.id = p.family_id
-      WHERE p.school_id = $1 AND LOWER(p.email) = LOWER($2) AND p.status = 'active'
-      ORDER BY f.display_name`,
-    [id.parent.school_id, id.parent.email ?? ''],
+  // OPT-IN per school (settings.family_switcher = true): cross-household
+  // visibility is the families' arrangement to approve, so it stays
+  // hidden until the school confirms with the family (Clint, 2026-08-28
+  // — Woody/Reed at Wooster pending Crystal's OK).
+  const { rows: switcherRows } = await query<{ on: boolean }>(
+    `SELECT settings->>'family_switcher' = 'true' AS on FROM schools WHERE id = $1`,
+    [id.parent.school_id],
   );
-  const otherFamilies = id.parent.email
-    ? familyRows.filter((f) => f.family_id !== id.parent.family_id)
-    : [];
+  const { rows: familyRows } = switcherRows[0]?.on && id.parent.email
+    ? await query<{ family_id: string; display_name: string | null; kids: string | null }>(
+        `SELECT p.family_id, f.display_name,
+                (SELECT string_agg(s.first_name, ', ' ORDER BY s.first_name)
+                   FROM students s WHERE s.family_id = f.id AND s.status = 'active') AS kids
+           FROM parents p
+           JOIN families f ON f.id = p.family_id
+          WHERE p.school_id = $1 AND LOWER(p.email) = LOWER($2) AND p.status = 'active'
+          ORDER BY f.display_name`,
+        [id.parent.school_id, id.parent.email],
+      )
+    : { rows: [] as Array<{ family_id: string; display_name: string | null; kids: string | null }> };
+  const otherFamilies = familyRows.filter((f) => f.family_id !== id.parent.family_id);
   const currentFamily = familyRows.find((f) => f.family_id === id.parent.family_id);
 
   return (

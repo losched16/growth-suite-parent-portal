@@ -23,9 +23,14 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
+  // Accepts CRON_SECRET (Vercel cron convention) or BACKFILL_SECRET (a
+  // separately-minted operator secret — sensitive env values cannot be
+  // read back out of Vercel, so operators cannot present CRON_SECRET).
   const auth = request.headers.get('authorization') ?? '';
-  if (!secret || auth !== `Bearer ${secret}`) {
+  const ok = [process.env.CRON_SECRET, process.env.BACKFILL_SECRET]
+    .filter(Boolean)
+    .some((s) => auth === `Bearer ${s}`);
+  if (!ok) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 

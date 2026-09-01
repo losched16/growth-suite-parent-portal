@@ -497,6 +497,7 @@ async function handlePaymentMethodAttached(
         try {
           cust = await stripe().customers.retrieve(
             pm.customer,
+            {},
             acct ? { stripeAccount: acct } : undefined,
           );
           break;

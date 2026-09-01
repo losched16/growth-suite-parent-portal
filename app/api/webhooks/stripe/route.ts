@@ -456,7 +456,6 @@ async function handlePaymentMethodAttached(
   stripeAccountId: string | undefined,
 ): Promise<void> {
   if (!pm.customer || typeof pm.customer !== 'string') return; // unattached
-  void stripeAccountId; // resolution is by customer id (see below)
 
   // Resolve which (school, family) this Customer maps to. We cache the
   // mapping in families.stripe_customer_ids as { school_id: cus_... }. Match
@@ -471,7 +470,62 @@ async function handlePaymentMethodAttached(
       LIMIT 1`,
     [pm.customer],
   );
-  const m = rows[0];
+  let m = rows[0];
+  if (!m) {
+    // Self-heal: the cached mapping lives on the family row, which the GHL
+    // snapshot sync rebuilds — a rebuild between "parent adds card" and
+    // "webhook arrives" wiped the cache and this event was silently dropped
+    // (Hope Mehlhoff's bank account, 2026-08-31). The Customer itself
+    // carries family_id/school_id in metadata (set at creation in
+    // ensureStripeCustomerForFamily), so fetch it and rebuild the mapping.
+    try {
+      // The Customer may live on a connected account. Try the event's
+      // account first; failing that, the platform; failing that, each
+      // active connected account (a handful of schools — bounded).
+      let cust: Stripe.Customer | Stripe.DeletedCustomer | null = null;
+      const tryAccounts: Array<string | undefined> = stripeAccountId
+        ? [stripeAccountId]
+        : [undefined];
+      if (!stripeAccountId) {
+        const { rows: accts } = await query<{ stripe_account_id: string }>(
+          `SELECT stripe_account_id FROM payment_accounts
+            WHERE disconnected_at IS NULL AND stripe_account_id IS NOT NULL`,
+        );
+        for (const a of accts) tryAccounts.push(a.stripe_account_id);
+      }
+      for (const acct of tryAccounts) {
+        try {
+          cust = await stripe().customers.retrieve(
+            pm.customer,
+            acct ? { stripeAccount: acct } : undefined,
+          );
+          break;
+        } catch { /* not on this account — try the next */ }
+      }
+      if (cust && !cust.deleted) {
+        const famId = cust.metadata?.family_id;
+        const schId = cust.metadata?.school_id;
+        if (famId && schId) {
+          const { rows: fam } = await query<{ id: string; school_id: string }>(
+            `UPDATE families
+                SET stripe_customer_ids =
+                      coalesce(stripe_customer_ids, '{}'::jsonb)
+                      || jsonb_build_object($1::text, $2::text),
+                    updated_at = now()
+              WHERE id = $3 AND school_id = $1
+              RETURNING id, school_id`,
+            [schId, pm.customer, famId],
+          );
+          if (fam[0]) {
+            m = { school_id: fam[0].school_id, family_id: fam[0].id };
+            console.warn('[stripe/webhook] rebuilt customer mapping from Stripe metadata:', pm.customer);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[stripe/webhook] customer self-heal failed:', err instanceof Error ? err.message : String(err));
+    }
+  }
   if (!m) {
     console.warn('[stripe/webhook] payment_method.attached for unknown customer:', pm.customer);
     return;

@@ -1,4 +1,4 @@
-// POST /api/maintenance/backfill-payment-methods?school=<schoolId>
+// POST /api/cron/backfill-payment-methods?school=<schoolId>
 //
 // Recovery for payment methods whose `payment_method.attached` webhook
 // was dropped because the family's stripe_customer_ids cache had been

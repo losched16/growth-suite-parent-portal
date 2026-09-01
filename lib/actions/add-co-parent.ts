@@ -64,10 +64,16 @@ async function inner(formData: FormData): Promise<Result> {
       return { ok: false, error: 'That email doesn\'t look quite right — double-check it or leave it blank.' };
     }
 
-    // Soft dedupe: don't add the same name twice to a family. (Email
-    // dedupe handled separately if an email was provided.)
-    const { rows: nameDupes } = await query<{ id: string }>(
-      `SELECT id FROM parents
+    // Same name already on the family: not always an error. Wooster
+    // 2026-08-31 — a spouse added earlier WITHOUT an email can never get
+    // one: re-adding hit this guard ("already on your family record"),
+    // both for the parent and for the office via view-as-parent. So when
+    // the existing co-parent row is MISSING email/phone and this submit
+    // provides them, treat it as completing the record (GHL-first, same
+    // writeback as a fresh add). Conflicting values still block — contact
+    // data disputes belong with the office, not a portal overwrite.
+    const { rows: nameDupes } = await query<{ id: string; email: string | null; phone: string | null; is_primary: boolean }>(
+      `SELECT id, email, phone, is_primary FROM parents
         WHERE family_id = $1
           AND LOWER(first_name) = LOWER($2)
           AND LOWER(last_name) = LOWER($3)
@@ -75,9 +81,82 @@ async function inner(formData: FormData): Promise<Result> {
       [session.family_id, firstName, lastName],
     );
     if (nameDupes.length > 0) {
+      const existing = nameDupes[0];
+      const addsEmail = !!email && !existing.email;
+      const addsPhone = !!phone && !existing.phone;
+      if (existing.is_primary) {
+        return { ok: false, error: `${firstName} ${lastName} is already on your family record. Refresh to see them.` };
+      }
+      if (email && existing.email && existing.email.toLowerCase() !== email) {
+        return { ok: false, error: `${firstName} is already listed with a different email (${existing.email}). Please contact the school office to change it.` };
+      }
+      if (!addsEmail && !addsPhone) {
+        return { ok: false, error: `${firstName} ${lastName} is already on your family record. Refresh to see them.` };
+      }
+
+      const { rows: inviterDupe } = await query<{ first_name: string; ghl_contact_id: string | null }>(
+        `SELECT first_name, ghl_contact_id FROM parents WHERE id = $1`,
+        [session.parent_id],
+      );
+      let ghlWrote = 0;
+      if (inviterDupe[0]?.ghl_contact_id) {
+        try {
+          const client = await loadGhlClient(session.school_id);
+          const fields: Record<string, string> = {};
+          if (addsEmail) fields.parent_2_email = email;
+          if (addsPhone) { fields.parent_2_cell_phone = phone; fields.parent_2_phone = phone; }
+          const r = await updateContactCustomFields(client, inviterDupe[0].ghl_contact_id, fields);
+          ghlWrote = r.updated;
+        } catch (err) {
+          console.warn('[add-co-parent] GHL completion write failed:', err);
+        }
+      }
+      await query(
+        `UPDATE parents SET
+           email = COALESCE(email, $2),
+           phone = COALESCE(phone, $3),
+           updated_at = now()
+         WHERE id = $1`,
+        [existing.id, email || null, phone || null],
+      );
+      await query(
+        `INSERT INTO parent_portal_audit_log
+           (school_id, parent_id, family_id, event_type, detail)
+         VALUES ($1, $2, $3, 'complete_co_parent', $4::jsonb)`,
+        [session.school_id, session.parent_id, session.family_id,
+         JSON.stringify({ parent_id: existing.id, added_email: addsEmail ? email : null, added_phone: addsPhone ? phone : null, ghl_fields_written: ghlWrote })],
+      );
+
+      let invited = false;
+      if (addsEmail && sendInvite) {
+        try {
+          const { rows: schoolRows } = await query<{ name: string; support_email: string | null }>(
+            `SELECT s.name, b.support_email FROM schools s LEFT JOIN school_branding b ON b.school_id = s.id WHERE s.id = $1`,
+            [session.school_id],
+          );
+          const hdr = await headers();
+          const proto = hdr.get('x-forwarded-proto') ?? 'https';
+          const host = hdr.get('x-forwarded-host') ?? hdr.get('host') ?? '';
+          await sendCoParentWelcomeEmail({
+            newParentId: existing.id,
+            newParentEmail: email,
+            newParentFirstName: firstName,
+            invitingParentFirstName: inviterDupe[0]?.first_name ?? '',
+            schoolId: session.school_id,
+            schoolName: schoolRows[0]?.name ?? 'Family Portal',
+            supportEmail: schoolRows[0]?.support_email ?? null,
+            origin: host ? `${proto}://${host}` : '',
+          });
+          invited = true;
+        } catch (err) {
+          console.warn('[add-co-parent] completion welcome email failed:', err);
+        }
+      }
+      revalidatePath('/family');
+      revalidatePath('/home');
       return {
-        ok: false,
-        error: `${firstName} ${lastName} is already on your family record. Refresh to see them.`,
+        ok: true,
+        message: `${firstName}'s contact info was updated.${invited ? ' We emailed them a sign-in link.' : ''}`,
       };
     }
     if (email) {

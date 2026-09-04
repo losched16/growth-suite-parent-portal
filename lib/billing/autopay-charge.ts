@@ -162,8 +162,24 @@ export async function chargeAutopayInvoice(invoiceId: string): Promise<AutopayCh
     return { ok: false, reason: 'unknown', message: `PaymentIntent status: ${pi.status}` };
   } catch (err) {
     // Stripe throws on declines / errors. Categorize by type.
-    const e = err as { type?: string; code?: string; message?: string; raw?: { decline_code?: string } };
+    const e = err as {
+      type?: string; code?: string; message?: string;
+      raw?: { decline_code?: string; payment_intent?: { id?: string } };
+      payment_intent?: { id?: string };
+    };
     const msg = e.message ?? String(err);
+
+    // A decline throws BEFORE the success path below writes its payments
+    // row, so until now an off-session failure left no trace anywhere: the
+    // invoice stayed plain 'open', the webhook's UPDATE matched nothing,
+    // and every notification keyed on a payments row silently no-op'd.
+    // A family could be declined day after day and neither they nor the
+    // office would ever be told (NLMA/Fernando: four "insufficient funds"
+    // declines, zero notifications). Record the attempt, then notify.
+    const failedPiId = e.payment_intent?.id ?? e.raw?.payment_intent?.id ?? null;
+    await recordFailedAttempt(inv, pm, breakdown, failedPiId, e.code ?? null, msg)
+      .catch((bookkeepingErr) => console.error('[autopay] failure bookkeeping failed:', bookkeepingErr));
+
     if (e.type === 'StripeCardError' || e.code === 'card_declined' || e.code === 'insufficient_funds') {
       return { ok: false, reason: 'declined', message: msg };
     }
@@ -172,4 +188,57 @@ export async function chargeAutopayInvoice(invoiceId: string): Promise<AutopayCh
     }
     return { ok: false, reason: 'unknown', message: msg };
   }
+}
+
+// Persist the failed attempt and send the parent + office notices.
+// Best-effort throughout — a bookkeeping or email problem must never turn
+// a handled decline into an unhandled throw in the cron loop.
+async function recordFailedAttempt(
+  inv: InvoiceForCharge,
+  pm: { stripe_payment_method_id: string; type: 'card' | 'us_bank_account' },
+  breakdown: { total_cents: number; platform_fee_cents: number },
+  paymentIntentId: string | null,
+  failureCode: string | null,
+  failureMessage: string,
+): Promise<void> {
+  const {
+    sendPaymentFailureEmail, sendSchoolPaymentFailureEmail,
+  } = await import('./send-payment-email');
+
+  // The office notice is keyed on the invoice, so it goes out even when
+  // the error carried no PaymentIntent (a network fault before Stripe
+  // created one). The parent notice needs the payments row below.
+  // The webhook only emails when it can flip a row out of a non-failed
+  // status, so whichever of the two arrives first sends, and exactly once.
+  let recorded = false;
+  if (paymentIntentId) {
+    try {
+      await query(
+        `INSERT INTO payments
+           (school_id, invoice_id, family_id, stripe_payment_intent_id,
+            stripe_payment_method_type, stripe_payment_method_id,
+            amount_cents, platform_fee_cents, status, failure_code, failure_message)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'failed', $9, $10)
+         ON CONFLICT (stripe_payment_intent_id) DO UPDATE SET
+           status = 'failed',
+           failure_code = EXCLUDED.failure_code,
+           failure_message = EXCLUDED.failure_message,
+           updated_at = now()`,
+        [
+          inv.school_id, inv.id, inv.family_id, paymentIntentId,
+          pm.type, pm.stripe_payment_method_id,
+          breakdown.total_cents, breakdown.platform_fee_cents,
+          failureCode, failureMessage,
+        ],
+      );
+      recorded = true;
+    } catch (e) {
+      console.error('[autopay] could not record failed attempt:', e);
+    }
+  }
+
+  if (recorded && paymentIntentId) {
+    await sendPaymentFailureEmail(paymentIntentId, failureMessage).catch(() => undefined);
+  }
+  await sendSchoolPaymentFailureEmail(inv.id, failureMessage).catch(() => undefined);
 }

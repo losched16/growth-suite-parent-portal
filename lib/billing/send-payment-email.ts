@@ -171,6 +171,73 @@ We'll automatically try again. To pay sooner: ${portalUrl}`;
   }
 }
 
+// Alert the school office that a family's payment failed, keyed on the
+// INVOICE (not the PaymentIntent). The office copy used to live in the
+// Stripe webhook and looked the invoice up by `i.stripe_payment_intent_id`
+// — a column that does not exist on invoices — inside a .catch() that
+// swallowed the error, so it had never once sent. It also fell back to
+// Media Children's House's admin address when a school had no
+// support_email, which would have leaked one school's billing failures to
+// another; there is no fallback now, we simply don't send.
+export async function sendSchoolPaymentFailureEmail(
+  invoiceId: string,
+  failureMessage: string | null,
+): Promise<void> {
+  if (!invoiceId) return; // PI carried no invoice_id metadata — nothing to look up.
+  try {
+    const { rows } = await query<{
+      invoice_number: string;
+      amount_cents: number;
+      family_label: string;
+      parent_emails: string | null;
+      school_name: string;
+      school_id: string;
+      notify_email: string | null;
+    }>(
+      `SELECT i.invoice_number, i.total_cents AS amount_cents,
+              COALESCE(NULLIF(f.display_name, ''), '(unnamed family)') AS family_label,
+              (SELECT string_agg(p.email, ', ')
+                 FROM parents p
+                WHERE p.family_id = i.family_id AND p.email IS NOT NULL) AS parent_emails,
+              s.name AS school_name, s.id AS school_id,
+              COALESCE(b.admin_change_notification_email, b.support_email) AS notify_email
+         FROM invoices i
+         JOIN schools s ON s.id = i.school_id
+         LEFT JOIN families f ON f.id = i.family_id
+         LEFT JOIN school_branding b ON b.school_id = s.id
+        WHERE i.id = $1`,
+      [invoiceId],
+    );
+    const meta = rows[0];
+    if (!meta?.notify_email) return;
+
+    const dollars = `$${(meta.amount_cents / 100).toFixed(2)}`;
+    const subject = `Autopay failed — ${meta.family_label} — ${meta.invoice_number}`;
+    const text = `Autopay failed for ${meta.family_label} at ${meta.school_name}.
+
+Invoice: ${meta.invoice_number}
+Amount: ${dollars}
+Reason: ${failureMessage ?? 'unknown'}
+Parent email: ${meta.parent_emails ?? '(none on file)'}
+
+The parent has been emailed separately. The invoice stays open for manual payment.`;
+    const html = `<p>Autopay failed for <strong>${escape(meta.family_label)}</strong> at <strong>${escape(meta.school_name)}</strong>.</p>
+<ul>
+  <li>Invoice: <code>${escape(meta.invoice_number)}</code></li>
+  <li>Amount: <strong>${dollars}</strong></li>
+  <li>Reason: ${escape(failureMessage ?? 'unknown')}</li>
+  <li>Parent email: ${meta.parent_emails ? escape(meta.parent_emails) : '<em>none on file</em>'}</li>
+</ul>
+<p>The parent has been emailed separately. The invoice stays open for manual payment.</p>`;
+
+    await sendBrandedEmail({
+      to: meta.notify_email, schoolId: meta.school_id, subject, html, text,
+    });
+  } catch (err) {
+    console.error('[send-payment-email/school-failure] failed:', err);
+  }
+}
+
 function escape(s: string): string {
   return s.replace(/[<>&"']/g, (c) =>
     c === '<' ? '&lt;' :

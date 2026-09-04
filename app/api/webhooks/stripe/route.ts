@@ -21,7 +21,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { stripe } from '@/lib/stripe/client';
 import { query } from '@/lib/db';
-import { sendPaymentReceiptEmail, sendPaymentFailureEmail } from '@/lib/billing/send-payment-email';
+import {
+  sendPaymentReceiptEmail,
+  sendPaymentFailureEmail,
+  sendSchoolPaymentFailureEmail,
+} from '@/lib/billing/send-payment-email';
 import { sendPaymentEventToGhl } from '@/lib/billing/ghl-receipt';
 import { writebackProductPurchaseToGhl } from '@/lib/ghl/product-writeback';
 import { chargeAutopayInvoice } from '@/lib/billing/autopay-charge';
@@ -330,98 +334,39 @@ async function handlePaymentSucceeded(pi: Stripe.PaymentIntent): Promise<void> {
 
 async function handlePaymentFailed(pi: Stripe.PaymentIntent): Promise<void> {
   const lastError = pi.last_payment_error;
-  await query(
+  // `status <> 'failed'` makes the notices below exactly-once. The autopay
+  // engine now records its own declines (it sees them synchronously, and
+  // this webhook may arrive either side of that write); if the row is
+  // already 'failed' the family has been told, so claim nothing here.
+  // A row that is missing entirely — webhook first — also matches nothing,
+  // and the engine notifies when it writes the row a moment later.
+  const { rows: claimed } = await query<{ id: string }>(
     `UPDATE payments
         SET status = 'failed',
             failure_code = $1,
             failure_message = $2,
             updated_at = now()
-      WHERE stripe_payment_intent_id = $3`,
+      WHERE stripe_payment_intent_id = $3
+        AND status <> 'failed'
+      RETURNING id`,
     [lastError?.code ?? null, lastError?.message ?? null, pi.id],
   );
+  if (claimed.length === 0) return;
+
   // Failure notice to the parent — best-effort. GHL webhook + Resend
   // fallback, same dual-channel posture as the success path.
   await sendPaymentEventToGhl(pi.id, { event: 'payment.failed', failureReason: lastError?.message ?? null }).catch(() => undefined);
   await sendPaymentFailureEmail(pi.id, lastError?.message ?? null).catch(() => undefined);
 
-  // Scale gap #3 — also notify the school's admin. When autopay fails
-  // for a parent, the office finds out today only via the parent calling.
-  // Push an email to the school's support address with the invoice +
-  // family + failure reason so they can pre-empt the call.
-  await notifySchoolOfFailedPayment(pi, lastError?.message ?? null)
-    .catch((e) => console.error('[stripe/webhook] school failure notify failed:', e));
+  // Also alert the school office. Lives in lib/billing/send-payment-email
+  // so the autopay engine can send the same notice for a decline that
+  // never reaches this webhook.
+  await sendSchoolPaymentFailureEmail(invoiceIdFromPi(pi), lastError?.message ?? null);
 }
 
-// Find the invoice this PI was charging, look up the school's notify
-// address, send a short alert. Best-effort — never throws.
-async function notifySchoolOfFailedPayment(
-  pi: Stripe.PaymentIntent,
-  errorMessage: string | null,
-): Promise<void> {
-  const { rows } = await query<{
-    invoice_number: string;
-    invoice_id: string;
-    family_label: string;
-    parent_email: string | null;
-    school_name: string;
-    school_id: string;
-    notify_email: string | null;
-    amount_cents: number;
-  }>(
-    `SELECT i.invoice_number, i.id AS invoice_id, i.total_cents AS amount_cents,
-            COALESCE(NULLIF(f.display_name, ''),
-                     CONCAT_WS(' ', p.first_name, p.last_name),
-                     '(unnamed family)') AS family_label,
-            p.email AS parent_email,
-            s.name AS school_name, s.id AS school_id,
-            COALESCE(b.support_email, 'mchadmin@mediachildrenshouse.com') AS notify_email
-       FROM invoices i
-       JOIN schools s ON s.id = i.school_id
-       LEFT JOIN families f ON f.id = i.family_id
-       LEFT JOIN parents p ON p.id = i.autopay_payment_method_id::text::uuid OR p.family_id = i.family_id
-       LEFT JOIN school_branding b ON b.school_id = s.id
-      WHERE i.stripe_payment_intent_id = $1 OR i.id::text = $1
-      LIMIT 1`,
-    [pi.id],
-  ).catch(() => ({ rows: [] }));
-  const meta = rows[0];
-  if (!meta || !meta.notify_email) return;
-
-  const { sendBrandedEmail } = await import('@/lib/email');
-  const dollars = `$${(meta.amount_cents / 100).toFixed(2)}`;
-  const subject = `Autopay failed — ${meta.family_label} — ${meta.invoice_number}`;
-  const text = `Autopay failed for ${meta.family_label} at ${meta.school_name}.
-
-Invoice: ${meta.invoice_number}
-Amount: ${dollars}
-Failure reason: ${errorMessage ?? 'unknown'}
-Parent email: ${meta.parent_email ?? '(none on file)'}
-
-The parent has been notified separately. You may want to:
-- Verify their card on file is still valid
-- Reach out if the failure suggests insufficient funds
-- Manually charge a different payment method if needed
-`;
-  const html = `<p>Autopay failed for <strong>${escapeHtml(meta.family_label)}</strong> at <strong>${escapeHtml(meta.school_name)}</strong>.</p>
-<ul>
-  <li>Invoice: <code>${escapeHtml(meta.invoice_number)}</code></li>
-  <li>Amount: <strong>${dollars}</strong></li>
-  <li>Failure reason: ${escapeHtml(errorMessage ?? 'unknown')}</li>
-  <li>Parent email: ${meta.parent_email ? `<a href="mailto:${escapeHtml(meta.parent_email)}">${escapeHtml(meta.parent_email)}</a>` : '<em>none on file</em>'}</li>
-</ul>
-<p>The parent has been notified separately. You may want to verify their payment method or reach out about the failure.</p>`;
-
-  await sendBrandedEmail({
-    to: meta.notify_email,
-    schoolId: meta.school_id,
-    subject,
-    html,
-    text,
-  });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Autopay and the parent checkout both stamp invoice_id into PI metadata.
+function invoiceIdFromPi(pi: Stripe.PaymentIntent): string {
+  return pi.metadata?.invoice_id ?? '';
 }
 
 async function handleChargeRefunded(ch: Stripe.Charge): Promise<void> {

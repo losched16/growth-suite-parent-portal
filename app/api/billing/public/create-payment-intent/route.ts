@@ -17,6 +17,7 @@ import crypto from 'node:crypto';
 import { query } from '@/lib/db';
 import { stripe } from '@/lib/stripe/client';
 import { computeFees, type FeeConfig, type PaymentRail } from '@/lib/billing/fee-math';
+import { checkPaymentInFlight } from '@/lib/billing/in-flight-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,6 +68,21 @@ export async function POST(request: NextRequest) {
   const acct = acctRows[0];
   if (!acct || !acct.charges_enabled) {
     return NextResponse.json({ error: 'school_not_ready_for_payments' }, { status: 409 });
+  }
+
+  // Same in-flight guard as the logged-in route. This one matters more:
+  // the pay link lives in an emailed invoice a parent can revisit any
+  // number of times, days apart, long after Stripe's idempotency window
+  // has closed on their first attempt.
+  const inFlight = await checkPaymentInFlight({
+    invoiceId: inv.id,
+    stripeAccountId: acct.stripe_account_id,
+  });
+  if (inFlight.blocked) {
+    return NextResponse.json(
+      { error: 'payment_already_in_flight', detail: inFlight.message },
+      { status: 409 },
+    );
   }
 
   const { rows: cfgRows } = await query<{

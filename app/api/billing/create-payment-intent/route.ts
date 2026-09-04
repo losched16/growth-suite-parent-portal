@@ -24,6 +24,7 @@ import { query } from '@/lib/db';
 import { stripe } from '@/lib/stripe/client';
 import { ensureStripeCustomerForFamily } from '@/lib/stripe/customer';
 import { computeFees, type FeeConfig, type PaymentRail } from '@/lib/billing/fee-math';
+import { checkPaymentInFlight } from '@/lib/billing/in-flight-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -86,6 +87,20 @@ export async function POST(request: NextRequest) {
   const acct = acctRows[0];
   if (!acct || !acct.charges_enabled) {
     return NextResponse.json({ error: 'school_not_ready_for_payments' }, { status: 409 });
+  }
+
+  // Don't let a parent pay an invoice that already has money moving on it.
+  // ACH keeps the invoice 'open' for days while it settles, which reads as
+  // unpaid to a parent checking back.
+  const inFlight = await checkPaymentInFlight({
+    invoiceId: inv.id,
+    stripeAccountId: acct.stripe_account_id,
+  });
+  if (inFlight.blocked) {
+    return NextResponse.json(
+      { error: 'payment_already_in_flight', detail: inFlight.message },
+      { status: 409 },
+    );
   }
 
   const { rows: cfgRows } = await query<{

@@ -80,10 +80,19 @@ export async function GET(request: NextRequest) {
                WHERE p.invoice_id = i.id
                  AND p.status IN ('pending', 'processing')
         )
+        -- Once a charge has failed, next_retry_at is the ONLY gate. The
+        -- charge-date branch below stays true forever after the due date,
+        -- so ORing the two made every failed invoice due again the next
+        -- morning and the school's retry_schedule_days was never honoured
+        -- (NLMA: a declined card was re-charged Sept 1/2/3/4 instead of
+        -- 1/2/5). On ACH each premature retry can cost the parent an NSF
+        -- fee, so this is not merely cosmetic.
         AND (
-              (i.autopay_charge_on IS NULL AND i.due_at::date <= $1::date)
-           OR (i.autopay_charge_on IS NOT NULL AND i.autopay_charge_on <= $1::date)
-           OR (i.next_retry_at IS NOT NULL AND i.next_retry_at <= now())
+              CASE WHEN i.next_retry_at IS NOT NULL
+                   THEN i.next_retry_at <= now()
+                   ELSE (i.autopay_charge_on IS NULL AND i.due_at::date <= $1::date)
+                     OR (i.autopay_charge_on IS NOT NULL AND i.autopay_charge_on <= $1::date)
+              END
         )
       ORDER BY i.due_at ASC
       LIMIT 500`,

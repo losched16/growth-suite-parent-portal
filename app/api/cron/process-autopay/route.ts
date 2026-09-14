@@ -208,6 +208,8 @@ export async function GET(request: NextRequest) {
            JOIN cfg ON cfg.school_id = i.school_id
           WHERE i.status IN ('open', 'partially_paid')
             AND i.due_at + make_interval(days => cfg.grace) < now()
+            -- Office-waived invoices sit out every tier (migration 106).
+            AND i.late_fee_waived_at IS NULL
             AND NOT EXISTS (
                   SELECT 1 FROM payments p
                    WHERE p.invoice_id = i.id AND p.status IN ('pending', 'processing'))

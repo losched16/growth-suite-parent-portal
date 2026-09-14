@@ -178,41 +178,67 @@ export async function GET(request: NextRequest) {
   }
 
   // ── Late fees ──────────────────────────────────────────────────────
-  // Apply the school's configured late fee exactly once per overdue
-  // invoice (open/partially_paid, past due_at + grace days, never
-  // late-fee'd before). Gated on billing_active so dry-run schools
-  // never fee anyone. Adds a 'Late fee' line + bumps total_cents.
+  // Tiered. late_fee_amount_cents applies once the grace period passes,
+  // then each escalation tier raises the fee TOTAL after N days overdue
+  // (NLMA: $50 at 10 days, $75 at 15, $100 at 20). An invoice carries
+  // late_fee_applied_cents; each run adds only the difference between
+  // what it should carry now and what it already does, so the pass is
+  // idempotent and a tier is never applied twice. Gated on billing_active
+  // and on late_fee_amount_cents > 0 (the master switch). An invoice with
+  // a payment in flight is never fee'd — ACH sits 'pending' for 3-5
+  // business days and that family has already paid.
   let lateFeesApplied = 0;
   try {
-    const { rows: feed } = await query<{ id: string }>(
+    const { rows: feed } = await query<{ id: string; owed_cents: number; applied_cents: number }>(
       `WITH cfg AS (
-         SELECT school_id, late_fee_amount_cents, COALESCE(late_fee_grace_days, 0) AS grace
+         SELECT school_id, late_fee_amount_cents, COALESCE(late_fee_grace_days, 0) AS grace,
+                COALESCE(late_fee_escalations, '[]'::jsonb) AS steps
            FROM school_payment_config
           WHERE COALESCE(billing_active, false) = true AND late_fee_amount_cents > 0
+       ),
+       due AS (
+         SELECT i.id, i.late_fee_applied_cents AS applied_cents,
+                GREATEST(cfg.late_fee_amount_cents,
+                  COALESCE((SELECT MAX((s->>'total_cents')::int)
+                              FROM jsonb_array_elements(cfg.steps) s
+                             WHERE (s->>'after_days')::int
+                                   <= FLOOR(EXTRACT(EPOCH FROM (now() - i.due_at)) / 86400)::int), 0)
+                ) AS owed_cents
+           FROM invoices i
+           JOIN cfg ON cfg.school_id = i.school_id
+          WHERE i.status IN ('open', 'partially_paid')
+            AND i.due_at + make_interval(days => cfg.grace) < now()
+            AND NOT EXISTS (
+                  SELECT 1 FROM payments p
+                   WHERE p.invoice_id = i.id AND p.status IN ('pending', 'processing'))
        )
-       SELECT i.id FROM invoices i
-       JOIN cfg ON cfg.school_id = i.school_id
-      WHERE i.status IN ('open', 'partially_paid')
-        AND i.late_fee_applied_at IS NULL
-        AND i.due_at + make_interval(days => cfg.grace) < now()
-      LIMIT 500`,
+       SELECT id, owed_cents, applied_cents FROM due
+        WHERE owed_cents > applied_cents
+        LIMIT 500`,
     );
     for (const f of feed) {
+      const add = f.owed_cents - f.applied_cents;
+      if (add <= 0) continue;
+      const label = f.applied_cents === 0
+        ? 'Late fee'
+        : `Late fee — increased to $${(f.owed_cents / 100).toFixed(2)}`;
       try {
+        // Both the line insert and the total bump are conditioned on the
+        // applied amount still being what we read, so two overlapping runs
+        // cannot stack the same tier.
         await query(
-          `WITH cfg AS (
-             SELECT spc.late_fee_amount_cents AS fee FROM school_payment_config spc
-             JOIN invoices i ON i.school_id = spc.school_id WHERE i.id = $1
-           ),
-           pos AS (SELECT COALESCE(MAX(position), -1) + 1 AS p FROM invoice_line_items WHERE invoice_id = $1),
+          `WITH pos AS (SELECT COALESCE(MAX(position), -1) + 1 AS p FROM invoice_line_items WHERE invoice_id = $1),
            line AS (
              INSERT INTO invoice_line_items (invoice_id, position, description, quantity, unit_amount_cents, amount_cents, category)
-             SELECT $1, pos.p, 'Late fee', 1, cfg.fee, cfg.fee, 'fee' FROM cfg, pos
+             SELECT $1, pos.p, $3, 1, $2, $2, 'fee' FROM pos
+              WHERE EXISTS (SELECT 1 FROM invoices WHERE id = $1 AND late_fee_applied_cents = $4)
            )
-           UPDATE invoices SET total_cents = total_cents + (SELECT fee FROM cfg),
+           UPDATE invoices
+              SET total_cents = total_cents + $2,
+                  late_fee_applied_cents = late_fee_applied_cents + $2,
                   late_fee_applied_at = now(), updated_at = now()
-            WHERE id = $1`,
-          [f.id],
+            WHERE id = $1 AND late_fee_applied_cents = $4`,
+          [f.id, add, label, f.applied_cents],
         );
         lateFeesApplied++;
       } catch (e) {

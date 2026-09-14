@@ -53,8 +53,20 @@ interface PlanOption {
 interface SchoolConfigRow {
   late_fee_amount_cents: number;
   late_fee_grace_days: number;
+  late_fee_escalations: Array<{ after_days: number; total_cents: number }> | null;
   monthly_plan_admin_fee_bp: number;
   annual_plan_discount_bp: number;
+}
+
+// "Late fee is $50 after a 10-day grace period, rising to $75 total after
+// 15 days and $100 total after 20 days." — or the flat sentence when a
+// school has no escalation tiers.
+function lateFeeSentence(cfg: SchoolConfigRow): string {
+  const base = `Late fee is ${fmtCents(cfg.late_fee_amount_cents)} after a ${cfg.late_fee_grace_days}-day grace period`;
+  const steps = (cfg.late_fee_escalations ?? []).filter((s) => s.after_days > 0 && s.total_cents > 0);
+  if (steps.length === 0) return `${base}.`;
+  const parts = steps.map((s) => `${fmtCents(s.total_cents)} total after ${s.after_days} days`);
+  return `${base}, rising to ${parts.join(' and ')}.`;
 }
 
 function fmtCents(c: number): string {
@@ -102,7 +114,8 @@ export default async function TuitionPage() {
 
   // School payment config (for late fees + plan-level fees display)
   const schoolConfig = (await query<SchoolConfigRow>(
-    `SELECT late_fee_amount_cents, late_fee_grace_days, monthly_plan_admin_fee_bp, annual_plan_discount_bp
+    `SELECT late_fee_amount_cents, late_fee_grace_days, late_fee_escalations,
+            monthly_plan_admin_fee_bp, annual_plan_discount_bp
        FROM school_payment_config WHERE school_id = $1`,
     [id.parent.school_id],
   )).rows[0];
@@ -180,9 +193,7 @@ export default async function TuitionPage() {
         <p>
           Once you pick a plan and save a payment method, we&rsquo;ll automatically charge on each
           scheduled date.{' '}
-          {schoolConfig
-            ? `Late fee is ${fmtCents(schoolConfig.late_fee_amount_cents)} after a ${schoolConfig.late_fee_grace_days}-day grace period.`
-            : ''}
+          {schoolConfig && schoolConfig.late_fee_amount_cents > 0 ? lateFeeSentence(schoolConfig) : ''}
           {' '}Need to change plans later? Email the school office.
         </p>
       </div>

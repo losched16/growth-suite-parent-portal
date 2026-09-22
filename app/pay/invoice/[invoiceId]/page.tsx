@@ -11,7 +11,7 @@
 // same segment is a Next.js error.)
 
 import crypto from 'node:crypto';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { CheckCircle2 } from 'lucide-react';
 import { query } from '@/lib/db';
 import { fmtCents, type FeeConfig } from '@/lib/billing/fee-math';
@@ -25,6 +25,7 @@ type SearchParams = Promise<{ t?: string; success?: string; rail?: string }>;
 
 interface InvoiceRow {
   id: string; invoice_number: string; school_id: string; school_name: string;
+  family_id: string; student_id: string | null;
   recipient_name: string | null;
   title: string; description: string | null; status: string;
   subtotal_cents: number; platform_fee_cents: number; discount_total_cents: number;
@@ -59,6 +60,7 @@ export default async function PublicPayPage({ params, searchParams }: { params: 
   const [invRows, account] = await Promise.all([
     query<InvoiceRow>(
       `SELECT i.id, i.invoice_number, i.school_id, s.name AS school_name,
+              i.family_id, i.student_id,
               i.recipient_name, i.title, i.description, i.status,
               i.subtotal_cents, i.platform_fee_cents, i.discount_total_cents,
               i.total_cents, i.amount_paid_cents, i.due_at, i.public_pay_token
@@ -90,11 +92,27 @@ export default async function PublicPayPage({ params, searchParams }: { params: 
     );
   }
   if (inv.status === 'voided') {
+    // Emailed pay links outlive the invoice they point at: a duplicate bulk
+    // send gets cleaned up and re-issued, and the family keeps clicking the
+    // first email. Hand them the live replacement (same family, title and
+    // child) with its own token instead of a dead end.
+    const { rows: repl } = await query<{ id: string; public_pay_token: string | null }>(
+      `SELECT id, public_pay_token FROM invoices
+        WHERE family_id = $1 AND title = $2 AND status IN ('open', 'partially_paid')
+          AND student_id IS NOT DISTINCT FROM $3 AND id <> $4
+        ORDER BY created_at DESC LIMIT 1`,
+      [inv.family_id, inv.title, inv.student_id, inv.id],
+    );
+    if (repl[0]?.public_pay_token) {
+      redirect(`/pay/invoice/${repl[0].id}?t=${encodeURIComponent(repl[0].public_pay_token)}`);
+    }
     return (
       <Shell>
         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-8 text-center">
-          <h1 className="text-xl font-semibold text-zinc-700">This invoice has been voided</h1>
-          <p className="mt-1 text-sm text-zinc-600">Contact {inv.school_name} if you have questions.</p>
+          <h1 className="text-xl font-semibold text-zinc-700">This invoice has been replaced</h1>
+          <p className="mt-1 text-sm text-zinc-600">
+            The current version is in your family portal under Billing. Contact {inv.school_name} if you have questions.
+          </p>
         </div>
       </Shell>
     );

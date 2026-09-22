@@ -38,6 +38,7 @@ interface InvoiceRow {
   invoice_number: string;
   school_id: string;
   family_id: string;
+  student_id: string | null;
   responsible_parent_id: string | null;
   title: string;
   description: string | null;
@@ -84,7 +85,7 @@ export default async function PayInvoicePage({
 
   const [invRows, paymentAccount] = await Promise.all([
     query<InvoiceRow>(
-      `SELECT id, invoice_number, school_id, family_id, title, description, status,
+      `SELECT id, invoice_number, school_id, family_id, student_id, title, description, status,
               (EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = invoices.id AND p.status IN ('pending','processing'))) AS has_pending_payment,
               subtotal_cents, platform_fee_cents, discount_total_cents,
               total_cents, amount_paid_cents,
@@ -194,6 +195,26 @@ export default async function PayInvoicePage({
   }
 
   if (inv.status === 'voided') {
+    // A voided invoice that was re-issued (a duplicate bulk send cleaned
+    // up, a plan regenerated) still has live email links pointing at it.
+    // Send the parent to the replacement — same family, same title, same
+    // child — rather than a dead end. NLMA/Roller 2026-09-22: four Pizza
+    // invoices open and payable, family stuck on "voided" from the old
+    // email. No exact match → the billing list, where the live ones are.
+    const { rows: repl } = await query<{ id: string }>(
+      `SELECT id FROM invoices
+        WHERE family_id = $1 AND title = $2 AND status IN ('open', 'partially_paid')
+          AND student_id IS NOT DISTINCT FROM $3 AND id <> $4
+        ORDER BY created_at DESC LIMIT 1`,
+      [inv.family_id, inv.title, inv.student_id, inv.id],
+    );
+    if (repl[0]) redirect(`/billing/pay/${repl[0].id}`);
+    redirect('/billing');
+  }
+
+  // Unreachable after the redirect above; kept so the page still renders
+  // sensibly if a voided invoice ever has no billing list to fall back to.
+  if ((inv.status as string) === 'voided') {
     return (
       <div className="max-w-xl mx-auto py-12">
         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-8 text-center">

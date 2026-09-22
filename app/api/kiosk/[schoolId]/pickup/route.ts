@@ -15,7 +15,7 @@
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
+import { query, withTransaction } from '@/lib/db';
 import { verifyPin } from '@/lib/attendance/pickup-pin';
 import { resolveCurbsideSlots, isValidSlot } from '@/lib/attendance/curbside-slots';
 
@@ -179,18 +179,25 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     );
   }
 
-  // Record the attendance event (check_out)
-  await query(
-    `INSERT INTO attendance_events
-       (school_id, student_id, event_type, performed_by_admin_email,
-        picked_up_by_pickup_person_id, picked_up_by_name_snapshot,
-        signature_png, curbside, curbside_slot, notes, ip_address, user_agent)
-     VALUES ($1, $2, 'check_out', NULL, $3, $4, $5, $6, $7, NULL, $8, $9)`,
-    [
-      schoolId, studentId, match.id, match.name,
-      signaturePng || null, curbside, validatedSlot, ip, userAgent,
-    ],
-  );
+  // Record the attendance event (check_out). The signature PNG lives in
+  // attendance_signatures (migration 108); both rows commit together.
+  await withTransaction(async (tq) => {
+    const { rows: ins } = await tq<{ id: string }>(
+      `INSERT INTO attendance_events
+         (school_id, student_id, event_type, performed_by_admin_email,
+          picked_up_by_pickup_person_id, picked_up_by_name_snapshot,
+          curbside, curbside_slot, notes, ip_address, user_agent)
+       VALUES ($1, $2, 'check_out', NULL, $3, $4, $5, $6, NULL, $7, $8)
+       RETURNING id`,
+      [schoolId, studentId, match.id, match.name, curbside, validatedSlot, ip, userAgent],
+    );
+    if (signaturePng) {
+      await tq(
+        `INSERT INTO attendance_signatures (event_id, school_id, png) VALUES ($1, $2, $3)`,
+        [ins[0].id, schoolId, signaturePng],
+      );
+    }
+  });
 
   return NextResponse.json({
     ok: true,

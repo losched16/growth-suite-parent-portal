@@ -215,6 +215,13 @@ export async function POST(request: NextRequest) {
        ON CONFLICT (stripe_payment_intent_id) DO UPDATE SET
          amount_cents = EXCLUDED.amount_cents,
          platform_fee_cents = EXCLUDED.platform_fee_cents,
+         -- The idempotency key hands back the same PaymentIntent for 24h,
+         -- so a retry after a decline revives a row that may have been
+         -- marked failed. The parent is about to confirm it again: it is
+         -- pending, whatever it was a minute ago.
+         status = 'pending',
+         failure_code = NULL,
+         failure_message = NULL,
          updated_at = now()`,
       [
         inv.school_id, inv.id, inv.family_id, pi.id,

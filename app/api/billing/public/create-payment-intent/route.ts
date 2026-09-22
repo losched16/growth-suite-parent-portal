@@ -151,6 +151,11 @@ export async function POST(request: NextRequest) {
        ON CONFLICT (stripe_payment_intent_id) DO UPDATE SET
          amount_cents = EXCLUDED.amount_cents,
          platform_fee_cents = EXCLUDED.platform_fee_cents,
+         -- Same PaymentIntent comes back for 24h via the idempotency key;
+         -- a retry after a decline must read as pending again.
+         status = 'pending',
+         failure_code = NULL,
+         failure_message = NULL,
          updated_at = now()`,
       [inv.school_id, inv.id, inv.family_id, pi.id, rail, breakdown.total_cents, breakdown.platform_fee_cents],
     );

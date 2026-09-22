@@ -91,17 +91,17 @@ export async function checkPaymentInFlight(opts: {
     }
 
     // requires_payment_method / requires_confirmation / canceled: the
-    // parent opened checkout and never finished. Settle the stale row so
-    // it stops reading as money in flight — it inflates the school's
-    // "Payment sent" count and would block this attempt on the next pass.
+    // parent opened checkout and never finished — nothing was ever
+    // presented to a bank. That is not a failed payment, so the pending
+    // row is simply removed. (Marking these 'failed' — "Checkout not
+    // completed" — made an office see a wall of failures on 2026-09-21
+    // that were parents retrying a minute later, and a first attempt the
+    // idempotency key later revived stayed 'failed' while its
+    // PaymentIntent succeeded, invisible to the reconciler.)
     await query(
-      `UPDATE payments
-          SET status = 'failed',
-              failure_message = $1,
-              updated_at = now()
-        WHERE id = $2 AND status IN ('pending', 'processing')`,
-      [`Checkout not completed (PaymentIntent ${status})`, row.id],
-    ).catch((e) => console.error('[in-flight-guard] could not reconcile stale row:', e));
+      `DELETE FROM payments WHERE id = $1 AND status IN ('pending', 'processing')`,
+      [row.id],
+    ).catch((e) => console.error('[in-flight-guard] could not drop abandoned row:', e));
   }
 
   return { blocked: false };

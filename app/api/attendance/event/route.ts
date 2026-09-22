@@ -29,7 +29,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { readSessionFresh } from '@/lib/identity';
 import { pickupVisibleSql } from '@/lib/attendance/pickup-visibility';
-import { query } from '@/lib/db';
+import { query, withTransaction } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -159,26 +159,38 @@ export async function POST(request: NextRequest) {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
   const ua = request.headers.get('user-agent');
 
-  await query(
-    `INSERT INTO attendance_events (
-       school_id, student_id, event_type,
-       performed_by_parent_id, picked_up_by_parent_id, picked_up_by_pickup_person_id,
-       picked_up_by_name_snapshot,
-       signature_png, curbside, curbside_slot,
-       pickup_time,
-       notes,
-       ip_address, user_agent
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-    [
-      s.school_id, s.id, eventType,
-      session.parent_id, pickedUpByParentId, pickedUpByPickupPersonId,
-      pickedUpByName,
-      signaturePng, curbside, curbsideSlot,
-      pickupTime,
-      notes,
-      ip, ua,
-    ],
-  );
+  // Event + signature commit together; the PNG lives in
+  // attendance_signatures (migration 108) so the sync's rebuild never
+  // has to copy signature bytes.
+  await withTransaction(async (tq) => {
+    const { rows: ins } = await tq<{ id: string }>(
+      `INSERT INTO attendance_events (
+         school_id, student_id, event_type,
+         performed_by_parent_id, picked_up_by_parent_id, picked_up_by_pickup_person_id,
+         picked_up_by_name_snapshot,
+         curbside, curbside_slot,
+         pickup_time,
+         notes,
+         ip_address, user_agent
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING id`,
+      [
+        s.school_id, s.id, eventType,
+        session.parent_id, pickedUpByParentId, pickedUpByPickupPersonId,
+        pickedUpByName,
+        curbside, curbsideSlot,
+        pickupTime,
+        notes,
+        ip, ua,
+      ],
+    );
+    if (signaturePng) {
+      await tq(
+        `INSERT INTO attendance_signatures (event_id, school_id, png) VALUES ($1, $2, $3)`,
+        [ins[0].id, s.school_id, signaturePng],
+      );
+    }
+  });
 
   return NextResponse.redirect(new URL('/attendance', request.url), 303);
 }

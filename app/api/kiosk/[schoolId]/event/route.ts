@@ -19,7 +19,7 @@
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
+import { query, withTransaction } from '@/lib/db';
 import { resolveKioskSchool, verifyKioskToken } from '@/lib/kiosk/kiosk';
 
 export const dynamic = 'force-dynamic';
@@ -118,29 +118,40 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     const kioskNotes = typeof a.notes === 'string' ? a.notes.trim().slice(0, 500) || null : null;
 
     const isParent = claims.person_type === 'parent';
-    await query(
-      `INSERT INTO attendance_events (
-         school_id, student_id, event_type,
-         performed_by_parent_id, performed_by_pickup_person_id, performed_by_name_snapshot,
-         picked_up_by_parent_id, picked_up_by_pickup_person_id, picked_up_by_name_snapshot,
-         curbside, curbside_slot, pickup_time, notes,
-         signature_png, source, ip_address, user_agent
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'kiosk', $15, $16)`,
-      [
-        school.id, studentId, action,
-        isParent ? claims.person_id : null,
-        isParent ? null : claims.person_id,
-        claims.person_name,
-        action === 'check_out' && isParent ? claims.person_id : null,
-        action === 'check_out' && !isParent ? claims.person_id : null,
-        action === 'check_out' ? claims.person_name : null,
-        curbside, curbsideSlot,
-        action === 'check_in' ? pickupTime : null,
-        kioskNotes,
-        signaturePng,
-        ip, ua,
-      ],
-    );
+    // Event + its signature commit together. The PNG lives in
+    // attendance_signatures (migration 108) so the sync's rebuild never
+    // has to copy signature bytes.
+    await withTransaction(async (tq) => {
+      const { rows: ins } = await tq<{ id: string }>(
+        `INSERT INTO attendance_events (
+           school_id, student_id, event_type,
+           performed_by_parent_id, performed_by_pickup_person_id, performed_by_name_snapshot,
+           picked_up_by_parent_id, picked_up_by_pickup_person_id, picked_up_by_name_snapshot,
+           curbside, curbside_slot, pickup_time, notes,
+           source, ip_address, user_agent
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'kiosk', $14, $15)
+         RETURNING id`,
+        [
+          school.id, studentId, action,
+          isParent ? claims.person_id : null,
+          isParent ? null : claims.person_id,
+          claims.person_name,
+          action === 'check_out' && isParent ? claims.person_id : null,
+          action === 'check_out' && !isParent ? claims.person_id : null,
+          action === 'check_out' ? claims.person_name : null,
+          curbside, curbsideSlot,
+          action === 'check_in' ? pickupTime : null,
+          kioskNotes,
+          ip, ua,
+        ],
+      );
+      if (signaturePng) {
+        await tq(
+          `INSERT INTO attendance_signatures (event_id, school_id, png) VALUES ($1, $2, $3)`,
+          [ins[0].id, school.id, signaturePng],
+        );
+      }
+    });
     recorded.push({ student_id: studentId, student_name: studentName, action });
   }
 

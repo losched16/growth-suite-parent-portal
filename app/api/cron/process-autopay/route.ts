@@ -192,7 +192,8 @@ export async function GET(request: NextRequest) {
     const { rows: feed } = await query<{ id: string; owed_cents: number; applied_cents: number }>(
       `WITH cfg AS (
          SELECT school_id, late_fee_amount_cents, COALESCE(late_fee_grace_days, 0) AS grace,
-                COALESCE(late_fee_escalations, '[]'::jsonb) AS steps
+                COALESCE(late_fee_escalations, '[]'::jsonb) AS steps,
+                COALESCE(late_fee_tuition_only, false) AS tuition_only
            FROM school_payment_config
           WHERE COALESCE(billing_active, false) = true AND late_fee_amount_cents > 0
        ),
@@ -210,6 +211,9 @@ export async function GET(request: NextRequest) {
             AND i.due_at + make_interval(days => cfg.grace) < now()
             -- Office-waived invoices sit out every tier (migration 106).
             AND i.late_fee_waived_at IS NULL
+            -- Schools that fee tuition only leave one-off charges (pizza,
+            -- supplies, field trips) alone (migration 112).
+            AND (NOT cfg.tuition_only OR i.source = 'tuition_plan')
             AND NOT EXISTS (
                   SELECT 1 FROM payments p
                    WHERE p.invoice_id = i.id AND p.status IN ('pending', 'processing'))

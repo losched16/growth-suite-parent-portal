@@ -24,6 +24,7 @@ import { query } from '@/lib/db';
 import { loadBrandingByHost, type PreloginBranding } from '@/lib/branding';
 import { PasswordInput } from './PasswordInput';
 import { portalProvisioningAllowed } from '@/lib/auth/portal-provisioning';
+import { logEvent } from '@/lib/auth/magic-link';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,6 +111,19 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   );
   const onFile = rows.length > 0;
   const hasPassword = rows[0]?.has_password === true;
+  if (!onFile) {
+    // Without this, "can't find my email" reports are invisible — the office
+    // needs to see WHO tried (usually a second parent whose email was never
+    // added to the family record).
+    const h = await headers();
+    await logEvent({
+      event_type: 'login_unknown_email',
+      email,
+      school_id: hostSchoolId,
+      ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+      user_agent: h.get('user-agent'),
+    });
+  }
   // First-time provisioning is gated to the admissions "Pending" stage for
   // opted-in schools: an on-file email WITHOUT a password only gets the
   // create-password form when the family is eligible. Sign-in (already has a
@@ -162,6 +176,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
               We don&rsquo;t have <span className="font-mono">{email}</span> on file. Please sign in with the
               email address your school has on record for you. If you think this is a mistake, contact the
               school office{branding?.support_email ? <> at <a href={`mailto:${branding.support_email}`} className="underline" style={{ color: 'var(--brand-fg)' }}>{branding.support_email}</a></> : ''}.
+            </div>
+            <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+              <strong>Second parent or guardian?</strong> The parent who already uses the portal can add you
+              under <em>Family &rarr; Add another parent</em> with this email, or the school office can add it to your
+              family&rsquo;s record. Then come back here and create your password.
             </div>
             <Link
               href="/login"

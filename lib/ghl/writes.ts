@@ -13,27 +13,48 @@ interface CustomFieldDef {
   name?: string;
   fieldKey?: string;
   key?: string;
+  dataType?: string;
+  picklistOptions?: Array<{ id?: string } | string>;
 }
 
 const SCHEMA_TTL_MS = 60_000;
-const _schemaCache = new Map<string, { at: number; map: Map<string, string> }>();
+const _schemaCache = new Map<string, { at: number; map: Map<string, string>; listOption: Map<string, string> }>();
 
-async function loadFieldSchemaCached(client: GhlClient): Promise<Map<string, string>> {
+async function loadFieldDefsCached(client: GhlClient) {
   const cached = _schemaCache.get(client.locationId);
-  if (cached && Date.now() - cached.at < SCHEMA_TTL_MS) return cached.map;
+  if (cached && Date.now() - cached.at < SCHEMA_TTL_MS) return cached;
 
   const { data } = await client.axios.get<{ customFields?: CustomFieldDef[] }>(
     `/locations/${client.locationId}/customFields`,
   );
   const map = new Map<string, string>();
+  // TEXTBOX_LIST field id → the option id its value must be keyed by.
+  const listOption = new Map<string, string>();
   for (const f of data.customFields ?? []) {
     const raw = f.fieldKey ?? f.key;
     if (!raw || !f.id) continue;
     const normalized = raw.startsWith('contact.') ? raw.slice('contact.'.length) : raw;
     map.set(normalized, f.id);
+    if (f.dataType === 'TEXTBOX_LIST') {
+      const first = (f.picklistOptions ?? []).find((o): o is { id: string } => typeof o === 'object' && !!o?.id);
+      if (first) listOption.set(f.id, first.id);
+    }
   }
-  _schemaCache.set(client.locationId, { at: Date.now(), map });
-  return map;
+  const entry = { at: Date.now(), map, listOption };
+  _schemaCache.set(client.locationId, entry);
+  return entry;
+}
+
+async function loadFieldSchemaCached(client: GhlClient): Promise<Map<string, string>> {
+  return (await loadFieldDefsCached(client)).map;
+}
+
+// Old-form leftovers like "Cell (Primary)-3307499567, Home-, Work-": drop the
+// empty "Label-" segments, and the label too when a single number remains.
+function tidyListText(value: string): string {
+  const parts = value.split(',').map((p) => p.trim()).filter((p) => p && !/^[A-Za-z ()]+-\s*$/.test(p));
+  if (parts.length === 1) return parts[0].replace(/^Cell \(Primary\)\s*-?\s*/i, '').trim();
+  return parts.join(', ');
 }
 
 // Public accessor for the fieldKey → field-id map (same 60s cache).
@@ -78,16 +99,45 @@ export async function updateContactCustomFields(
   contactId: string,
   byKey: Record<string, string>,
 ): Promise<{ updated: number; skipped: string[] }> {
-  const schema = await loadFieldSchemaCached(client);
-  const customFields: Array<{ id: string; field_value: string }> = [];
+  const { map: schema, listOption } = await loadFieldDefsCached(client);
+  const customFields: Array<{ id: string; field_value: string | Record<string, string> }> = [];
   const skipped: string[] = [];
+  // TEXTBOX_LIST fields (e.g. Wooster's "Emergency Contact #N Phone Numbers")
+  // accept a plain string with a 200 and silently keep the old value. They
+  // need { <optionId>: text }, and that MERGES — entries under stale option
+  // ids (left by an older form) survive unless sent as "" — so read the
+  // contact's current keys first and blank the strays.
+  let current: Map<string, Record<string, unknown>> | null = null;
   for (const [key, value] of Object.entries(byKey)) {
     const id = schema.get(key);
     if (!id) {
       skipped.push(key);
       continue;
     }
-    customFields.push({ id, field_value: value });
+    const optionId = listOption.get(id);
+    if (!optionId) {
+      customFields.push({ id, field_value: value });
+      continue;
+    }
+    if (!current) {
+      current = new Map();
+      try {
+        const { data } = await client.axios.get<{ contact?: { customFields?: Array<{ id: string; value: unknown }> } }>(
+          `/contacts/${contactId}`,
+        );
+        for (const cf of data.contact?.customFields ?? []) {
+          if (cf.value && typeof cf.value === 'object' && !Array.isArray(cf.value)) {
+            current.set(cf.id, cf.value as Record<string, unknown>);
+          }
+        }
+      } catch {
+        // Without the current keys we can still write the value; strays stay.
+      }
+    }
+    const obj: Record<string, string> = {};
+    for (const stale of Object.keys(current.get(id) ?? {})) if (stale !== optionId) obj[stale] = '';
+    obj[optionId] = tidyListText(value);
+    customFields.push({ id, field_value: obj });
   }
   if (customFields.length === 0) return { updated: 0, skipped };
 

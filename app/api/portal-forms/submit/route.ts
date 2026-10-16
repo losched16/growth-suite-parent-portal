@@ -106,6 +106,19 @@ interface GhlWritebackEntry {
   // ignored (use a descriptive placeholder). Blank const_value never
   // writes (same skip-blanks rule as responses).
   const_value?: string;
+  // Explicit target per student slot ({"1": "asthma", "2": "student_2_asthma"})
+  // for schools whose slot fields don't follow one naming pattern (Wooster's
+  // Student 1 health fields carry legacy keys like asthma_5sn_copy). Wins
+  // over ghl_field_key for per-student entries; a slot with no entry is
+  // skipped.
+  ghl_field_key_by_slot?: Record<string, string>;
+  // Write the selected option's LABEL ("Yes", "School yearbook") instead of
+  // its stored value ("yes", "yearbook"). Multi-select answers join with "; ".
+  write_label?: boolean;
+  // Translate the stored value into the target field's own option wording
+  // when the two option sets differ ({"refuse": "No, do not consent…"}).
+  // Unmapped values fall through to write_label / the raw value.
+  value_map?: Record<string, string>;
 }
 
 // student.metadata field-keys we sync to from the health.* prefill slots
@@ -1704,6 +1717,21 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
     for (const wb of opts.writeback) {
       const raw = wb.const_value != null ? wb.const_value : opts.responses[wb.field_key];
       let v = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw);
+      if ((wb.value_map || wb.write_label) && wb.const_value == null && raw != null) {
+        const block = (opts.fieldSchema ?? []).find(
+          (b) => 'key' in b && b.key === wb.field_key,
+        ) as { options?: Array<{ value?: unknown; label?: unknown } | string> } | undefined;
+        const labelOf = new Map<string, string>();
+        for (const o of block?.options ?? []) {
+          if (o && typeof o === 'object' && o.value != null && o.label != null) labelOf.set(String(o.value), String(o.label));
+        }
+        const one = (x: unknown): string => {
+          const s = String(x ?? '');
+          if (wb.value_map && s in wb.value_map) return wb.value_map[s];
+          return wb.write_label ? (labelOf.get(s) ?? s) : s;
+        };
+        v = Array.isArray(raw) ? raw.map(one).filter(Boolean).join('; ') : one(raw);
+      }
       // write_amount: push the selected pricing option's PRICE (whole dollars)
       // instead of the option label — e.g. choosing "Organic Lunch $2,100 —
       // Vegetarian" writes "2100" to the paired cost field ("0" for declines,
@@ -1736,6 +1764,10 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
         ghlKey = wb.ghl_field_key.includes('{slot}')
           ? wb.ghl_field_key.replace(/\{slot\}/g, String(emptySlotIndex))
           : `student_${emptySlotIndex}_${wb.ghl_field_key}`;
+      } else if (wb.ghl_field_key_by_slot) {
+        const target = slotIndex ? wb.ghl_field_key_by_slot[String(slotIndex)] : undefined;
+        if (!target) continue; // no field for this student's slot
+        ghlKey = target;
       } else if (wb.per_student && slotIndex) {
         if (wb.ghl_field_key.includes('{slot}')) {
           ghlKey = wb.ghl_field_key.replace(/\{slot\}/g, String(slotIndex));

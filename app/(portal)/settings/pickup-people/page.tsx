@@ -50,6 +50,8 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
   // parents see a "contact the school" notice instead of the add form.
   const settings = await loadSchoolSettings(id.parent.school_id);
   const parentAddsAllowed = settings.parent_managed_pickups;
+  // No kiosk at this school → no PINs: the page is just the pickup list.
+  const kiosk = settings.kiosk_enabled;
   let officeEmail: string | null = null;
   if (!parentAddsAllowed) {
     const { rows: br } = await query<{ change_email: string | null }>(
@@ -116,7 +118,9 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
       <header>
         <h1 className="text-2xl font-semibold text-gray-900">Authorized pickup people</h1>
         <p className="mt-1 text-sm text-gray-600">
-          {parentAddsAllowed ? (
+          {!kiosk ? (
+            <>Anyone listed here is authorized to pick up your child from school.</>
+          ) : parentAddsAllowed ? (
             <>Anyone listed here can pick up your child. Set a PIN for non-parent pickup
             people so they can sign out at the school&rsquo;s check-in kiosk without needing a parent
             portal account.</>
@@ -128,9 +132,9 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
         </p>
       </header>
 
-      <MyPinControl pinSet={myPinSet} currentPin={myPin} officeManaged={!parentAddsAllowed} officeEmail={officeEmail} />
+      {kiosk ? <MyPinControl pinSet={myPinSet} currentPin={myPin} officeManaged={!parentAddsAllowed} officeEmail={officeEmail} /> : null}
 
-      {sp.new_pin && sp.pin_for ? (
+      {kiosk && sp.new_pin && sp.pin_for ? (
         <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-amber-900">
             New PIN — copy it now
@@ -168,7 +172,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
         ) : (
           <ul className="divide-y divide-gray-100">
             {active.map((p) => (
-              <PersonRow key={p.id} person={p} kids={kids} kidLabel={kidLabel} readOnly={!parentAddsAllowed} />
+              <PersonRow key={p.id} person={p} kids={kids} kidLabel={kidLabel} readOnly={!parentAddsAllowed} kiosk={kiosk} />
             ))}
           </ul>
         )}
@@ -290,7 +294,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
           </summary>
           <ul className="mt-2 divide-y divide-gray-100">
             {inactive.map((p) => (
-              <PersonRow key={p.id} person={p} kids={kids} kidLabel={kidLabel} />
+              <PersonRow key={p.id} person={p} kids={kids} kidLabel={kidLabel} kiosk={kiosk} />
             ))}
           </ul>
         </details>
@@ -299,7 +303,7 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
   );
 }
 
-function PersonRow({ person: p, kids, kidLabel, readOnly = false }: { person: PickupPersonRow; kids: StudentLite[]; kidLabel: (s: StudentLite) => string; readOnly?: boolean }) {
+function PersonRow({ person: p, kids, kidLabel, readOnly = false, kiosk = true }: { person: PickupPersonRow; kids: StudentLite[]; kidLabel: (s: StudentLite) => string; readOnly?: boolean; kiosk?: boolean }) {
   const hasPin = !!p.pin_set_at;
   const pinExpired = p.pin_expires_at && new Date(p.pin_expires_at) < new Date();
   // Empty junction = all kids. When the parent restricted to specific
@@ -316,7 +320,7 @@ function PersonRow({ person: p, kids, kidLabel, readOnly = false }: { person: Pi
             {p.name}
           </span>
           <span className="text-xs text-gray-500">· {p.relationship}</span>
-          {hasPin && !pinExpired ? (
+          {!kiosk ? null : hasPin && !pinExpired ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
               🔑 PIN active
               {p.is_temporary ? ' · temp' : ''}
@@ -354,7 +358,7 @@ function PersonRow({ person: p, kids, kidLabel, readOnly = false }: { person: Pi
         ) : null}
         {p.phone ? <div className="text-[11px] text-gray-600">{p.phone}</div> : null}
         {p.notes ? <div className="text-[11px] text-gray-600">{p.notes}</div> : null}
-        {hasPin && p.pin_expires_at ? (
+        {kiosk && hasPin && p.pin_expires_at ? (
           <div className="text-[10px] text-gray-500">
             PIN expires {new Date(p.pin_expires_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
           </div>
@@ -367,7 +371,7 @@ function PersonRow({ person: p, kids, kidLabel, readOnly = false }: { person: Pi
       <div className="flex items-center gap-1 flex-wrap">
         {p.active ? (
           <>
-            <SetPinControl pickupPersonId={p.id} hasExistingPin={hasPin} />
+            {kiosk ? <SetPinControl pickupPersonId={p.id} hasExistingPin={hasPin} /> : null}
             <form action="/api/attendance/pickup-persons" method="POST">
               <input type="hidden" name="_method" value="DELETE" />
               <input type="hidden" name="id" value={p.id} />

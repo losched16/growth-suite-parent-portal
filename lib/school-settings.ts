@@ -41,6 +41,10 @@ export interface SchoolSettings {
   // school_branding.admin_change_notification_email / support_email.
   // DGM: admissions@ + Henderson + Blanken.
   upload_notification_emails: string[];
+  // The school runs kiosk check-in/out with PINs. Default true. false =
+  // no PIN controls anywhere in the portal (the pickup list is just a
+  // list of authorized people). Mirrors dashboards' kiosk_enabled.
+  kiosk_enabled: boolean;
 }
 
 export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
@@ -53,6 +57,7 @@ export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
   parent_editable_allergies: true,
   parent_editable_family: true,
   upload_notification_emails: [],
+  kiosk_enabled: true,
 };
 
 export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
@@ -74,6 +79,7 @@ export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
     upload_notification_emails: Array.isArray(r.upload_notification_emails)
       ? r.upload_notification_emails.map((e) => String(e ?? '').trim()).filter((e) => e.includes('@'))
       : [],
+    kiosk_enabled: r.kiosk_enabled !== false,
   };
 }
 

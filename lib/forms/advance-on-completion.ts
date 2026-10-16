@@ -224,6 +224,22 @@ export async function maybeAdvanceOnCompletion(opts: {
 
       const candidates = opps.filter((o) => fromIds.has(o.pipelineStageId));
 
+      // The cache only knows stages that hold a card — a brand-new (empty)
+      // target stage resolves from the live pipeline definitions instead.
+      if (candidates.some((o) => !toIdByPipeline.has(o.pipelineId))) {
+        try {
+          const pres = await client.axios.get('/opportunities/pipelines', {
+            params: { locationId: client.locationId },
+          });
+          for (const p of (pres.data.pipelines ?? []) as Array<{ id: string; stages?: Array<{ id: string; name: string }> }>) {
+            const st = (p.stages ?? []).find((s) => s.name === toStage);
+            if (st && !toIdByPipeline.has(p.id)) toIdByPipeline.set(p.id, st.id);
+          }
+        } catch (err) {
+          errors.push(`pipeline lookup: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
       const firstNameCounts = new Map<string, number>();
       const { rows: allStudents } = await query<{ first_name: string }>(
         `SELECT first_name FROM students

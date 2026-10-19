@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { chargeAutopayInvoice, type AutopayChargeResult } from '@/lib/billing/autopay-charge';
+import { onHoldSql } from '@/lib/billing/billing-hold';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -69,6 +70,9 @@ export async function GET(request: NextRequest) {
         AND i.autopay_payment_method_id IS NOT NULL
         AND i.status IN ('open', 'partially_paid')
         AND COALESCE(spc.billing_active, false) = true
+        -- School billing hold (migration 116): nothing is charged while the
+        -- window is open, and invoices dated inside it are never charged.
+        AND NOT ${onHoldSql({ cfg: 'spc', inv: 'i', today: '$1::date' })}
         -- Never charge an invoice that already has a payment IN FLIGHT. ACH
         -- sits in 'pending' for days and a card awaits webhook confirmation, so
         -- the invoice stays 'open' the whole time — without this guard the cron
@@ -133,6 +137,17 @@ export async function GET(request: NextRequest) {
     }
     results.push({ invoice_id: inv.id, invoice_number: inv.invoice_number, result });
 
+    if (result.reason === 'held') {
+      // Backstop only (the SELECT above already filters held invoices): undo
+      // the attempt bump so the retry schedule is not advanced by a no-op.
+      await query(
+        `UPDATE invoices SET retry_attempt_count = GREATEST(retry_attempt_count - 1, 0) WHERE id = $1`,
+        [inv.id],
+      );
+      skipped++;
+      continue;
+    }
+
     if (result.ok) {
       // The webhook will mark the invoice paid + clear next_retry_at.
       // We optimistically clear next_retry_at here too so we don't
@@ -193,7 +208,8 @@ export async function GET(request: NextRequest) {
       `WITH cfg AS (
          SELECT school_id, late_fee_amount_cents, COALESCE(late_fee_grace_days, 0) AS grace,
                 COALESCE(late_fee_escalations, '[]'::jsonb) AS steps,
-                COALESCE(late_fee_tuition_only, false) AS tuition_only
+                COALESCE(late_fee_tuition_only, false) AS tuition_only,
+                billing_hold_from, billing_hold_until
            FROM school_payment_config
           WHERE COALESCE(billing_active, false) = true AND late_fee_amount_cents > 0
        ),
@@ -211,6 +227,9 @@ export async function GET(request: NextRequest) {
             AND i.due_at + make_interval(days => cfg.grace) < now()
             -- Office-waived invoices sit out every tier (migration 106).
             AND i.late_fee_waived_at IS NULL
+            -- No late fees accrue during a school billing hold, and an
+            -- invoice dated inside the hold never picks one up (migration 116).
+            AND NOT ${onHoldSql({ cfg: 'cfg', inv: 'i', today: 'CURRENT_DATE' })}
             -- Schools that fee tuition only leave one-off charges (pizza,
             -- supplies, field trips) alone (migration 112).
             AND (NOT cfg.tuition_only OR i.source = 'tuition_plan')

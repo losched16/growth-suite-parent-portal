@@ -29,6 +29,7 @@ import {
 import { sendPaymentEventToGhl } from '@/lib/billing/ghl-receipt';
 import { writebackProductPurchaseToGhl } from '@/lib/ghl/product-writeback';
 import { chargeAutopayInvoice } from '@/lib/billing/autopay-charge';
+import { onHoldSql } from '@/lib/billing/billing-hold';
 import type Stripe from 'stripe';
 
 export const runtime = 'nodejs';
@@ -549,6 +550,7 @@ async function handlePaymentMethodAttached(
           AND i.autopay_enabled = true
           AND i.autopay_payment_method_id = $3
           AND COALESCE(spc.billing_active, false) = true
+          AND NOT ${onHoldSql({ cfg: 'spc', inv: 'i', today: 'CURRENT_DATE' })}
           AND COALESCE(i.autopay_charge_on, i.due_at::date) <= CURRENT_DATE
           AND NOT EXISTS (
             SELECT 1 FROM payments p

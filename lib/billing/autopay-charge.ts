@@ -11,16 +11,17 @@
 //
 // Returns one of:
 //   { ok: true, payment_intent_id }
-//   { ok: false, reason: 'no_account' | 'no_method' | 'requires_action' | 'declined' | 'unknown',
+//   { ok: false, reason: 'no_account' | 'no_method' | 'requires_action' | 'declined' | 'unknown' | 'held',
 //     message?: string }
 
 import { stripe } from '@/lib/stripe/client';
 import { query } from '@/lib/db';
+import { onHoldSql } from './billing-hold';
 import { computeFees, type FeeConfig, type PaymentRail } from './fee-math';
 
 export interface AutopayChargeResult {
   ok: boolean;
-  reason?: 'no_account' | 'no_method' | 'requires_action' | 'declined' | 'unknown';
+  reason?: 'no_account' | 'no_method' | 'requires_action' | 'declined' | 'unknown' | 'held';
   message?: string;
   payment_intent_id?: string;
 }
@@ -49,6 +50,17 @@ export async function chargeAutopayInvoice(invoiceId: string): Promise<AutopayCh
   const inv = invRows[0];
   if (!inv) return { ok: false, reason: 'unknown', message: 'invoice not found' };
   if (!inv.autopay_payment_method_id) return { ok: false, reason: 'no_method' };
+
+  // Backstop for the school billing hold (migration 116). Callers already
+  // filter held invoices in SQL; this guarantees no path can charge one.
+  const { rows: heldRows } = await query<{ held: boolean }>(
+    `SELECT ${onHoldSql({ cfg: 'spc', inv: 'i', today: 'CURRENT_DATE' })} AS held
+       FROM invoices i
+       JOIN school_payment_config spc ON spc.school_id = i.school_id
+      WHERE i.id = $1`,
+    [inv.id],
+  );
+  if (heldRows[0]?.held) return { ok: false, reason: 'held', message: 'school billing hold' };
 
   const { rows: pmRows } = await query<{
     stripe_payment_method_id: string;

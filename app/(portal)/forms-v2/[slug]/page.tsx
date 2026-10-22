@@ -621,12 +621,17 @@ export default async function FormPage({
     const { rows: relRows } = await query<{ field_key: string; value: string | null }>(
       `SELECT field_key, value FROM ghl_contact_field_values
         WHERE school_id = $1 AND ghl_contact_id = $2
-          AND field_key IN ('parent_1_relationship', 'parent_2_relationship')`,
+          AND field_key IN ('parent_1_relationship_select', 'parent_2_relationship_select',
+                          'parent_1_relationship', 'parent_2_relationship')
+        ORDER BY (field_key LIKE '%_select') ASC`,
       [id.school.id, primaryGuardian.ghl_contact_id],
     ).catch(() => ({ rows: [] as Array<{ field_key: string; value: string | null }> }));
     for (const r of relRows) {
-      if (r.field_key === 'parent_1_relationship') pg1Relationship = r.value;
-      if (r.field_key === 'parent_2_relationship') pg2Relationship = r.value;
+      // The dropdown fields (…_select) win; the old free-text fields are the fallback.
+      if (r.field_key === 'parent_1_relationship_select' && r.value) pg1Relationship = r.value;
+      else if (r.field_key === 'parent_1_relationship' && !pg1Relationship) pg1Relationship = r.value;
+      if (r.field_key === 'parent_2_relationship_select' && r.value) pg2Relationship = r.value;
+      else if (r.field_key === 'parent_2_relationship' && !pg2Relationship) pg2Relationship = r.value;
     }
   }
 

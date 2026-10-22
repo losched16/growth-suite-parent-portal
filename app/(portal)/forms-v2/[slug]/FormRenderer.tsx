@@ -1752,7 +1752,11 @@ function TextInput({ block, prefillCtx, legacyResponses }: { block: Extract<Form
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
   const typeMap: Record<string, string> = { text: 'text', email: 'email', tel: 'tel', url: 'url' };
-  const locked = block.readOnly === true;
+  // readOnly is stripped for families without a tuition enrollment (every DGM
+  // 2.0 family), so a field marked "locked" in the builder also sets
+  // lock_if_prefilled: locked whenever a value is on file, editable when blank
+  // (a blank locked required field would be a dead end).
+  const locked = block.readOnly === true || (block.lock_if_prefilled === true && !!defaultValue);
   return (
     <input
       type={typeMap[block.type]}
@@ -1802,7 +1806,7 @@ function Textarea({ block, prefillCtx, legacyResponses }: { block: Extract<FormF
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
-  const locked = block.readOnly === true;
+  const locked = block.readOnly === true || (block.lock_if_prefilled === true && !!defaultValue);
   return (
     <textarea
       name={block.key}
@@ -1820,7 +1824,7 @@ function NumberInput({ block, prefillCtx, legacyResponses }: { block: Extract<Fo
   const defaultValue = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
     || (typeof block.default === 'string' ? block.default : '');
-  const locked = block.readOnly === true;
+  const locked = block.readOnly === true || (block.lock_if_prefilled === true && !!defaultValue);
   return (
     <input
       type="number"
@@ -1857,7 +1861,7 @@ function DateInput({ block, prefillCtx, legacyResponses }: { block: Extract<Form
   // (already YYYY-MM-DD, or empty) pass through untouched.
   const isoDate = /^(\d{4}-\d{2}-\d{2})/.exec(rawValue);
   const defaultValue = isoDate ? isoDate[1] : rawValue;
-  const locked = lockToday || block.readOnly === true;
+  const locked = lockToday || block.readOnly === true || (block.lock_if_prefilled === true && !!defaultValue);
   if (locked) {
     return <LockedChoice name={block.key} value={defaultValue} label={fmtDateDisplay(defaultValue)} />;
   }
@@ -2273,7 +2277,8 @@ function PricingSelect({
   // schema's prefill source (e.g. `meta:ea_program_tuition`).
   const legacy = (legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx)) || '';
-  if (block.readOnly === true) {
+  const lockedByPrefill = block.lock_if_prefilled === true && !!legacy && block.options.some((o) => o.value === legacy);
+  if (block.readOnly === true || lockedByPrefill) {
     const opt = block.options.find((o) => o.value === legacy);
     const label = opt ? `${opt.label} — ${fmtCents(opt.amount_cents)}` : '';
     return <LockedChoice name={block.key} value={legacy} label={label} />;

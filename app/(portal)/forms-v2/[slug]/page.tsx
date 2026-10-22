@@ -617,12 +617,15 @@ export default async function FormPage({
   // relationship prefills work; best-effort — blank when never set in GHL.
   let pg1Relationship: string | null = null;
   let pg2Relationship: string | null = null;
+  const work: Record<string, string | null> = {};
   if (primaryGuardian?.ghl_contact_id) {
     const { rows: relRows } = await query<{ field_key: string; value: string | null }>(
       `SELECT field_key, value FROM ghl_contact_field_values
         WHERE school_id = $1 AND ghl_contact_id = $2
           AND field_key IN ('parent_1_relationship_select', 'parent_2_relationship_select',
-                          'parent_1_relationship', 'parent_2_relationship')
+                          'parent_1_relationship', 'parent_2_relationship',
+                          'parent_1_employer_name', 'parent_1_position',
+                          'parent_2_employer_name', 'parent_2_position')
         ORDER BY (field_key LIKE '%_select') ASC`,
       [id.school.id, primaryGuardian.ghl_contact_id],
     ).catch(() => ({ rows: [] as Array<{ field_key: string; value: string | null }> }));
@@ -630,6 +633,7 @@ export default async function FormPage({
       // The dropdown fields (…_select) win; the old free-text fields are the fallback.
       if (r.field_key === 'parent_1_relationship_select' && r.value) pg1Relationship = r.value;
       else if (r.field_key === 'parent_1_relationship' && !pg1Relationship) pg1Relationship = r.value;
+      if (/_(employer_name|position)$/.test(r.field_key)) work[r.field_key] = (r.value ?? '').trim() || null;
       if (r.field_key === 'parent_2_relationship_select' && r.value) pg2Relationship = r.value;
       else if (r.field_key === 'parent_2_relationship' && !pg2Relationship) pg2Relationship = r.value;
     }
@@ -637,10 +641,10 @@ export default async function FormPage({
 
   const guardians: PrefillContext['guardians'] = {
     primary: primaryGuardian
-      ? { first_name: primaryGuardian.first_name, last_name: primaryGuardian.last_name, email: primaryGuardian.email, phone: primaryGuardian.phone, relationship: pg1Relationship }
+      ? { first_name: primaryGuardian.first_name, last_name: primaryGuardian.last_name, email: primaryGuardian.email, phone: primaryGuardian.phone, relationship: pg1Relationship, employer: work.parent_1_employer_name ?? null, position: work.parent_1_position ?? null }
       : null,
     secondary: secondaryGuardian
-      ? { first_name: secondaryGuardian.first_name, last_name: secondaryGuardian.last_name, email: secondaryGuardian.email, phone: secondaryGuardian.phone, relationship: pg2Relationship }
+      ? { first_name: secondaryGuardian.first_name, last_name: secondaryGuardian.last_name, email: secondaryGuardian.email, phone: secondaryGuardian.phone, relationship: pg2Relationship, employer: work.parent_2_employer_name ?? null, position: work.parent_2_position ?? null }
       : null,
   };
 

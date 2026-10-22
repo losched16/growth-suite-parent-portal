@@ -16,8 +16,8 @@ export interface PrefillContext {
   // enrollment-agreement ea_pg1_*/ea_pg2_* prefills live from GHL when a
   // brand-new family has no frozen ea_* snapshot yet.
   guardians?: {
-    primary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null } | null;
-    secondary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null } | null;
+    primary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null; employer?: string | null; position?: string | null } | null;
+    secondary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null; employer?: string | null; position?: string | null } | null;
   };
   student?: {
     first_name: string;
@@ -95,6 +95,10 @@ function deriveEaFallback(eaKey: string, ctx: PrefillContext): string {
     case 'ea_pg1_first_name':   return g1?.first_name ?? '';
     case 'ea_pg1_last_name':    return g1?.last_name ?? '';
     case 'ea_pg1_relationship': return g1?.relationship ?? '';
+    case 'ea_pg1_employer':     return g1?.employer ?? '';
+    case 'ea_pg1_position':     return g1?.position ?? '';
+    case 'ea_pg2_employer':     return g2?.employer ?? '';
+    case 'ea_pg2_position':     return g2?.position ?? '';
     case 'ea_pg2_relationship': return g2?.relationship ?? '';
     case 'ea_pg1_home_email':   return g1?.email ?? '';
     case 'ea_pg1_home_phone':

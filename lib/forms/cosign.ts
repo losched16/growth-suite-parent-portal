@@ -29,7 +29,12 @@ export const COSIGNER_SIGNED_AT_FIELD = 'cosigner_signature_signed_at';
 
 // True when the submitted answers require a second guardian's signature.
 export function isCoSignRequired(responses: Record<string, unknown>): boolean {
-  const v = String(responses[LDMA_FIELD_KEY] ?? '').trim();
+  // On an Amendment where the parent changes LDMA (amend_ldma = Yes), the NEW selection
+  // decides who must sign; otherwise the answer on file does. (Without this, married ->
+  // divorced never triggered Parent 2's signature because only the old value was read.)
+  const changed = String(responses['amend_ldma'] ?? '').trim() === 'Yes'
+    ? String(responses['ldma_new'] ?? '').trim() : '';
+  const v = changed || String(responses[LDMA_FIELD_KEY] ?? '').trim();
   if (JOINT_LDMA_VALUES.has(v)) return true;
   return /\b(divorced|separated|unmarried)\b/i.test(v);
 }

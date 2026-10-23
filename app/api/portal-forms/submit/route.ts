@@ -27,6 +27,7 @@ import { query } from '@/lib/db';
 import { readSessionFresh } from '@/lib/identity';
 import { loadSchoolSettings } from '@/lib/school-settings';
 import type { FormFieldBlock, FormDefinition, FormPaymentConfig } from '@/lib/forms/types';
+import { loadContactFields, contactFieldKeysFor } from '@/lib/forms/contact-fields';
 import { resolvePrefill, applyPrefillMap, todayString, isBlockVisible, hasPrefillConditions, resolveConditionPrefillValues, type PrefillContext } from '@/lib/forms/prefill';
 import {
   studentMatchesAppliesTo,
@@ -367,7 +368,7 @@ export async function POST(request: NextRequest) {
   // when the form actually uses catalog conditions.
   let condPrefill: Record<string, string> = {};
   if (hasPrefillConditions(def.field_schema)) {
-    const condCtx = await buildPrefillContextForSubmit(session.parent_id, studentId, session.school_id);
+    const condCtx = await buildPrefillContextForSubmit(session.parent_id, studentId, session.school_id, def.field_schema);
     condPrefill = resolveConditionPrefillValues(def.field_schema, condCtx);
   }
   const visValues = { ...fdValues, ...condPrefill };
@@ -600,7 +601,7 @@ export async function POST(request: NextRequest) {
   // fields render editable with no prefill, so overriding here would wipe
   // their typed selections — skip it.
   if ((readOnlyKeys.length > 0 && isExistingFamily) || hasLockIfPrefilled) {
-    const ctx = await buildPrefillContextForSubmit(session.parent_id, studentId, session.school_id);
+    const ctx = await buildPrefillContextForSubmit(session.parent_id, studentId, session.school_id, def.field_schema);
     for (const block of def.field_schema) {
       if (!('key' in block) || !('prefill' in block) || !block.prefill) continue;
       const isReadOnly = 'readOnly' in block && block.readOnly === true;
@@ -1853,6 +1854,7 @@ async function buildPrefillContextForSubmit(
   parentId: string,
   studentId: string | null,
   schoolId: string,
+  schema: ReadonlyArray<unknown> = [],
 ): Promise<PrefillContext> {
   // Parent
   const { rows: pRows } = await query<{
@@ -1871,6 +1873,10 @@ async function buildPrefillContextForSubmit(
       phone: p.phone,
     },
   };
+
+  // Parent/family-level contact fields for meta:<key> prefills (same fallback
+  // the renderer uses, so locked connected fields re-resolve identically).
+  ctx.contactFields = await loadContactFields(schoolId, parentId, contactFieldKeysFor(schema));
 
   if (!studentId) return ctx;
 

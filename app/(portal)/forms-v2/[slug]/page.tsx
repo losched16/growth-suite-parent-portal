@@ -14,6 +14,7 @@ import { loadStudentsForFamily } from '@/lib/family-data';
 import { query } from '@/lib/db';
 import type { FormDefinition, FormFieldBlock } from '@/lib/forms/types';
 import type { PrefillContext } from '@/lib/forms/prefill';
+import { loadContactFields, contactFieldKeysFor } from '@/lib/forms/contact-fields';
 import type { FormPaymentConfig } from '@/lib/forms/types';
 import {
   studentMatchesAppliesTo,
@@ -577,7 +578,12 @@ export default async function FormPage({
     category: def.category,
     per_student: def.per_student,
     required_for: def.required_for,
-    field_schema: def.field_schema,
+    // A field connected to a contact field (builder: ghl_field_key) always
+    // pre-fills from that field, even if its prefill source was never set.
+    field_schema: (Array.isArray(def.field_schema) ? def.field_schema : []).map((b) => {
+      const x = b as { prefill?: string; ghl_field_key?: string; no_auto_prefill?: boolean };
+      return x.ghl_field_key && !x.prefill && !x.no_auto_prefill ? { ...b, prefill: `meta:${x.ghl_field_key}` } : b;
+    }) as FormDefinition['field_schema'],
     fee_amount: def.fee_amount ? Number(def.fee_amount) : null,
     one_submission_per_year: def.one_submission_per_year,
     resubmission_allowed: def.resubmission_allowed,
@@ -586,6 +592,10 @@ export default async function FormPage({
     allow_addendum: def.allow_addendum,
     allow_multiple_submissions: def.allow_multiple_submissions,
   };
+
+  const contactFields = await loadContactFields(
+    id.parent.school_id, id.parent.id, contactFieldKeysFor(definition.field_schema),
+  );
 
   const parentCtx: PrefillContext['parent'] = {
     first_name: id.parent.first_name,
@@ -744,6 +754,7 @@ export default async function FormPage({
               }))}
               parent={parentCtx}
               guardians={guardians}
+              contactFields={contactFields}
               currentParentId={id.parent.id}
               enrollmentByStudentId={enrollmentByStudentId}
               healthByStudentId={healthByStudentId}

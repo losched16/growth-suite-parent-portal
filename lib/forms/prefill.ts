@@ -19,6 +19,10 @@ export interface PrefillContext {
     primary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null; employer?: string | null; position?: string | null } | null;
     secondary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null; employer?: string | null; position?: string | null; street?: string | null; city?: string | null; state?: string | null; zip?: string | null } | null;
   };
+  // The family's primary-contact custom-field values (field_key → value) for the
+  // keys a form pulls from. Fallback for meta:<key> when the key isn't in the
+  // selected student's metadata — i.e. parent/family-level contact fields.
+  contactFields?: Record<string, string>;
   student?: {
     first_name: string;
     last_name: string;
@@ -165,6 +169,9 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
     // snapshot), fall back to the live GHL-synced data so the form still
     // prefills — keeping GHL the single source of truth.
     if (v.trim() === '' && key.startsWith('ea_')) v = deriveEaFallback(key, ctx);
+    // Parent/family-level contact field (no student metadata mirror): read it
+    // straight from the family's contact record.
+    if (v.trim() === '' && ctx.contactFields) v = ctx.contactFields[key] ?? '';
     // Normalize ISO datetimes (e.g. GHL DATE fields synced as
     // "2026-08-03T00:00:00.000Z") to YYYY-MM-DD so <input type="date"> prefills
     // instead of rendering blank. Only touches ISO-datetime-shaped strings.

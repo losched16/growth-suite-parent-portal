@@ -72,6 +72,9 @@ interface Props {
   // Family guardians (primary + co-parent), GHL-synced. Powers live ea_pg1_*/
   // ea_pg2_* prefill for brand-new families with no frozen ea_* snapshot.
   guardians?: PrefillContext['guardians'];
+  // Primary-contact custom-field values for connected form fields (see
+  // lib/forms/contact-fields.ts).
+  contactFields?: Record<string, string>;
   // Logged-in parent's id, used to detect "the OTHER parent in my
   // family submitted this last" → show a co-parent-overwrite warning.
   currentParentId: string;
@@ -124,7 +127,7 @@ interface Props {
 }
 
 export function FormRenderer({
-  definition, students, parent, guardians, currentParentId, healthByStudentId,
+  definition, students, parent, guardians, contactFields, currentParentId, healthByStudentId,
   enrollmentByStudentId,
   existingByStudentId, familyExisting,
   flagsByStudentId, familyFlags,
@@ -299,6 +302,7 @@ export function FormRenderer({
   const prefillCtx: PrefillContext = useMemo(() => ({
     parent,
     guardians,
+    contactFields,
     student: selectedStudent
       ? {
           first_name: selectedStudent.first_name,
@@ -311,7 +315,7 @@ export function FormRenderer({
       : undefined,
     health: selectedStudent ? healthByStudentId[selectedStudent.id] : undefined,
     enrollment: selectedStudent ? enrollmentByStudentId?.[selectedStudent.id] : undefined,
-  }), [parent, guardians, selectedStudent, healthByStudentId, enrollmentByStudentId]);
+  }), [parent, guardians, contactFields, selectedStudent, healthByStudentId, enrollmentByStudentId]);
 
   // Resolve any catalog/prefill-sourced visible_when facts once per context
   // (they don't change as the parent types). Merged into the values map at each
@@ -1888,13 +1892,24 @@ function fmtDateDisplay(v: string): string {
   return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+// A prefilled value (e.g. the label a contact field stores — "Mother") may not
+// equal the option's stored value ("mother"). Map it onto the matching option so
+// connected dropdowns/radios pre-select; unmatched values pass through unchanged.
+function matchOptionValue(v: string, options: ReadonlyArray<{ value: string; label: string }>): string {
+  if (!v || options.some((o) => o.value === v)) return v;
+  const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const t = norm(v);
+  const hit = options.find((o) => norm(o.label) === t) ?? options.find((o) => norm(o.value) === t);
+  return hit ? hit.value : v;
+}
+
 function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'select' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = applyPrefillMap(
+  const defaultValue = matchOptionValue(applyPrefillMap(
     (legacyVal(legacyResponses, block.key)
       ?? resolvePrefill(block.prefill, prefillCtx))
       || (typeof block.default === 'string' ? block.default : ''),
     block.prefill_map,
-  );
+  ), block.options);
   // Lock when explicitly readOnly, OR when lock_if_prefilled is set AND we
   // actually have a value (existing families) — new families get the
   // editable dropdown to fill it in.
@@ -1914,9 +1929,9 @@ function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<Fo
 }
 
 function RadioGroup({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'radio' }>; prefillCtx: PrefillContext } & LegacyProp) {
-  const defaultValue = (legacyVal(legacyResponses, block.key)
+  const defaultValue = matchOptionValue((legacyVal(legacyResponses, block.key)
     ?? resolvePrefill(block.prefill, prefillCtx))
-    || (typeof block.default === 'string' ? block.default : '');
+    || (typeof block.default === 'string' ? block.default : ''), block.options);
   const locked = block.readOnly === true || (block.lock_if_prefilled === true && !!defaultValue);
   if (locked) {
     const opt = block.options.find((o) => o.value === defaultValue);

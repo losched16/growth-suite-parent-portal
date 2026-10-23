@@ -1013,7 +1013,18 @@ export async function POST(request: NextRequest) {
     .map((b) => b as { key?: unknown; ghl_field_key?: unknown })
     .filter((b) => typeof b.ghl_field_key === 'string' && b.ghl_field_key
       && typeof b.key === 'string' && b.key)
-    .map((b) => ({ field_key: String(b.key), ghl_field_key: String(b.ghl_field_key) }));
+    .map((b) => {
+      const key = String(b.ghl_field_key);
+      // The builder lists a school's fields per child slot (student_1_x,
+      // student_2_x …). On a one-form-per-student form, connecting ANY slot's
+      // field means "this child's value", so re-aim it at the submitting
+      // child's own slot instead of writing every child's answer to the slot
+      // that was picked.
+      const m = def.per_student ? /^student_\d+_(.+)$/.exec(key) : null;
+      return m
+        ? { field_key: String(b.key), ghl_field_key: m[1], per_student: true }
+        : { field_key: String(b.key), ghl_field_key: key };
+    });
   const explicit = def.ghl_writeback ?? [];
   const seenWb = new Set(explicit.map((w) => w.field_key));
   const allWriteback = [...explicit, ...schemaWriteback.filter((w) => !seenWb.has(w.field_key))];

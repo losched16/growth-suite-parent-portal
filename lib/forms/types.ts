@@ -35,10 +35,16 @@ export interface SectionBlock {
 //     fact we already know WITHOUT collecting it as a question. The renderer /
 //     submit route resolve it and expose it under `@prefill:<source>` in the
 //     values map that isBlockVisible reads.
+//
+// `fallback_prefill` (field-sourced conditions only): a PrefillSource used as the
+// value when `field` has no answer — e.g. the controlling field is itself hidden
+// (an "Are you changing X?" gate set to No), so the family's current value on
+// file stands in for it.
 export interface VisibilityCondition {
   field: string;
   equals: string[];
   source?: 'field' | 'prefill';
+  fallback_prefill?: string;
 }
 // Block-level conditional visibility. Two shapes, both accepted forever:
 //   - legacy single: `{ field, equals }` — one controlling field.

@@ -307,7 +307,8 @@ export function resolvePrefill(source: PrefillSource | undefined, ctx: PrefillCo
 function matchCondition(cond: VisibilityCondition, values: Record<string, unknown>): boolean {
   if (!cond.field) return true;
   const key = cond.source === 'prefill' ? `@prefill:${cond.field}` : cond.field;
-  const cur = values[key];
+  let cur = values[key];
+  if ((cur == null || cur === '') && cond.fallback_prefill && cond.source !== 'prefill') cur = values[`@prefill:${cond.fallback_prefill}`];
   const curStr = cur == null ? '' : String(cur);
   return (cond.equals ?? []).map(String).includes(curStr);
 }
@@ -325,7 +326,7 @@ type MaybeConditional = { type: string; visible_when?: VisibleWhen };
 // building a PrefillContext for forms that don't use catalog conditions.
 export function hasPrefillConditions(schema: ReadonlyArray<MaybeConditional>): boolean {
   for (const b of schema) {
-    if (conditionsOf(b.visible_when).some((c) => c.source === 'prefill' && c.field)) return true;
+    if (conditionsOf(b.visible_when).some((c) => (c.source === 'prefill' && c.field) || c.fallback_prefill)) return true;
   }
   return false;
 }
@@ -340,7 +341,10 @@ export function resolveConditionPrefillValues(
 ): Record<string, string> {
   const sources = new Set<string>();
   for (const b of schema) {
-    for (const c of conditionsOf(b.visible_when)) if (c.source === 'prefill' && c.field) sources.add(c.field);
+    for (const c of conditionsOf(b.visible_when)) {
+      if (c.source === 'prefill' && c.field) sources.add(c.field);
+      else if (c.fallback_prefill) sources.add(c.fallback_prefill);
+    }
   }
   const out: Record<string, string> = {};
   for (const s of sources) out[`@prefill:${s}`] = resolvePrefill(s as PrefillSource, ctx);

@@ -17,7 +17,7 @@ export interface PrefillContext {
   // brand-new family has no frozen ea_* snapshot yet.
   guardians?: {
     primary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null; employer?: string | null; position?: string | null } | null;
-    secondary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null; employer?: string | null; position?: string | null } | null;
+    secondary?: { first_name: string; last_name: string; email: string | null; phone: string | null; relationship?: string | null; employer?: string | null; position?: string | null; street?: string | null; city?: string | null; state?: string | null; zip?: string | null } | null;
   };
   student?: {
     first_name: string;
@@ -123,10 +123,12 @@ function deriveEaFallback(eaKey: string, ctx: PrefillContext): string {
     // Parent/Guardian 2 shares the family/contact address (one address per
     // GHL contact). Prefill it like pg1 so the 2nd guardian fills in "as
     // well"; the parent can edit it if the co-parent lives elsewhere.
-    case 'ea_pg2_street': return g2 ? (m('street') || m('student_street')) : '';
-    case 'ea_pg2_city':   return g2 ? (m('city')   || m('student_city'))   : '';
-    case 'ea_pg2_state':  return g2 ? (m('state')  || m('student_state'))  : '';
-    case 'ea_pg2_zip':    return g2 ? (m('zip')    || m('student_zip'))    : '';
+    // Parent 2's own address fields on the contact win (they can live elsewhere);
+    // the shared family address is the fallback.
+    case 'ea_pg2_street': return g2 ? (g2.street || m('street') || m('student_street')) : '';
+    case 'ea_pg2_city':   return g2 ? (g2.city   || m('city')   || m('student_city'))   : '';
+    case 'ea_pg2_state':  return g2 ? (g2.state  || m('state')  || m('student_state'))  : '';
+    case 'ea_pg2_zip':    return g2 ? (g2.zip    || m('zip')    || m('student_zip'))    : '';
   }
   // Generic: ea_<base> → the GHL-synced metadata base key (drop the ea_).
   const base = eaKey.slice(3);

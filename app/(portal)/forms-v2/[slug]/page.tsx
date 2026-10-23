@@ -625,7 +625,8 @@ export default async function FormPage({
           AND field_key IN ('parent_1_relationship_select', 'parent_2_relationship_select',
                           'parent_1_relationship', 'parent_2_relationship',
                           'parent_1_employer_name', 'parent_1_position',
-                          'parent_2_employer_name', 'parent_2_position')
+                          'parent_2_employer_name', 'parent_2_position',
+                          'parent_2_address', 'parent_2_city', 'parent_2_state', 'parent_2_zip')
         ORDER BY (field_key LIKE '%_select') ASC`,
       [id.school.id, primaryGuardian.ghl_contact_id],
     ).catch(() => ({ rows: [] as Array<{ field_key: string; value: string | null }> }));
@@ -633,7 +634,7 @@ export default async function FormPage({
       // The dropdown fields (…_select) win; the old free-text fields are the fallback.
       if (r.field_key === 'parent_1_relationship_select' && r.value) pg1Relationship = r.value;
       else if (r.field_key === 'parent_1_relationship' && !pg1Relationship) pg1Relationship = r.value;
-      if (/_(employer_name|position)$/.test(r.field_key)) work[r.field_key] = (r.value ?? '').trim() || null;
+      if (/_(employer_name|position)$/.test(r.field_key) || /^parent_2_(address|city|state|zip)$/.test(r.field_key)) work[r.field_key] = (r.value ?? '').trim() || null;
       if (r.field_key === 'parent_2_relationship_select' && r.value) pg2Relationship = r.value;
       else if (r.field_key === 'parent_2_relationship' && !pg2Relationship) pg2Relationship = r.value;
     }
@@ -644,7 +645,7 @@ export default async function FormPage({
       ? { first_name: primaryGuardian.first_name, last_name: primaryGuardian.last_name, email: primaryGuardian.email, phone: primaryGuardian.phone, relationship: pg1Relationship, employer: work.parent_1_employer_name ?? null, position: work.parent_1_position ?? null }
       : null,
     secondary: secondaryGuardian
-      ? { first_name: secondaryGuardian.first_name, last_name: secondaryGuardian.last_name, email: secondaryGuardian.email, phone: secondaryGuardian.phone, relationship: pg2Relationship, employer: work.parent_2_employer_name ?? null, position: work.parent_2_position ?? null }
+      ? { first_name: secondaryGuardian.first_name, last_name: secondaryGuardian.last_name, email: secondaryGuardian.email, phone: secondaryGuardian.phone, relationship: pg2Relationship, employer: work.parent_2_employer_name ?? null, position: work.parent_2_position ?? null, street: work.parent_2_address ?? null, city: work.parent_2_city ?? null, state: normalizeState(work.parent_2_state), zip: work.parent_2_zip ?? null }
       : null,
   };
 
@@ -765,4 +766,16 @@ export default async function FormPage({
       )}
     </div>
   );
+}
+
+// GHL holds Parent 2's state as free text ("AZ", "Arizona", "ONLY ONE PARENT"…);
+// the form's state dropdown stores the 2-letter code.
+function normalizeState(v: string | null | undefined): string | null {
+  const s = (v ?? '').trim();
+  if (!s) return null;
+  const names: Record<string, string> = { arizona: 'AZ', california: 'CA', colorado: 'CO', nevada: 'NV', 'new mexico': 'NM', texas: 'TX', utah: 'UT' };
+  if (s.toLowerCase() === 'other') return 'other';
+  const hit = names[s.toLowerCase()];
+  if (hit) return hit;
+  return /^[A-Za-z]{2}$/.test(s) ? s.toUpperCase() : null;
 }

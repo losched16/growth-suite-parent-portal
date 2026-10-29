@@ -333,6 +333,9 @@ export function FormRenderer({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
+    // Which button was pressed: "Submit & add another" saves this entry, then
+    // reopens a fresh blank form for the same child.
+    const addAnother = (e.nativeEvent as SubmitEvent).submitter?.getAttribute('data-add-another') === '1';
 
     // Co-parent overwrite confirmation. If the most recent submission
     // was made by a co-parent (not the current parent), block the
@@ -456,6 +459,13 @@ export function FormRenderer({
         // returns the new submission id; the thanks page resolves the
         // school's confirmation_message + redirect_url from it.
         if (typeof body.id === 'string' && body.id.length > 0) {
+          if (addAnother) {
+            // Full reload (not router.push) so every field comes back blank.
+            window.location.assign(
+              `/forms-v2/${encodeURIComponent(definition.slug)}${definition.per_student && studentId ? `?student=${encodeURIComponent(studentId)}` : ''}`,
+            );
+            return;
+          }
           router.push(`/forms-v2/thanks/${encodeURIComponent(body.id)}`);
           return;
         }
@@ -1120,6 +1130,17 @@ export function FormRenderer({
                           : 'Continue to payment'))
                   : (hasLegacy && inUpdateMode ? 'Update submission' : 'Submit form')}
           </button>
+          {allowMultiple && !paymentRequired && addendumMode !== 'editing' ? (
+            <button
+              type="submit"
+              data-add-another="1"
+              disabled={busy || (definition.per_student && !studentId)}
+              className="rounded-md border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 inline-flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              {/medic/i.test(`${definition.display_name} ${definition.slug}`) ? 'Submit & add another medication' : 'Submit & add another'}
+            </button>
+          ) : null}
           {requireMethod && !methodOnFile ? (
             <span className="text-[11px] text-amber-700">
               Add a payment method above to submit — you won&rsquo;t be charged today.

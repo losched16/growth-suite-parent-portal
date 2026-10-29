@@ -200,6 +200,12 @@ export async function sendOfficeNotification(opts: FireOpts): Promise<{ sent: st
     parent_phone: null, student_label: null,
   };
 
+  // Labelled answers in form order (schema-driven). null → fall back to the raw dump.
+  const { rows: schemaRows } = await query<{ field_schema: unknown }>(
+    `SELECT field_schema FROM portal_form_definitions WHERE id = $1`, [opts.formId],
+  ).catch(() => ({ rows: [] as Array<{ field_schema: unknown }> }));
+  const view = buildReadableResponses(schemaRows[0]?.field_schema, opts.responses);
+
   // Pull the periodic-review AND amendment markers, if any. Both live under
   // `_`-prefixed keys in the responses jsonb (see app/api/portal-forms/submit/route.ts).
   // A periodic review is the 6-month re-confirm prompt; an amendment is a
@@ -246,13 +252,13 @@ export async function sendOfficeNotification(opts: FireOpts): Promise<{ sent: st
     </tr></thead>
     <tbody>${diffEntries.map(([k, change]) =>
       `<tr>
-        <td style="padding:6px 10px;font-family:monospace;color:#7f1d1d;font-size:11px;border-bottom:1px solid #fecaca;background:#fef2f2;">${escape(k)}</td>
+        <td style="padding:6px 10px;color:#7f1d1d;font-size:12px;border-bottom:1px solid #fecaca;background:#fef2f2;">${escape(view?.labelOf.get(k) ?? k)}</td>
         <td style="padding:6px 10px;border-bottom:1px solid #fecaca;font-size:12px;"><span style="color:#9ca3af;text-decoration:line-through;">${escape(formatValue(change.old))}</span></td>
         <td style="padding:6px 10px;border-bottom:1px solid #fecaca;font-size:12px;color:#065f46;font-weight:600;">${escape(formatValue(change.new))}</td>
       </tr>`).join('')}</tbody>
   </table>` : '';
   const diffTableText = diffEntries.length > 0
-    ? 'Changes:\n' + diffEntries.map(([k, c]) => `  ${k}: ${formatValue(c.old)}  →  ${formatValue(c.new)}`).join('\n') + '\n\n'
+    ? 'Changes:\n' + diffEntries.map(([k, c]) => `  ${view?.labelOf.get(k) ?? k}: ${formatValue(c.old)}  →  ${formatValue(c.new)}`).join('\n') + '\n\n'
     : '';
 
   // Build the diff banner. Lives at the top of the email body so the
@@ -297,9 +303,13 @@ export async function sendOfficeNotification(opts: FireOpts): Promise<{ sent: st
     .filter(([k]) => !k.startsWith('__') && !k.startsWith('_'))
     .slice(0, 40); // cap at 40 rows so the email body stays readable
 
-  const rowsHtml = responsePairs
-    .map(([k, v]) => `<tr><td style="padding:4px 8px;font-family:monospace;color:#475569;font-size:11px;border-bottom:1px solid #f1f5f9;">${escape(k)}</td><td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;">${escape(formatValue(v))}</td></tr>`)
-    .join('');
+  const rowsHtml = view
+    ? view.items.map((it) => it.section !== undefined
+      ? `<tr><td colspan="2" style="padding:8px 8px 4px;background:#f1f5f9;font-weight:700;font-size:12px;color:#0f172a;border-bottom:1px solid #e2e8f0;">${escape(it.section)}</td></tr>`
+      : `<tr><td style="padding:4px 8px;width:42%;vertical-align:top;color:#475569;font-size:12px;border-bottom:1px solid #f1f5f9;">${escape(it.label ?? '')}</td><td style="padding:4px 8px;vertical-align:top;border-bottom:1px solid #f1f5f9;white-space:pre-wrap;">${escape(it.value ?? '')}</td></tr>`).join('')
+    : responsePairs
+      .map(([k, v]) => `<tr><td style="padding:4px 8px;font-family:monospace;color:#475569;font-size:11px;border-bottom:1px solid #f1f5f9;">${escape(k)}</td><td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;">${escape(formatValue(v))}</td></tr>`)
+      .join('');
 
   const html = `
 <!doctype html>
@@ -330,7 +340,9 @@ export async function sendOfficeNotification(opts: FireOpts): Promise<{ sent: st
   </p>
 </body></html>`.trim();
 
-  const textPairs = responsePairs.map(([k, v]) => `${k}: ${formatValue(v)}`).join('\n');
+  const textPairs = view
+    ? view.items.map((it) => it.section !== undefined ? `\n== ${it.section} ==` : `${it.label}: ${it.value}`).join('\n')
+    : responsePairs.map(([k, v]) => `${k}: ${formatValue(v)}`).join('\n');
   const text = [
     `${opts.formDisplayName} — ${opts.coSignComplete ? 'fully signed' : 'new submission'}`,
     '',
@@ -436,6 +448,51 @@ function stripInternalKeys(o: Record<string, unknown>): Record<string, unknown> 
     out[k] = v;
   }
   return out;
+}
+
+// Turn a submission into labelled rows in FORM order, grouped under the form's
+// section headings. Unanswered / conditionally-hidden questions and long policy
+// paragraphs are left out, so the office sees what the parent actually answered.
+// jsonb does not keep key order, so walking the schema (not the responses) is
+// what keeps the email in the order of the form.
+interface ReadableItem { section?: string; label?: string; value?: string }
+interface ReadableView { items: ReadableItem[]; labelOf: Map<string, string> }
+export function buildReadableResponses(schema: unknown, responses: Record<string, unknown>): ReadableView | null {
+  if (!Array.isArray(schema) || schema.length === 0) return null;
+  type Block = { type?: string; key?: string; label?: string; text?: string; hidden?: boolean; hide_on_review?: boolean; options?: Array<{ value?: unknown; label?: unknown }> };
+  const labelOf = new Map<string, string>();
+  const known = new Set<string>();
+  const items: ReadableItem[] = [];
+  let pending: string | null = null;
+  const show = (block: Block, raw: unknown): string => {
+    if (Array.isArray(raw)) {
+      return raw.map((x) => block.options?.find((o) => String(o.value) === String(x))?.label ?? x).map(String).join(', ');
+    }
+    if (typeof raw === 'boolean') return raw ? 'Yes' : 'No';
+    const s = String(raw);
+    if (block.type === 'checkbox' && (s === '1' || s === 'yes' || s === 'true' || s === 'on')) return 'Yes';
+    if (s.startsWith('data:image/')) return '(drawn signature on file)';
+    const opt = block.options?.find((o) => String(o.value) === s);
+    return opt?.label != null ? String(opt.label) : s;
+  };
+  for (const b of schema as Block[]) {
+    if (b.key) { known.add(b.key); if (b.label) labelOf.set(b.key, b.label); }
+    if (b.type === 'header' || b.type === 'section') { pending = (b.text || b.label || '').trim() || null; continue; }
+    if (!b.key || b.type === 'paragraph' || b.type === 'file_upload') continue;
+    if (b.hidden === true || b.hide_on_review === true) continue;
+    const raw = responses[b.key];
+    if (raw == null || raw === '' || (Array.isArray(raw) && raw.length === 0)) continue;
+    if (pending) { items.push({ section: pending }); pending = null; }
+    items.push({ label: (b.label || b.key).replace(/[:\s]+$/, ''), value: show(b, raw) });
+  }
+  const extra = Object.entries(responses)
+    .filter(([k, v]) => !k.startsWith('_') && !known.has(k) && v != null && v !== '' && !k.endsWith('_drawn') && !k.endsWith('_signed_at'))
+    .slice(0, 30);
+  if (extra.length) {
+    items.push({ section: 'Other answers' });
+    for (const [k, v] of extra) items.push({ label: k === 'cosigner_signature' ? 'Second guardian signature' : k, value: formatValue(v) });
+  }
+  return { items, labelOf };
 }
 
 function formatValue(v: unknown): string {

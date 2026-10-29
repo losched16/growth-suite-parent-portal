@@ -75,6 +75,9 @@ interface Props {
   // Primary-contact custom-field values for connected form fields (see
   // lib/forms/contact-fields.ts).
   contactFields?: Record<string, string>;
+  // ?student= on the form URL (e.g. "Add another medication" for the same
+  // child): open on that student instead of the first one without a submission.
+  preselectStudentId?: string;
   // Logged-in parent's id, used to detect "the OTHER parent in my
   // family submitted this last" → show a co-parent-overwrite warning.
   currentParentId: string;
@@ -127,7 +130,7 @@ interface Props {
 }
 
 export function FormRenderer({
-  definition, students, parent, guardians, contactFields, currentParentId, healthByStudentId,
+  definition, students, parent, guardians, contactFields, preselectStudentId, currentParentId, healthByStudentId,
   enrollmentByStudentId,
   existingByStudentId, familyExisting,
   flagsByStudentId, familyFlags,
@@ -152,6 +155,7 @@ export function FormRenderer({
   );
   const initialStudentId =
     inviteContext?.studentId
+    ?? preselectStudentId
     ?? firstEmptyStudent?.id
     ?? students[0]?.id
     ?? '';

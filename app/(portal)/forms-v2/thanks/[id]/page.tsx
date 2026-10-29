@@ -9,7 +9,7 @@
 
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { CheckCircle2, ExternalLink, Home } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Home, Plus } from 'lucide-react';
 import { query } from '@/lib/db';
 import { readSession } from '@/lib/identity';
 import { LinkifyText } from '@/lib/ui/LinkifyText';
@@ -25,6 +25,10 @@ interface ResultRow {
   family_id: string | null;
   form_display_name: string;
   form_slug: string;
+  // Forms that take several independent entries (one per medication, …) offer
+  // an "Add another" button back to a fresh blank form for the same child.
+  allow_multiple_submissions: boolean | null;
+  student_id: string | null;
   confirmation_message: string | null;
   confirmation_redirect_url: string | null;
   // The submission's student — surfaced so the confirmation can show the
@@ -60,6 +64,8 @@ export default async function FormThanksPage({ params, searchParams }: { params:
     `SELECT s.id AS submission_id, s.is_test, s.family_id,
             d.display_name AS form_display_name,
             d.slug AS form_slug,
+            d.allow_multiple_submissions,
+            s.student_id,
             d.confirmation_message,
             d.confirmation_redirect_url,
             st.first_name AS student_first,
@@ -153,6 +159,23 @@ export default async function FormThanksPage({ params, searchParams }: { params:
                 </div>
               ) : null}
             </dl>
+          </div>
+        ) : null}
+
+        {r.allow_multiple_submissions ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 flex items-center justify-between gap-3 flex-wrap">
+            <span>
+              {/medic/i.test(`${r.form_display_name} ${r.form_slug}`)
+                ? 'Need to list another medication? Each one is saved separately — nothing you already submitted is replaced.'
+                : 'Need to submit another? Each one is saved separately — nothing you already submitted is replaced.'}
+            </span>
+            <Link
+              href={`/forms-v2/${encodeURIComponent(r.form_slug)}${r.student_id ? `?student=${encodeURIComponent(r.student_id)}` : ''}`}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-800"
+            >
+              <Plus className="h-4 w-4" />
+              {/medic/i.test(`${r.form_display_name} ${r.form_slug}`) ? 'Add another medication' : 'Add another'}
+            </Link>
           </div>
         ) : null}
 

@@ -81,7 +81,7 @@ interface FlagRow {
 
 
 type PageParams = Promise<{ slug: string }>;
-type PageSearchParams = Promise<{ invite?: string }>;
+type PageSearchParams = Promise<{ invite?: string; student?: string }>;
 
 export default async function FormPage({
   params, searchParams,
@@ -754,6 +754,7 @@ export default async function FormPage({
               }))}
               parent={parentCtx}
               guardians={guardians}
+              preselectStudentId={sp.student && students.some((s) => s.id === sp.student) ? sp.student : undefined}
               contactFields={contactFields}
               currentParentId={id.parent.id}
               enrollmentByStudentId={enrollmentByStudentId}

@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
        FROM parents
       WHERE LOWER(email) = $1 AND status = 'active' AND password_hash IS NULL
         AND ($2::uuid IS NULL OR school_id = $2::uuid)
-      ORDER BY created_at ASC
+      ORDER BY (portal_invited_at IS NOT NULL) DESC, created_at ASC
       LIMIT 1`,
     [email, hostSchoolId],
   );

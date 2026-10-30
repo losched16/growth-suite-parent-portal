@@ -105,7 +105,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
        FROM parents
       WHERE LOWER(email) = $1 AND status = 'active'
         AND ($2::uuid IS NULL OR school_id = $2::uuid)
-      ORDER BY (password_hash IS NOT NULL) DESC
+      ORDER BY (password_hash IS NOT NULL) DESC, (portal_invited_at IS NOT NULL) DESC
       LIMIT 1`,
     [email, hostSchoolId],
   );

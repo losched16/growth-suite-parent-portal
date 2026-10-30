@@ -5,11 +5,12 @@
 // per-student completion indicator. Click → /forms-v2/{slug}.
 
 import Link from 'next/link';
-import { CheckCircle2, Circle, FileText, History, Clock } from 'lucide-react';
+import { CheckCircle2, Circle, FileText, History, Clock, Lock } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { loadSchoolSettings } from '@/lib/school-settings';
 import { loadStudentsForFamily } from '@/lib/family-data';
 import { query } from '@/lib/db';
+import { loadApplicantStudentConfig } from '@/lib/forms/applicant-student';
 import {
   studentMatchesAppliesTo,
   type FormAppliesTo,
@@ -245,6 +246,20 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     return applicableStudents(d).length > 0;
   });
 
+  // Admissions schools (settings.applicant_student): the per-child document
+  // forms are hidden by applies_to until the application creates the child.
+  // Until then show them greyed out, so a new family sees what is coming.
+  const lockedDefs: DefRow[] = [];
+  if (!students.some((s) => (s.metadata as Record<string, unknown> | null)?.applicant === true)) {
+    const applicantCfg = await loadApplicantStudentConfig(id.parent.school_id).catch(() => null);
+    if (applicantCfg) {
+      for (const d of defs) {
+        if (d.slug === applicantCfg.form_slug || invitesByForm.has(d.id) || familyExcluded(d)) continue;
+        if (d.per_student && d.applies_to && applicableStudents(d).length === 0) lockedDefs.push(d);
+      }
+    }
+  }
+
   const flagCountByDefId = new Map<string, number>();
   let crossFormFlagCount = 0;
   for (const fc of flagCounts) {
@@ -401,6 +416,39 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
               </ul>
             </section>
           ))}
+          {lockedDefs.length > 0 ? (
+            <section className="space-y-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Documents for your child
+              </h2>
+              <p className="text-xs text-gray-500">
+                These open up as soon as you submit the application.
+              </p>
+              <ul className="space-y-2">
+                {lockedDefs.map((def) => (
+                  <li key={def.id}>
+                    <div
+                      aria-disabled="true"
+                      className="flex cursor-not-allowed items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 opacity-60"
+                    >
+                      <Lock className="mt-0.5 h-5 w-5 text-gray-400" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <h3 className="text-sm font-semibold text-gray-700">{def.display_name}</h3>
+                          <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-600">
+                            {def.is_optional ? 'Optional · ' : ''}Opens after application
+                          </span>
+                        </div>
+                        {def.description ? (
+                          <p className="mt-1 line-clamp-2 text-xs text-gray-500">{def.description}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </div>
       )}
     </div>

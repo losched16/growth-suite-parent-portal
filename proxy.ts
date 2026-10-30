@@ -61,12 +61,16 @@ export const config = {
     // the secure cosign_token emailed to them (same public-token model as
     // /pay). The general api/portal-forms/submit route stays guarded.
     //
+    // `apply` + `api/apply` excluded: the open-application sign-up
+    // (/apply/<school>) is for people with no account yet; auth is the
+    // emailed one-time confirm link.
+    //
     // `forgot-password` + `reset-password` excluded: both are used by
     // parents who, by definition, can't sign in. The reset page's auth is
     // the single-use emailed token.
     // `api/portal-forms/resend-office-notice` excluded: operator replay
     // tool, self-authenticated via HMAC of the platform secret (no
     // parent session involved).
-    '/((?!login|forgot-password|reset-password|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|cosign|api/portal-forms/cosign|api/portal-forms/resend-office-notice|_next/static|_next/image|favicon.ico|robots.txt).*)',
+    '/((?!login|apply|api/apply|forgot-password|reset-password|api/auth|api/admin-impersonate|api/demo-login|api/dev|api/webhooks|api/cron|kiosk|api/kiosk|pay|api/billing/public|cosign|api/portal-forms/cosign|api/portal-forms/resend-office-notice|_next/static|_next/image|favicon.ico|robots.txt).*)',
   ],
 };

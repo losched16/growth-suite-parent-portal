@@ -32,6 +32,21 @@ export async function portalProvisioningAllowed(
 ): Promise<boolean> {
   const settings = await loadSchoolSettings(schoolId);
   if (!settings.portal_gate_stage) return true; // ungated school
+  // An applicant the school INVITED to apply: the applicant-invite webhook
+  // (a CRM workflow on the school's "ready to apply" stage) creates a parent-
+  // only family and stamps parents.portal_invited_at. The invitation email is
+  // itself the authorization, so this needs no pipeline-stage list and holds
+  // however far the card has since moved. NULL for every other parent, so
+  // other schools and existing families are unaffected. Wrapped so a
+  // deploy that lands before migration 116 can never break password creation.
+  try {
+    const { rows: invited } = await query(
+      `SELECT 1 FROM parents
+        WHERE family_id = $1 AND school_id = $2 AND portal_invited_at IS NOT NULL LIMIT 1`,
+      [familyId, schoolId],
+    );
+    if (invited.length > 0) return true;
+  } catch { /* column not migrated yet — fall through to the stage rule */ }
   const { rows } = await query(
     `SELECT 1
        FROM parents p

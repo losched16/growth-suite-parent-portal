@@ -415,12 +415,18 @@ export async function POST(request: NextRequest) {
         break;
       }
       case 'file_upload': {
-        const v = fd.get(key);
-        if (v instanceof File && v.size > 0) {
-          if (v.size > (block.max_size_mb ? block.max_size_mb * 1024 * 1024 : MAX_FILE_BYTES)) {
-            validationErrors.push(`${block.label}: file too large`);
-          } else {
-            fileFields.push({ key, file: v, displayName: block.label });
+        // A `multiple` field posts several files under ONE key. Take them all —
+        // this used to read only the first and silently drop the rest.
+        const candidates = block.multiple ? fd.getAll(key) : [fd.get(key)];
+        const files = candidates.filter((v): v is File => v instanceof File && v.size > 0);
+        if (files.length > 0) {
+          const maxBytes = block.max_size_mb ? block.max_size_mb * 1024 * 1024 : MAX_FILE_BYTES;
+          for (const v of files) {
+            if (v.size > maxBytes) {
+              validationErrors.push(files.length > 1 ? `${block.label}: "${v.name}" is too large` : `${block.label}: file too large`);
+            } else {
+              fileFields.push({ key, file: v, displayName: block.label });
+            }
           }
         } else if (block.required) {
           validationErrors.push(`${block.label} is required`);
@@ -1027,7 +1033,51 @@ export async function POST(request: NextRequest) {
     });
   const explicit = def.ghl_writeback ?? [];
   const seenWb = new Set(explicit.map((w) => w.field_key));
-  const allWriteback = [...explicit, ...schemaWriteback.filter((w) => !seenWb.has(w.field_key))];
+  let allWriteback = [...explicit, ...schemaWriteback.filter((w) => !seenWb.has(w.field_key))];
+  // What the contact writeback pushes. Normally the submission's own answers;
+  // the applicant hook below may swap in a names-only write for a sibling.
+  let pushResponses: Record<string, unknown> = responses;
+
+  // Applicant forms (settings.applicant_student — admissions schools that take
+  // their application in the portal): submitting the application introduces
+  // the child. Create/match their student record so the per-student document
+  // forms have someone to attach to, and decide what reaches the CRM:
+  //   slot 1  → the full application is written to the contact, as configured;
+  //   slot 2+ → a sibling: only the child's NAME goes to that contact slot, so
+  //             the first child's CRM answers are never overwritten (the whole
+  //             application stays on this submission and the student record).
+  // If the step fails we write NOTHING — a missed update is recoverable from
+  // the submission, an overwritten sibling is not.
+  try {
+    const { loadApplicantStudentConfig, ensureApplicantStudent } = await import('@/lib/forms/applicant-student');
+    const aCfg = await loadApplicantStudentConfig(session.school_id);
+    if (aCfg && aCfg.form_slug === def.slug) {
+      try {
+        const a = await ensureApplicantStudent({
+          schoolId: session.school_id, familyId: session.family_id,
+          submissionId, responses, cfg: aCfg,
+        });
+        if (a && a.slot === null) {
+          allWriteback = [];
+        } else if (a && a.slot !== null && a.slot >= 2) {
+          allWriteback = [
+            { field_key: '__applicant_first', ghl_field_key: `student_${a.slot}_first_name` },
+            { field_key: '__applicant_last', ghl_field_key: `student_${a.slot}_last_name` },
+          ];
+          pushResponses = { ...responses, __applicant_first: a.firstName, __applicant_last: a.lastName };
+        }
+      } catch (e) {
+        console.error('[portal-forms/submit] applicant student step failed:', e);
+        allWriteback = [];
+        await query(
+          `UPDATE portal_form_submissions SET ghl_sync_error = $1 WHERE id = $2`,
+          [`applicant student step failed — contact not updated: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500), submissionId],
+        ).catch(() => undefined);
+      }
+    }
+  } catch (e) {
+    console.error('[portal-forms/submit] applicant config load failed:', e);
+  }
 
   // New-application opportunity card: when this form is the school's
   // configured application form (settings.new_application_form_slug) and
@@ -1079,7 +1129,7 @@ export async function POST(request: NextRequest) {
         studentId,
         writeback: allWriteback,
         fieldSchema: def.field_schema,
-        responses,
+        responses: pushResponses,
         applicationOpportunity,
       }).catch((err) => {
         console.error('[portal-forms/submit] GHL writeback crashed for', submissionId, ':', err);

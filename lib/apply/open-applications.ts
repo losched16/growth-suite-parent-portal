@@ -170,7 +170,18 @@ async function resolveContact(
     } catch (e: unknown) {
       // GHL rejects a duplicate email but names the existing contact.
       const dup = (e as { response?: { data?: { meta?: { contactId?: string } } } })?.response?.data?.meta?.contactId;
-      if (dup) return { id: dup, first, last, phone, existed: true };
+      if (dup) {
+        // The search missed it (index lag) — read the contact so its own name/phone win.
+        let c: { firstName?: string; lastName?: string; phone?: string | null } | undefined;
+        try { c = (await client.axios.get<{ contact?: { firstName?: string; lastName?: string; phone?: string | null } }>(`/contacts/${dup}`)).data.contact; } catch { /* keep typed values */ }
+        return {
+          id: dup,
+          first: clean(c?.firstName) || first,
+          last: clean(c?.lastName) || last,
+          phone: clean(c?.phone, 32) || phone,
+          existed: true,
+        };
+      }
       throw e;
     }
   } catch (e) {

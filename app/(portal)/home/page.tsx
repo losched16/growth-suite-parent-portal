@@ -196,7 +196,7 @@ export default async function HomePage() {
                         reminder emails for the whole family; the form
                         stays available on the Forms page. Office-pushed
                         forms are required and can't be dismissed. */}
-                    {!f.pushed ? (
+                    {!f.pushed && !applicantSteps ? (
                       <form action="/api/portal-forms/dismiss" method="POST" className="text-right mt-0.5">
                         <input type="hidden" name="form_definition_id" value={f.id} />
                         <button

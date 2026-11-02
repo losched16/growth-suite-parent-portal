@@ -87,6 +87,14 @@ async function resolveNotifyEmails(schoolId: string, notifyEmails: string[] | nu
 // never rejects and never fails the submit.
 export async function firePostSubmitEffects(opts: FireOpts): Promise<void> {
   await Promise.allSettled([
+    // Admissions schools: keep the CRM pipeline in step and send the interview
+    // email once a child's required materials are all in.
+    (opts.coSignComplete ? Promise.resolve() : import('@/lib/forms/applicant-pipeline').then((m) =>
+      m.onApplicantSubmission({
+        schoolId: opts.schoolId, familyId: opts.familyId, parentId: opts.parentId,
+        formSlug: opts.formSlug, responses: opts.responses,
+      }),
+    )).catch((e) => { console.error('[post-submit] applicant pipeline failed:', e); }),
     // Admissions schools: tell the family what comes next (upload documents).
     (opts.coSignComplete ? Promise.resolve() : import('@/lib/forms/applicant-next-steps').then((m) =>
       m.sendApplicantNextSteps({ schoolId: opts.schoolId, formSlug: opts.formSlug, parentId: opts.parentId }),

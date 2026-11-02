@@ -65,6 +65,39 @@ export async function POST(request: NextRequest) {
     );
     const parent = rows[0];
     if (!parent) {
+      // Invited but never set a password: point them at the create-password
+      // screen instead of leaving them with a silent "sent".
+      const { rows: inv } = await query<{ school_id: string; school_name: string; support_email: string | null }>(
+        `SELECT p.school_id, s.name AS school_name, b.support_email
+           FROM parents p
+           JOIN schools s ON s.id = p.school_id
+           LEFT JOIN school_branding b ON b.school_id = p.school_id
+          WHERE LOWER(p.email) = $1 AND p.status = 'active' AND p.password_hash IS NULL
+            AND p.portal_invited_at IS NOT NULL
+            AND ($2::uuid IS NULL OR p.school_id = $2::uuid)
+          ORDER BY p.created_at ASC LIMIT 1`,
+        [email, hostSchoolId],
+      );
+      if (inv[0]) {
+        const origin = `${request.headers.get('x-forwarded-proto') ?? 'https'}://${request.headers.get('x-forwarded-host') ?? request.headers.get('host')}`;
+        const { portalBaseForSchool } = await import('@/lib/portal-base');
+        const base = await portalBaseForSchool(inv[0].school_id, origin);
+        const link = `${base}/login?email=${encodeURIComponent(email)}`;
+        const help = inv[0].support_email ? `Questions? Contact ${inv[0].support_email}.` : '';
+        await sendBrandedEmail({
+          to: email,
+          schoolId: inv[0].school_id,
+          subject: `Finish creating your ${inv[0].school_name} account`,
+          html: `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111827;max-width:480px;margin:0 auto;padding:24px;">
+<h2 style="margin:0 0 16px;font-size:18px;">Finish creating your ${escapeHtml(inv[0].school_name)} Family Portal account</h2>
+<p style="margin:0 0 16px;font-size:14px;line-height:1.5;">You haven&rsquo;t chosen a password yet. Use the button below to create one.</p>
+<p style="margin:24px 0;"><a href="${link}" style="display:inline-block;background:#047857;color:white;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;">Create my password</a></p>
+<hr style="border:0;border-top:1px solid #e5e7eb;margin:24px 0;"><p style="margin:0;font-size:12px;color:#6b7280;">${escapeHtml(help)} This address does not receive replies.</p></body></html>`,
+          text: `Finish creating your ${inv[0].school_name} Family Portal account\n\nYou haven't chosen a password yet. Create one here:\n${link}\n\n${help} This address does not receive replies.`,
+        });
+        await logEvent({ event_type: 'password_reset_requested', email, school_id: inv[0].school_id, ip, user_agent: ua });
+        return done;
+      }
       await logEvent({ event_type: 'password_reset_request_unknown', email, ip, user_agent: ua });
       return done;
     }

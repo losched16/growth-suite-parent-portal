@@ -25,6 +25,7 @@ export interface OpenApplyConfig {
   slug: string;
   formSlug: string;
   tag: string | null;
+  contactName: string | null; // who families should write to with questions
 }
 
 export interface ApplyBranding {
@@ -48,7 +49,7 @@ function toConfig(r: Row | undefined): OpenApplyConfig | null {
   const slug = str(c.slug);
   const formSlug = str(c.form_slug);
   if (!slug || !formSlug) return null;
-  return { schoolId: r.id, schoolName: r.name, slug, formSlug, tag: str(c.tag) };
+  return { schoolId: r.id, schoolName: r.name, slug, formSlug, tag: str(c.tag), contactName: str(c.contact_name) };
 }
 
 export async function loadOpenApplyBySlug(slug: string): Promise<OpenApplyConfig | null> {

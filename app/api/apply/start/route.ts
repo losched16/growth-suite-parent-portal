@@ -56,14 +56,15 @@ export async function POST(request: NextRequest) {
       const base = await portalBaseForSchool(cfg.schoolId, request.nextUrl.origin);
       const url = `${base}/apply/verify?t=${encodeURIComponent(token)}`;
       const b = await loadApplyBranding(cfg.schoolId, cfg.schoolName);
+      const q = b.support_email ? (cfg.contactName ? `${cfg.contactName} at ${b.support_email}` : b.support_email) : '';
       const subject = `Start your ${b.display_name} application`;
       const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111827;max-width:480px;margin:0 auto;padding:24px;">
 <h2 style="margin:0 0 16px;font-size:18px;">Start your application to ${esc(b.display_name)}</h2>
 <p style="margin:0 0 16px;font-size:14px;line-height:1.5;">Hi ${esc(first)}, confirm your email to create your account and begin the application. The link is good for 24 hours.</p>
 <p style="margin:24px 0;"><a href="${url}" style="display:inline-block;background:${esc(b.primary_color)};color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm email &amp; continue</a></p>
 <p style="margin:16px 0 0;font-size:12px;color:#6b7280;">Or copy this link:<br><span style="word-break:break-all;font-family:monospace;">${url}</span></p>
-<hr style="border:0;border-top:1px solid #e5e7eb;margin:24px 0;"><p style="margin:0;font-size:12px;color:#6b7280;">If you did not ask to apply, you can ignore this email.</p></body></html>`;
-      const text = `Start your application to ${b.display_name}\n\nConfirm your email to create your account (link good for 24 hours):\n${url}\n\nIf you did not ask to apply, ignore this email.`;
+<hr style="border:0;border-top:1px solid #e5e7eb;margin:24px 0;"><p style="margin:0;font-size:12px;color:#6b7280;">If you did not ask to apply, you can ignore this email.${q ? ` Questions? Contact ${esc(q)}.` : ''} This address does not receive replies.</p></body></html>`;
+      const text = `Start your application to ${b.display_name}\n\nConfirm your email to create your account (link good for 24 hours):\n${url}\n\nIf you did not ask to apply, ignore this email.${q ? ` Questions? Contact ${q}.` : ''} This address does not receive replies.`;
       await sendBrandedEmail({ to: email, schoolId: cfg.schoolId, subject, html, text });
     } catch (e) {
       console.error('[apply/start] send failed:', e instanceof Error ? e.message : e);

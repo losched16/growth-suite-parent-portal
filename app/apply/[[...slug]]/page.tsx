@@ -97,6 +97,12 @@ export default async function ApplyPage({ params, searchParams }: { params: Para
             </p>
           </>
         )}
+        {b.support_email ? (
+          <p className="mt-6 text-center text-xs text-gray-500">
+            Questions? Contact {cfg.contactName ? <>{cfg.contactName} at </> : null}
+            <a href={`mailto:${b.support_email}`} className="underline">{b.support_email}</a>
+          </p>
+        ) : null}
       </div>
     </main>
   );

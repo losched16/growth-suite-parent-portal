@@ -93,6 +93,8 @@ export default async function HomePage() {
       [schoolId],
     ),
   ]);
+  // Admissions schools: the application comes first, documents after.
+  if (applicantSteps) pendingForms.sort((a, b) => Number(b.slug === applicantSteps.formSlug) - Number(a.slug === applicantSteps.formSlug));
 
   const students = studentRows.rows;
   const parents = parentRows.rows;

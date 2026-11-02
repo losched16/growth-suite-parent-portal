@@ -263,6 +263,8 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
   }
 
   const applicantSteps = await loadApplicantStepsState(id.parent.school_id, id.family.id).catch(() => null);
+  // Admissions schools: the application leads its section; documents follow.
+  if (applicantSteps) visibleDefs.sort((a, b) => Number(b.slug === applicantSteps.formSlug) - Number(a.slug === applicantSteps.formSlug));
 
   const flagCountByDefId = new Map<string, number>();
   let crossFormFlagCount = 0;

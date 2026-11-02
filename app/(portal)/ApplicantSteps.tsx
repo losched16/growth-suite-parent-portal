@@ -32,7 +32,7 @@ export function ApplicantSteps({ state, showLinks = true }: { state: ApplicantSt
         <li className={`flex gap-3 ${step1Done ? '' : 'opacity-70'}`}>
           {circle(2, step1Done)}
           <div className="text-sm">
-            <div className="font-medium text-gray-900">Go to Forms and upload your documents</div>
+            <div className="font-medium text-gray-900">Submit your required forms</div>
             <p className="mt-0.5 text-gray-600">
               {step1Done
                 ? 'The document forms are now open. Open each one and upload your files:'

@@ -93,8 +93,22 @@ export default async function HomePage() {
       [schoolId],
     ),
   ]);
-  // Admissions schools: the application comes first, documents after.
-  if (applicantSteps) pendingForms.sort((a, b) => Number(b.slug === applicantSteps.formSlug) - Number(a.slug === applicantSteps.formSlug));
+  // Admissions schools: Step 1 is the application alone; once it is submitted
+  // the banner switches to Step 2, the remaining required forms.
+  const appSlug = applicantSteps?.formSlug;
+  const bannerForms = !applicantSteps
+    ? pendingForms
+    : applicantSteps.step1Done
+      ? pendingForms.filter((f) => f.slug !== appSlug)
+      : pendingForms.filter((f) => f.slug === appSlug);
+  const bannerTitle = !applicantSteps
+    ? `Parent Forms (${bannerForms.length})`
+    : applicantSteps.step1Done ? 'Step 2: Submit your required forms' : 'Step 1: Complete your application';
+  const bannerIntro = !applicantSteps
+    ? `The school needs you to complete the following form${bannerForms.length === 1 ? '' : 's'}. Tap a form to begin — your progress is saved as you go.`
+    : applicantSteps.step1Done
+      ? 'Your application is in. Now open each form below and upload your documents — your progress is saved as you go.'
+      : 'Start here. Once your application is submitted, the remaining required forms open up.';
 
   const students = studentRows.rows;
   const parents = parentRows.rows;
@@ -143,20 +157,19 @@ export default async function HomePage() {
 
       {/* PENDING ENROLLMENT FORMS BANNER — top priority. Only renders
           when there's something to do. */}
-      {pendingForms.length > 0 ? (
+      {bannerForms.length > 0 ? (
         <section className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <h2 className="text-base font-semibold text-amber-900">
-                Parent Forms ({pendingForms.length})
+                {bannerTitle}
               </h2>
               <p className="mt-0.5 text-sm text-amber-800">
-                The school needs you to complete the following form{pendingForms.length === 1 ? '' : 's'}.
-                Tap a form to begin — your progress is saved as you go.
+                {bannerIntro}
               </p>
               <ul className="mt-3 space-y-2">
-                {pendingForms.map((f) => (
+                {bannerForms.map((f) => (
                   <li key={f.id}>
                     <Link
                       href={`/forms-v2/${f.slug}`}

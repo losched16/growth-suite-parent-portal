@@ -36,7 +36,7 @@ export function ApplicantSteps({ state, showLinks = true }: { state: ApplicantSt
             <p className="mt-0.5 text-gray-600">
               {step1Done
                 ? 'The document forms are now open. Open each one and upload your files:'
-                : 'These open as soon as your application is submitted:'}
+                : 'Family documents can be uploaded now; the documents for your child open as soon as your application is submitted:'}
             </p>
             {docNames.length > 0 ? (
               <ul className="mt-1 list-disc pl-5 text-gray-700">

@@ -6,7 +6,8 @@
 // migration flags raised by the legacy importer.
 
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { isLockedUntilApplication } from '@/lib/forms/applicant-next-steps';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { loadSchoolSettings } from '@/lib/school-settings';
@@ -105,6 +106,8 @@ export default async function FormPage({
   // Staff-facing forms (supply/labor/incident requests) are never accessible
   // to parents — block direct-URL access too, not just the list.
   if (!def || !def.is_active || def.audience === 'staff') notFound();
+  // Admissions schools: every form except the application waits for the application.
+  if (await isLockedUntilApplication(id.parent.school_id, id.family.id, def.slug)) redirect('/forms-v2');
 
   // Record that this parent OPENED the form (distinct from submitting), so the
   // forms tracking hub can show engagement for families who haven't submitted

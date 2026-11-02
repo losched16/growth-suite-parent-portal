@@ -52,6 +52,20 @@ export async function loadApplicantStepsState(
   return { formSlug: cfg.form_slug, step1Done: done.rows.length > 0, docNames, ...contact };
 }
 
+// True when this school gates its other forms behind the application and the
+// family has not submitted one yet (server-side guard for the lock on the list).
+export async function isLockedUntilApplication(
+  schoolId: string, familyId: string, formSlug: string,
+): Promise<boolean> {
+  const cfg = await loadApplicantStudentConfig(schoolId).catch(() => null);
+  if (!cfg || cfg.form_slug === formSlug) return false;
+  const { rows } = await query(
+    `SELECT 1 FROM students WHERE family_id = $1 AND status = 'active' AND metadata->>'applicant' = 'true' LIMIT 1`,
+    [familyId],
+  );
+  return rows.length === 0;
+}
+
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 // Fired after the application form is submitted (not for the document forms).

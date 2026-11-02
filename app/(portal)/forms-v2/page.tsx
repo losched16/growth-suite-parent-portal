@@ -257,9 +257,13 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     if (applicantCfg) {
       for (const d of defs) {
         if (d.slug === applicantCfg.form_slug || invitesByForm.has(d.id) || familyExcluded(d)) continue;
-        if (d.per_student && d.applies_to && applicableStudents(d).length === 0) lockedDefs.push(d);
+        lockedDefs.push(d);
       }
     }
+  }
+  if (lockedDefs.length > 0) {
+    const lockedIds = new Set(lockedDefs.map((d) => d.id));
+    for (let i = visibleDefs.length - 1; i >= 0; i--) if (lockedIds.has(visibleDefs[i].id)) visibleDefs.splice(i, 1);
   }
 
   const applicantSteps = await loadApplicantStepsState(id.parent.school_id, id.family.id).catch(() => null);
@@ -427,10 +431,10 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
           {lockedDefs.length > 0 ? (
             <section className="space-y-2">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Documents for your child
+                Required forms
               </h2>
               <p className="text-xs text-gray-500">
-                These open up as soon as you submit the application.
+                These open up as soon as you submit the application. Complete the application first.
               </p>
               <ul className="space-y-2">
                 {lockedDefs.map((def) => (

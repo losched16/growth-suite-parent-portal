@@ -181,6 +181,12 @@ export async function POST(request: NextRequest) {
   )).rows;
   const def = defs[0];
   if (!def) return NextResponse.json({ error: 'form_not_found' }, { status: 404 });
+  {
+    const { isLockedUntilApplication } = await import('@/lib/forms/applicant-next-steps');
+    if (await isLockedUntilApplication(session.school_id, session.family_id, def.slug)) {
+      return NextResponse.json({ error: 'application_required' }, { status: 403 });
+    }
+  }
 
   // Academic year stamped on this submission — per-school setting, not a
   // platform constant.

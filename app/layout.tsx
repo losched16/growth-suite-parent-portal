@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
+import { loadBrandingByHost } from '@/lib/branding';
 import { Geist, Geist_Mono, Dancing_Script } from 'next/font/google';
 import './globals.css';
 
@@ -21,10 +23,20 @@ const dancingScript = Dancing_Script({
   weight: ['600', '700'],
 });
 
-export const metadata: Metadata = {
-  title: process.env.NEXT_PUBLIC_APP_NAME ?? 'Family Portal',
-  description: 'View and update your family’s information, forms, and messages.',
-};
+// Browser-tab title follows the school that owns the host (custom domains);
+// the shared host keeps the generic app name.
+export async function generateMetadata(): Promise<Metadata> {
+  let title = process.env.NEXT_PUBLIC_APP_NAME ?? 'Family Portal';
+  try {
+    const h = await headers();
+    const b = await loadBrandingByHost(h.get('x-forwarded-host') ?? h.get('host'));
+    if (b?.display_name) title = b.display_name;
+  } catch { /* keep the generic title */ }
+  return {
+    title,
+    description: 'View and update your family’s information, forms, and messages.',
+  };
+}
 
 export default function RootLayout({
   children,

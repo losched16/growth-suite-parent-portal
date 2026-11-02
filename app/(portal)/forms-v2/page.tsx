@@ -11,6 +11,8 @@ import { loadSchoolSettings } from '@/lib/school-settings';
 import { loadStudentsForFamily } from '@/lib/family-data';
 import { query } from '@/lib/db';
 import { loadApplicantStudentConfig } from '@/lib/forms/applicant-student';
+import { loadApplicantStepsState } from '@/lib/forms/applicant-next-steps';
+import { ApplicantSteps } from '../ApplicantSteps';
 import {
   studentMatchesAppliesTo,
   type FormAppliesTo,
@@ -260,6 +262,8 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     }
   }
 
+  const applicantSteps = await loadApplicantStepsState(id.parent.school_id, id.family.id).catch(() => null);
+
   const flagCountByDefId = new Map<string, number>();
   let crossFormFlagCount = 0;
   for (const fc of flagCounts) {
@@ -353,6 +357,8 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
           </Link>
         </div>
       </header>
+
+      {applicantSteps ? <ApplicantSteps state={applicantSteps} /> : null}
 
       {submitted ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">

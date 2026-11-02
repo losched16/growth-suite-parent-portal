@@ -12,6 +12,8 @@ import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { loadPendingForms, type PendingForm } from '@/lib/forms/pending';
 import { PinnedNotices } from './PinnedNotices';
+import { loadApplicantStepsState } from '@/lib/forms/applicant-next-steps';
+import { ApplicantSteps } from '../ApplicantSteps';
 import { LinkifyText } from '@/lib/ui/LinkifyText';
 
 export const dynamic = 'force-dynamic';
@@ -41,6 +43,8 @@ export default async function HomePage() {
   const id = await requireParent();
   const familyId = id.family.id;
   const schoolId = id.parent.school_id;
+
+  const applicantSteps = await loadApplicantStepsState(schoolId, familyId).catch(() => null);
 
   const [studentRows, parentRows, pendingForms, factsRows] = await Promise.all([
     query<StudentSummary>(
@@ -132,6 +136,8 @@ export default async function HomePage() {
 
       {/* Pinned notifications from the school — unmissable, dismissible. */}
       <PinnedNotices />
+
+      {applicantSteps ? <ApplicantSteps state={applicantSteps} /> : null}
 
       {/* PENDING ENROLLMENT FORMS BANNER — top priority. Only renders
           when there's something to do. */}

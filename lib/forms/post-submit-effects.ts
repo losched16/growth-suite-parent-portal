@@ -87,6 +87,10 @@ async function resolveNotifyEmails(schoolId: string, notifyEmails: string[] | nu
 // never rejects and never fails the submit.
 export async function firePostSubmitEffects(opts: FireOpts): Promise<void> {
   await Promise.allSettled([
+    // Admissions schools: tell the family what comes next (upload documents).
+    (opts.coSignComplete ? Promise.resolve() : import('@/lib/forms/applicant-next-steps').then((m) =>
+      m.sendApplicantNextSteps({ schoolId: opts.schoolId, formSlug: opts.formSlug, parentId: opts.parentId }),
+    )).catch((e) => { console.error('[post-submit] applicant next-steps email failed:', e); }),
     resolveNotifyEmails(opts.schoolId, opts.notifyEmails)
       .then((emails) => {
         if (emails.length === 0) return;

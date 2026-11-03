@@ -28,6 +28,7 @@ interface ResultRow {
   // Forms that take several independent entries (one per medication, …) offer
   // an "Add another" button back to a fresh blank form for the same child.
   allow_multiple_submissions: boolean | null;
+  add_another_label: string | null;
   student_id: string | null;
   confirmation_message: string | null;
   confirmation_redirect_url: string | null;
@@ -65,6 +66,7 @@ export default async function FormThanksPage({ params, searchParams }: { params:
             d.display_name AS form_display_name,
             d.slug AS form_slug,
             d.allow_multiple_submissions,
+            d.add_another_label,
             s.student_id,
             d.confirmation_message,
             d.confirmation_redirect_url,
@@ -84,6 +86,9 @@ export default async function FormThanksPage({ params, searchParams }: { params:
   );
   if (rows.length === 0) notFound();
   const r = rows[0];
+  // What one entry is called on this form (forms set up before this was
+  // configurable keep "medication").
+  const noun = (r.add_another_label ?? '').trim() || (/medic/i.test(`${r.form_display_name} ${r.form_slug}`) ? 'medication' : '');
 
   // Hard guard: a parent must own this submission (or it's a test row
   // which has no family — shouldn't reach the parent portal anyway).
@@ -165,16 +170,16 @@ export default async function FormThanksPage({ params, searchParams }: { params:
         {r.allow_multiple_submissions ? (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 flex items-center justify-between gap-3 flex-wrap">
             <span>
-              {/medic/i.test(`${r.form_display_name} ${r.form_slug}`)
-                ? 'Need to list another medication? Each one is saved separately — nothing you already submitted is replaced.'
-                : 'Need to submit another? Each one is saved separately — nothing you already submitted is replaced.'}
+              {noun
+                ? `Need to add another ${noun}? Each one is saved separately, and nothing you already submitted is replaced.`
+                : 'Need to submit another? Each one is saved separately, and nothing you already submitted is replaced.'}
             </span>
             <Link
               href={`/forms-v2/${encodeURIComponent(r.form_slug)}${r.student_id ? `?student=${encodeURIComponent(r.student_id)}` : ''}`}
               className="inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-800"
             >
               <Plus className="h-4 w-4" />
-              {/medic/i.test(`${r.form_display_name} ${r.form_slug}`) ? 'Add another medication' : 'Add another'}
+              {noun ? `Add another ${noun}` : 'Add another'}
             </Link>
           </div>
         ) : null}

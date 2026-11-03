@@ -1138,7 +1138,7 @@ export function FormRenderer({
               className="rounded-md border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 inline-flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
-              {/medic/i.test(`${definition.display_name} ${definition.slug}`) ? 'Submit & add another medication' : 'Submit & add another'}
+              {addAnotherText(definition, 'Submit & add another')}
             </button>
           ) : null}
           {requireMethod && !methodOnFile ? (
@@ -1926,6 +1926,13 @@ function matchOptionValue(v: string, options: ReadonlyArray<{ value: string; lab
   const t = norm(v);
   const hit = options.find((o) => norm(o.label) === t) ?? options.find((o) => norm(o.value) === t);
   return hit ? hit.value : v;
+}
+
+// "Add another medication": the form's own name for one entry, else a plain
+// "Add another". Forms set before this was configurable keep "medication".
+function addAnotherText(def: { add_another_label?: string | null; display_name: string; slug: string }, base: string): string {
+  const noun = (def.add_another_label ?? '').trim() || (/medic/i.test(`${def.display_name} ${def.slug}`) ? 'medication' : '');
+  return noun ? `${base} ${noun}` : base;
 }
 
 function SelectInput({ block, prefillCtx, legacyResponses }: { block: Extract<FormFieldBlock, { type: 'select' }>; prefillCtx: PrefillContext } & LegacyProp) {

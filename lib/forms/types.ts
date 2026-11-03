@@ -434,6 +434,8 @@ export interface FormDefinition {
   // submissions (e.g. one Medication Authorization per medication). Each
   // submit is a new record; prior submissions are kept, not overwritten.
   allow_multiple_submissions: boolean;
+  // What one entry is called ("medication"); words the Add-another buttons.
+  add_another_label?: string | null;
 }
 
 export function isDisplayOnlyBlock(b: FormFieldBlock): b is HeaderBlock | ParagraphBlock | SectionBlock {

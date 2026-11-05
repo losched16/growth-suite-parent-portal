@@ -15,6 +15,7 @@ import { pickupVisibleSql } from '@/lib/attendance/pickup-visibility';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
 import { loadSchoolSettings } from '@/lib/school-settings';
+import { familyIsEnrolled } from '@/lib/enrollment-gate';
 import { SetPinControl } from './SetPinControl';
 import { EditAuthorizedStudents } from './EditAuthorizedStudents';
 import { MyPinControl } from './MyPinControl';
@@ -50,8 +51,11 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
   // parents see a "contact the school" notice instead of the add form.
   const settings = await loadSchoolSettings(id.parent.school_id);
   const parentAddsAllowed = settings.parent_managed_pickups;
-  // No kiosk at this school → no PINs: the page is just the pickup list.
-  const kiosk = settings.kiosk_enabled;
+  // No kiosk at this school → no PINs: the page is just the pickup list. A school
+  // can also hold PINs back until a child is enrolled (pin_requires_enrolled).
+  const pinsLocked = settings.kiosk_enabled && settings.pin_requires_enrolled
+    && !(await familyIsEnrolled(id.parent.school_id, id.parent.family_id));
+  const kiosk = settings.kiosk_enabled && !pinsLocked;
   let officeEmail: string | null = null;
   if (!parentAddsAllowed) {
     const { rows: br } = await query<{ change_email: string | null }>(
@@ -118,7 +122,10 @@ export default async function PickupPeoplePage({ searchParams }: { searchParams:
       <header>
         <h1 className="text-2xl font-semibold text-gray-900">Authorized pickup people</h1>
         <p className="mt-1 text-sm text-gray-600">
-          {!kiosk ? (
+          {pinsLocked ? (
+            <>Anyone listed here is authorized to pick up your child from school. Kiosk PINs open
+            once your child is enrolled.</>
+          ) : !kiosk ? (
             <>Anyone listed here is authorized to pick up your child from school.</>
           ) : parentAddsAllowed ? (
             <>Anyone listed here can pick up your child. Set a PIN for non-parent pickup

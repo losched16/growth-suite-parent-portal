@@ -45,6 +45,10 @@ export interface SchoolSettings {
   // no PIN controls anywhere in the portal (the pickup list is just a
   // list of authorized people). Mirrors dashboards' kiosk_enabled.
   kiosk_enabled: boolean;
+  // Hold these back until the family has an Enrolled student (see
+  // lib/enrollment-gate.ts). Default off; DGM turns both on.
+  pin_requires_enrolled: boolean;
+  documents_require_enrolled: boolean;
 }
 
 export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
@@ -58,6 +62,8 @@ export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
   parent_editable_family: true,
   upload_notification_emails: [],
   kiosk_enabled: true,
+  pin_requires_enrolled: false,
+  documents_require_enrolled: false,
 };
 
 export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
@@ -80,6 +86,8 @@ export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
       ? r.upload_notification_emails.map((e) => String(e ?? '').trim()).filter((e) => e.includes('@'))
       : [],
     kiosk_enabled: r.kiosk_enabled !== false,
+    pin_requires_enrolled: r.pin_requires_enrolled === true,
+    documents_require_enrolled: r.documents_require_enrolled === true,
   };
 }
 

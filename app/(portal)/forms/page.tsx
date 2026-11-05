@@ -13,6 +13,8 @@ import { loadFamilyUploads, loadSchoolDocumentsForFamily, type UploadRow, type S
 import { loadSharedDocsForFamily, type SharedDocRow } from '@/lib/school-shared-docs';
 import { loadStudentsForFamily } from '@/lib/family-data';
 import { uploadDocumentAction, deleteUploadAction } from '@/lib/actions/upload-document';
+import { loadSchoolSettings } from '@/lib/school-settings';
+import { familyIsEnrolled } from '@/lib/enrollment-gate';
 import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +24,21 @@ type SearchParams = Promise<{ msg?: string; err?: string }>;
 export default async function FormsPage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
   const { msg, err } = await searchParams;
+  // Schools can hold the Documents area (uploads, school-shared files, files from
+  // submitted forms) until a child is Enrolled (settings.documents_require_enrolled).
+  {
+    const gate = await loadSchoolSettings(id.parent.school_id);
+    if (gate.documents_require_enrolled && !(await familyIsEnrolled(id.parent.school_id, id.parent.family_id))) {
+      return (
+        <div className="space-y-4">
+          <h1 className="text-2xl font-semibold text-gray-900">{id.branding.nav_labels?.['/forms'] ?? 'Documents'}</h1>
+          <div className="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-700">
+            Your documents open once your child is enrolled. Until then, your forms are in the Forms section.
+          </div>
+        </div>
+      );
+    }
+  }
   const [result, uploads, schoolDocs, sharedDocs, students, schoolForms, formFiles] = await Promise.all([
     loadFormsForFamily({
       schoolId: id.parent.school_id,

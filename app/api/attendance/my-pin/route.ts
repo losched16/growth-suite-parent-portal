@@ -27,6 +27,16 @@ export async function POST(request: NextRequest) {
   const session = await verifySession(ck.get(PARENT_SESSION_COOKIE)?.value);
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
+  // Families that aren't enrolled yet can't set a PIN (settings.pin_requires_enrolled).
+  {
+    const { loadSchoolSettings } = await import('@/lib/school-settings');
+    const { familyIsEnrolled, NOT_ENROLLED_PIN_MESSAGE } = await import('@/lib/enrollment-gate');
+    const s = await loadSchoolSettings(session.school_id);
+    if (s.pin_requires_enrolled && !(await familyIsEnrolled(session.school_id, session.family_id))) {
+      return NextResponse.json({ error: 'not_enrolled', detail: NOT_ENROLLED_PIN_MESSAGE }, { status: 403 });
+    }
+  }
+
   // Office-managed schools (parent_managed_pickups=false, e.g. DGM):
   // parents may set their PIN ONCE (first-time setup stays self-serve),
   // but changing it afterward goes through the office so admissions

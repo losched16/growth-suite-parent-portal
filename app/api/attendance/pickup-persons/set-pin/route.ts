@@ -56,6 +56,14 @@ export async function POST(request: NextRequest) {
   if (await officeManaged(session.school_id)) {
     return new NextResponse('Pickup-person PINs are managed by the school office — please contact the school.', { status: 403 });
   }
+  {
+    const { loadSchoolSettings } = await import('@/lib/school-settings');
+    const { familyIsEnrolled, NOT_ENROLLED_PIN_MESSAGE } = await import('@/lib/enrollment-gate');
+    const s = await loadSchoolSettings(session.school_id);
+    if (s.pin_requires_enrolled && !(await familyIsEnrolled(session.school_id, session.family_id))) {
+      return new NextResponse(NOT_ENROLLED_PIN_MESSAGE, { status: 403 });
+    }
+  }
 
   let pickupPersonId = '';
   let expiresAt: string | null = null;

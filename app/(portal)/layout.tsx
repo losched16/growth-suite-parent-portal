@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { Home, Users, FileText, FilePen, FilePlus, CreditCard, HandCoins, UserCheck, LogOut, ShoppingBag, BookOpen, Receipt, HelpCircle, Bell } from 'lucide-react';
 import { requireParent } from '@/lib/identity';
 import { query } from '@/lib/db';
+import { loadSchoolSettings } from '@/lib/school-settings';
+import { familyIsEnrolled } from '@/lib/enrollment-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,8 +47,14 @@ export default async function PortalLayout({ children }: { children: React.React
         ...NAV_ITEMS.slice(5),
       ]
     : NAV_ITEMS;
+  // Documents stay out of the menu until the family has an Enrolled student, for
+  // schools that set documents_require_enrolled.
+  const gateSettings = await loadSchoolSettings(id.parent.school_id);
+  const docsLocked = gateSettings.documents_require_enrolled
+    && !(await familyIsEnrolled(id.parent.school_id, id.parent.family_id));
   const navItems = allItems
     .filter((item) => !hidden.has(item.href))
+    .filter((item) => !(docsLocked && item.href === '/forms'))
     // Per-school label overrides (e.g. DGM: 'School Documents' /
     // 'Parent Documents') — defaults stay for schools without overrides.
     .map((item) => ({ ...item, label: b.nav_labels?.[item.href] ?? item.label }));

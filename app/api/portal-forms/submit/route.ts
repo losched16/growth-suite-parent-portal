@@ -234,7 +234,11 @@ export async function POST(request: NextRequest) {
       const { rows: tg } = await query<{ tag: string }>(
         `SELECT DISTINCT t.tag FROM ghl_contact_tags t
            JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
-          WHERE t.school_id = $1 AND p.family_id = $2 AND p.is_primary = true`,
+          WHERE t.school_id = $1 AND p.family_id = $2 AND p.is_primary = true
+       UNION
+       SELECT DISTINCT 'stage:' || o.stage_name FROM ghl_opportunities o
+         JOIN parents p2 ON p2.ghl_contact_id = o.ghl_contact_id
+        WHERE o.school_id = $1 AND p2.family_id = $2 AND o.status = 'open' AND o.stage_name IS NOT NULL`,
         [session.school_id, session.family_id],
       );
       const ctx: AppliesToContext = {
@@ -261,7 +265,11 @@ export async function POST(request: NextRequest) {
     const { rows: tg } = await query<{ tag: string }>(
       `SELECT DISTINCT t.tag FROM ghl_contact_tags t
          JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
-        WHERE t.school_id = $1 AND p.family_id = $2 AND p.is_primary = true`,
+        WHERE t.school_id = $1 AND p.family_id = $2 AND p.is_primary = true
+       UNION
+       SELECT DISTINCT 'stage:' || o.stage_name FROM ghl_opportunities o
+         JOIN parents p2 ON p2.ghl_contact_id = o.ghl_contact_id
+        WHERE o.school_id = $1 AND p2.family_id = $2 AND o.status = 'open' AND o.stage_name IS NOT NULL`,
       [session.school_id, session.family_id],
     );
     const have = new Set(tg.map((r) => r.tag.toLowerCase()));

@@ -179,7 +179,13 @@ export async function loadPendingForms(opts: {
       query<{ tag: string }>(
         `SELECT DISTINCT t.tag FROM ghl_contact_tags t
            JOIN parents p ON p.ghl_contact_id = t.ghl_contact_id
-          WHERE t.school_id = $1 AND p.family_id = $2 AND p.is_primary = true`,
+          WHERE t.school_id = $1 AND p.family_id = $2 AND p.is_primary = true
+       UNION
+       -- The family's pipeline STAGES, as 'stage:<name>' pseudo-tags, so a form can be shown
+       -- by stage (tag_match: ["stage:Pending"]) with no tag to maintain.
+       SELECT DISTINCT 'stage:' || o.stage_name FROM ghl_opportunities o
+         JOIN parents p2 ON p2.ghl_contact_id = o.ghl_contact_id
+        WHERE o.school_id = $1 AND p2.family_id = $2 AND o.status = 'open' AND o.stage_name IS NOT NULL`,
         [schoolId, familyId],
       ),
       activeStudentIds.length > 0

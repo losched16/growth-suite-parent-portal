@@ -24,22 +24,13 @@ type SearchParams = Promise<{ msg?: string; err?: string }>;
 export default async function FormsPage({ searchParams }: { searchParams: SearchParams }) {
   const id = await requireParent();
   const { msg, err } = await searchParams;
-  // Schools can hold the Documents area (uploads, school-shared files, files from
-  // submitted forms) until a child is Enrolled (settings.documents_require_enrolled).
-  {
-    const gate = await loadSchoolSettings(id.parent.school_id);
-    if (gate.documents_require_enrolled && !(await familyIsEnrolled(id.parent.school_id, id.parent.family_id))) {
-      return (
-        <div className="space-y-4">
-          <h1 className="text-2xl font-semibold text-gray-900">{id.branding.nav_labels?.['/forms'] ?? 'Documents'}</h1>
-          <div className="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-700">
-            Your documents open once your child is enrolled. Until then, your forms are in the Forms section.
-          </div>
-        </div>
-      );
-    }
-  }
-  const [result, uploads, schoolDocs, sharedDocs, students, schoolForms, formFiles] = await Promise.all([
+  // Schools can hold the lists of school-shared documents and files from submitted
+  // forms until a child is Enrolled (settings.documents_require_enrolled). The page,
+  // its menu item and the upload form stay available to every family.
+  const gate = await loadSchoolSettings(id.parent.school_id);
+  const docsLocked = gate.documents_require_enrolled
+    && !(await familyIsEnrolled(id.parent.school_id, id.parent.family_id));
+  const [result, uploads, schoolDocsAll, sharedDocsAll, students, schoolForms, formFilesAll] = await Promise.all([
     loadFormsForFamily({
       schoolId: id.parent.school_id,
       familyId: id.parent.family_id,
@@ -79,6 +70,9 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
       [id.parent.school_id, id.parent.family_id],
     ).then((r) => r.rows),
   ]);
+  const schoolDocs = docsLocked ? [] : schoolDocsAll;
+  const sharedDocs = docsLocked ? [] : sharedDocsAll;
+  const formFiles = docsLocked ? [] : formFilesAll;
 
   return (
     <div className="space-y-6">
@@ -229,6 +223,12 @@ export default async function FormsPage({ searchParams }: { searchParams: Search
             {uploads.map((u) => <UploadRowItem key={u.id} u={u} />)}
           </ul>
         )}
+
+        {docsLocked ? (
+          <div className="border-t border-gray-100 px-5 py-4 text-xs text-gray-500">
+            Documents from your school and files from your submitted forms appear here once your child is enrolled.
+          </div>
+        ) : null}
 
         {/* Documents the school shared with this family: school-wide
             "important documents" (audience-targeted) + per-student files

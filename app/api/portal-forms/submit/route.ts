@@ -1760,11 +1760,21 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
         contact?: { customFields?: Array<{ id: string; value: unknown }> };
       }>(`/contacts/${contactId}`);
       const cfs = data.contact?.customFields ?? [];
+      // A slot is only "empty" when NONE of its student_<N>_* fields holds a
+      // value — a blank first name alone is not enough (some contacts carry a
+      // DOB / program / application answers in a slot with no first name, and
+      // an application must never overwrite that).
+      const valueById = new Map<string, unknown>(cfs.map((cf) => [cf.id, cf.value]));
+      const isBlank = (val: unknown) =>
+        val == null || String(val).trim() === '' || (Array.isArray(val) && val.length === 0);
       for (let n = 1; n <= 4; n++) {
-        const fieldId = keyToId.get(`student_${n}_first_name`);
-        if (!fieldId) continue; // slot doesn't exist at this school
-        const val = cfs.find((cf) => cf.id === fieldId)?.value;
-        if (val == null || String(val).trim() === '') {
+        if (!keyToId.get(`student_${n}_first_name`)) continue; // slot doesn't exist at this school
+        const prefix = `student_${n}_`;
+        let used = false;
+        for (const [key, id] of keyToId) {
+          if (key.startsWith(prefix) && !isBlank(valueById.get(id))) { used = true; break; }
+        }
+        if (!used) {
           emptySlotIndex = n;
           break;
         }

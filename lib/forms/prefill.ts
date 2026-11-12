@@ -116,6 +116,17 @@ function deriveEaFallback(eaKey: string, ctx: PrefillContext): string {
     case 'ea_pg2_home_email':   return g2?.email ?? '';
     case 'ea_pg2_home_phone':
     case 'ea_pg2_mobile_phone': return g2?.phone ?? '';
+    // One-line family address, for forms that ask for "street, city, state, zip" in a single box.
+    case 'ea_pg1_address_line': {
+      const street = m('street') || m('student_street');
+      const city = m('city') || m('student_city');
+      const state = m('state') || m('student_state');
+      const zip = m('zip') || m('student_zip');
+      return [street, city, [state, zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    }
+    // The enrollment agreement's Program is worked out from the grade code; when the
+    // contact has no grade, fall back to the Program itself so the field is not blank.
+    case 'ea_grade_level': return m('grade_level') || m('program_name') || m('program');
     case 'ea_pg1_street': return m('street') || m('student_street');
     case 'ea_pg1_city':   return m('city')   || m('student_city');
     case 'ea_pg1_state':  return m('state')  || m('student_state');

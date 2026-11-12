@@ -16,6 +16,7 @@ import { query } from '@/lib/db';
 import type { FormDefinition, FormFieldBlock } from '@/lib/forms/types';
 import type { PrefillContext } from '@/lib/forms/prefill';
 import { loadContactFields, contactFieldKeysFor } from '@/lib/forms/contact-fields';
+import { inferPrefill } from '@/lib/forms/infer-prefill';
 import type { FormPaymentConfig } from '@/lib/forms/types';
 import {
   studentMatchesAppliesTo,
@@ -45,6 +46,7 @@ interface FormDefRow {
   allow_addendum: boolean;
   allow_multiple_submissions: boolean;
   add_another_label: string | null;
+  created_at: string;
   applies_to: FormAppliesTo | null;
 }
 
@@ -91,14 +93,15 @@ export default async function FormPage({
   const { slug } = await params;
   const sp = await searchParams;
   const id = await requireParent();
-  const CURRENT_YEAR_FALLBACK = (await loadSchoolSettings(id.school.id)).academic_year;
+  const schoolSettings = await loadSchoolSettings(id.school.id);
+  const CURRENT_YEAR_FALLBACK = schoolSettings.academic_year;
 
   // 1) Load the form definition for this school+slug.
   const defRows = (await query<FormDefRow>(
     `SELECT id, slug, display_name, description, category, per_student,
             required_for, field_schema, fee_amount, one_submission_per_year,
             resubmission_allowed, needs_review, is_active, audience, payment_config,
-            allow_addendum, allow_multiple_submissions, add_another_label, applies_to
+            allow_addendum, allow_multiple_submissions, add_another_label, created_at, applies_to
      FROM portal_form_definitions
      WHERE school_id = $1 AND slug = $2`,
     [id.parent.school_id, slug],
@@ -589,10 +592,16 @@ export default async function FormPage({
     per_student: def.per_student,
     required_for: def.required_for,
     // A field connected to a contact field (builder: ghl_field_key) always
-    // pre-fills from that field, even if its prefill source was never set.
+    // pre-fills from that field, even if its prefill source was never set. A field
+    // nobody wired up still pre-fills when its label clearly asks for something we
+    // hold (child name, date of birth, program, parent email...), see infer-prefill.
     field_schema: (Array.isArray(def.field_schema) ? def.field_schema : []).map((b) => {
       const x = b as { prefill?: string; ghl_field_key?: string; no_auto_prefill?: boolean };
-      return x.ghl_field_key && !x.prefill && !x.no_auto_prefill ? { ...b, prefill: `meta:${x.ghl_field_key}` } : b;
+      if (x.ghl_field_key && !x.prefill && !x.no_auto_prefill) return { ...b, prefill: `meta:${x.ghl_field_key}` };
+      // Forms created from 2026-11-12 on always get it; older forms only when the school opts in.
+      const inferOn = schoolSettings.infer_form_prefill || new Date(def.created_at).getTime() >= Date.parse('2026-11-12T00:00:00-07:00');
+      const inferred = x.prefill || !inferOn ? null : inferPrefill(b as Parameters<typeof inferPrefill>[0], def.per_student);
+      return inferred ? { ...b, prefill: inferred } : b;
     }) as FormDefinition['field_schema'],
     fee_amount: def.fee_amount ? Number(def.fee_amount) : null,
     one_submission_per_year: def.one_submission_per_year,

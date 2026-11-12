@@ -49,6 +49,10 @@ export interface SchoolSettings {
   // lib/enrollment-gate.ts). Default off; DGM turns both on.
   pin_requires_enrolled: boolean;
   documents_require_enrolled: boolean;
+  // Pre-fill form fields nobody wired up when their label clearly asks for something
+  // we hold (see lib/forms/infer-prefill.ts). Always on for forms created after
+  // 2026-11-12; this switches it on for the school's older forms too.
+  infer_form_prefill: boolean;
 }
 
 export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
@@ -64,6 +68,7 @@ export const SCHOOL_SETTINGS_DEFAULTS: SchoolSettings = {
   kiosk_enabled: true,
   pin_requires_enrolled: false,
   documents_require_enrolled: false,
+  infer_form_prefill: false,
 };
 
 export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
@@ -88,6 +93,7 @@ export function normalizeSchoolSettings(raw: unknown): SchoolSettings {
     kiosk_enabled: r.kiosk_enabled !== false,
     pin_requires_enrolled: r.pin_requires_enrolled === true,
     documents_require_enrolled: r.documents_require_enrolled === true,
+    infer_form_prefill: r.infer_form_prefill === true,
   };
 }
 

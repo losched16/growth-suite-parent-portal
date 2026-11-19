@@ -30,6 +30,7 @@ interface DefRow {
   per_student: boolean;
   required_for: string | null;
   is_optional: boolean | null;
+  list_in_checklist: boolean | null;
   fee_amount: string | null;
   one_submission_per_year: boolean;
   resubmission_allowed: boolean;
@@ -75,7 +76,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
     query<DefRow>(
       `SELECT id, slug, display_name, description, category, per_student,
               required_for, is_optional, fee_amount, one_submission_per_year,
-              resubmission_allowed, needs_review, applies_to
+              resubmission_allowed, needs_review, applies_to, list_in_checklist
        FROM portal_form_definitions
        WHERE school_id = $1 AND is_active = true
          -- Parents never see staff-facing forms (supply/labor/incident
@@ -200,6 +201,11 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
   function applicableStudents(def: DefRow) {
     const invite = invitesByForm.get(def.id);
     if (invite?.familyWide) return students;
+    // On-demand per-student form pushed to specific children: only those children.
+    if (def.per_student && def.list_in_checklist === false && invite && invite.studentIds.size > 0) {
+      const only = students.filter((s) => invite.studentIds.has(s.id));
+      if (only.length > 0) return only;
+    }
     if (!def.applies_to) return students;
     if (invite && invite.studentIds.size > 0) {
       const byRule = applicableStudentsByRule(def);

@@ -28,6 +28,7 @@ import { FormRenderer, type ExistingSubmission, type MigrationFlag } from './For
 export const dynamic = 'force-dynamic';
 
 interface FormDefRow {
+  list_in_checklist: boolean | null;
   id: string;
   slug: string;
   display_name: string;
@@ -101,7 +102,8 @@ export default async function FormPage({
     `SELECT id, slug, display_name, description, category, per_student,
             required_for, field_schema, fee_amount, one_submission_per_year,
             resubmission_allowed, needs_review, is_active, audience, payment_config,
-            allow_addendum, allow_multiple_submissions, add_another_label, created_at, applies_to
+            allow_addendum, allow_multiple_submissions, add_another_label, created_at, applies_to,
+            list_in_checklist
      FROM portal_form_definitions
      WHERE school_id = $1 AND slug = $2`,
     [id.parent.school_id, slug],
@@ -214,6 +216,23 @@ export default async function FormPage({
       const invited = new Set(openInv.map((i) => i.student_id));
       const present = new Set(students.map((s) => s.id));
       students = [...students, ...allStudents.filter((s) => invited.has(s.id) && !present.has(s.id))];
+    }
+  }
+
+  // On-demand per-student form (e.g. the Amendment) pushed to SPECIFIC children:
+  // offer only those children, not every sibling. A family-wide invite (or no
+  // invite at all, e.g. a direct button) leaves the picker as is.
+  if (def.per_student && def.list_in_checklist === false && students.length > 0) {
+    const { rows: openInv2 } = await query<{ student_id: string | null }>(
+      `SELECT student_id FROM enrollment_invites
+        WHERE family_id = $1 AND form_definition_id = $2
+          AND consumed_at IS NULL AND expires_at > now()`,
+      [id.parent.family_id, def.id],
+    );
+    if (openInv2.length > 0 && !openInv2.some((i) => i.student_id === null)) {
+      const invitedOnly = new Set(openInv2.map((i) => i.student_id));
+      const narrowed = allStudents.filter((s) => invitedOnly.has(s.id));
+      if (narrowed.length > 0) students = narrowed;
     }
   }
 

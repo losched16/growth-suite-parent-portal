@@ -328,6 +328,15 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
       .map((s) => s.preferred_name || s.first_name);
   }
 
+  // Applicable students who have NOT yet submitted this per-student form.
+  function studentsNeeded(def: DefRow): string[] {
+    if (!def.per_student) return [];
+    const set = submittedByForm.get(def.id);
+    return applicableStudents(def)
+      .filter((s) => !set || !set.has(s.id))
+      .map((s) => s.preferred_name || s.first_name);
+  }
+
   // Group by category for the layout — only the forms that have at
   // least one applicable student.
   const byCategory = new Map<string, DefRow[]>();
@@ -427,6 +436,7 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
                     complete={isFormComplete(def)}
                     awaitingCosign={awaitingCosignForm.has(def.id)}
                     studentsDone={studentsDone(def)}
+                    studentsNeeded={studentsNeeded(def)}
                     totalStudents={def.per_student ? applicableStudents(def).length : students.length}
                     flagCount={flagCountByDefId.get(def.id) ?? 0}
                   />
@@ -474,12 +484,13 @@ export default async function FormsV2ListPage({ searchParams }: { searchParams: 
 }
 
 function FormRow({
-  def, complete, awaitingCosign, studentsDone, totalStudents, flagCount,
+  def, complete, awaitingCosign, studentsDone, studentsNeeded, totalStudents, flagCount,
 }: {
   def: DefRow;
   complete: boolean;
   awaitingCosign: boolean;
   studentsDone: string[];
+  studentsNeeded: string[];
   totalStudents: number;
   flagCount: number;
 }) {
@@ -553,6 +564,10 @@ function FormRow({
           ) : null}
           {def.per_student && studentsDone.length > 0 && !complete ? (
             <p className="mt-1 text-[11px] text-emerald-700">Done for: {studentsDone.join(', ')}</p>
+          ) : null}
+          {def.per_student && !fullyComplete && studentsNeeded.length > 0
+            && (studentsNeeded.length > 1 || studentsDone.length > 0 || totalStudents > 1) ? (
+            <p className="mt-0.5 text-[11px] font-medium text-amber-700">Still needed for: {studentsNeeded.join(', ')}</p>
           ) : null}
         </div>
       </Link>

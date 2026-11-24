@@ -818,10 +818,10 @@ export async function POST(request: NextRequest) {
   if (coSignRequired && !cosignEmail) {
     const { rows: p2 } = await query<{ email: string | null; first_name: string | null; last_name: string | null }>(
       `SELECT email, first_name, last_name FROM parents
-        WHERE family_id = $1 AND is_primary = false AND status = 'active'
+        WHERE family_id = $1 AND id <> $2 AND status = 'active'
           AND NULLIF(btrim(email), '') IS NOT NULL
-        ORDER BY created_at ASC LIMIT 1`,
-      [session.family_id],
+        ORDER BY is_primary ASC, created_at ASC LIMIT 1`,
+      [session.family_id, session.parent_id],
     );
     if (p2[0]?.email) {
       cosignEmail = p2[0].email.trim().toLowerCase();

@@ -114,6 +114,18 @@ function deriveEaFallback(eaKey: string, ctx: PrefillContext): string {
     // (Parent 1 doesn't re-type it) when LDMA is joint.
     case 'ea_pg2_full_name':    return g2 ? [g2.first_name, g2.last_name].filter(Boolean).join(' ').trim() : '';
     case 'ea_pg2_home_email':   return g2?.email ?? '';
+    // The co-signer is the OTHER guardian — whoever is not submitting. A Parent 2
+    // who starts the form defaults to Parent 1 (and vice versa); the field stays editable.
+    case 'ea_cosigner_full_name':
+    case 'ea_cosigner_email': {
+      const me = String(ctx.parent?.email ?? '').trim().toLowerCase();
+      const isG1 = !!me && String(g1?.email ?? '').trim().toLowerCase() === me;
+      const other = isG1 ? g2 : (g1 && g2 ? g1 : g2);
+      if (!other) return '';
+      return eaKey === 'ea_cosigner_email'
+        ? (other.email ?? '')
+        : [other.first_name, other.last_name].filter(Boolean).join(' ').trim();
+    }
     case 'ea_pg2_home_phone':
     case 'ea_pg2_mobile_phone': return g2?.phone ?? '';
     // One-line family address, for forms that ask for "street, city, state, zip" in a single box.

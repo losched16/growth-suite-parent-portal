@@ -1753,6 +1753,8 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
     const client = await loadGhlClient(opts.schoolId);
     let emptySlotIndex: number | null = null;
     let emptySlotError: string | null = null;
+    let matchedExistingSlot = false;            // application matched a child already on the contact
+    const existingSlotKeys = new Set<string>(); // student_N_* keys already filled in that slot
     if (opts.writeback.some((wb) => wb.next_empty_slot)) {
       const { loadFieldKeyIdMap } = await import('@/lib/ghl/writes');
       const keyToId = await loadFieldKeyIdMap(client);
@@ -1767,7 +1769,35 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
       const valueById = new Map<string, unknown>(cfs.map((cf) => [cf.id, cf.value]));
       const isBlank = (val: unknown) =>
         val == null || String(val).trim() === '' || (Array.isArray(val) && val.length === 0);
-      for (let n = 1; n <= 4; n++) {
+      // 1) The office may already have added THIS child to the contact (e.g. a
+      //    second child at tour time). If a slot already holds a child with the
+      //    same first name (and compatible last name), the application belongs to
+      //    that slot: fill it in, never create a duplicate in the next slot.
+      const normName = (x: unknown) => String(x ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const nameOf = (ghlKey: string) => {
+        const e = opts.writeback.find((w) => w.next_empty_slot && w.ghl_field_key === ghlKey);
+        return e ? normName(opts.responses[e.field_key]) : '';
+      };
+      const wantFirst = nameOf('first_name');
+      const wantLast = nameOf('last_name');
+      if (wantFirst) {
+        for (let n = 1; n <= 4; n++) {
+          const fId = keyToId.get(`student_${n}_first_name`);
+          if (!fId || normName(valueById.get(fId)) !== wantFirst) continue;
+          const lId = keyToId.get(`student_${n}_last_name`);
+          const haveLast = lId ? normName(valueById.get(lId)) : '';
+          if (haveLast && wantLast && haveLast !== wantLast) continue; // different child, same first name
+          emptySlotIndex = n;
+          matchedExistingSlot = true;
+          // Remember what the slot already holds so only BLANK fields get written.
+          for (const [key, id] of keyToId) {
+            if (key.startsWith(`student_${n}_`) && !isBlank(valueById.get(id))) existingSlotKeys.add(key);
+          }
+          break;
+        }
+      }
+      // 2) Otherwise the first completely empty slot.
+      for (let n = 1; n <= 4 && emptySlotIndex === null; n++) {
         if (!keyToId.get(`student_${n}_first_name`)) continue; // slot doesn't exist at this school
         const prefix = `student_${n}_`;
         let used = false;
@@ -1850,6 +1880,8 @@ async function pushSubmissionToGhl(submissionId: string, opts: PushGhlOpts): Pro
         ghlKey = wb.ghl_field_key.includes('{slot}')
           ? wb.ghl_field_key.replace(/\{slot\}/g, String(emptySlotIndex))
           : `student_${emptySlotIndex}_${wb.ghl_field_key}`;
+        // Matched an existing child → only fill what's still blank; never overwrite.
+        if (matchedExistingSlot && existingSlotKeys.has(ghlKey)) continue;
       } else if (wb.ghl_field_key_by_slot) {
         const target = slotIndex ? wb.ghl_field_key_by_slot[String(slotIndex)] : undefined;
         if (!target) continue; // no field for this student's slot
